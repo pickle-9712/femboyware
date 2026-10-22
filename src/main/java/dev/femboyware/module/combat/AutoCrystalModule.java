@@ -14,6 +14,7 @@ import dev.femboyware.util.BlockUtil;
 import dev.femboyware.util.DamageCalculator;
 import dev.femboyware.util.InventoryUtil;
 import dev.femboyware.util.InventoryUtil.SwitchMode;
+import dev.femboyware.util.PlaceUtil;
 import dev.femboyware.util.RenderUtil;
 import dev.femboyware.util.Rotation;
 import dev.femboyware.util.Timer;
@@ -57,8 +58,10 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -67,8 +70,10 @@ public class AutoCrystalModule extends Module {
 	/** Min damage used once face placing kicks in. */
 	private static final float FACE_PLACE_DAMAGE = 1.5f;
 	private static final double TARGET_RANGE = 12.0;
+	/** Milliseconds a fresh base gets to be crystalled before another one may be placed. */
+	private static final long BASE_WAIT = 2000;
 
-	public enum Page { MAIN, PLACE, BREAK, PAUSE, DAMAGES, SWAP, BYPASS, ID_PREDICT, RENDER }
+	public enum Page { MAIN, PLACE, BASE, BREAK, PAUSE, DAMAGES, SWAP, BYPASS, ID_PREDICT, RENDER }
 	public enum SpawnAction { ATTACK_THEN_PLACE, ATTACK, NO_REACTION }
 	public enum SpawnTiming { PACKET, ADD_TO_WORLD }
 	public enum TargetSort { DISTANCE, HEALTH, DAMAGE }
@@ -98,6 +103,13 @@ public class AutoCrystalModule extends Module {
 	private final NumberSetting facePlaceDelay = add(new NumberSetting("Face Place Delay", "Milliseconds between face place attempts", 150, 0, 1000, 10)).visibleWhen(() -> page.is(Page.PLACE));
 	private final NumberSetting placeRange = add(new NumberSetting("Place Range", "Max place distance", 5, 1, 6, 0.1)).visibleWhen(() -> page.is(Page.PLACE));
 	private final NumberSetting placeWallRange = add(new NumberSetting("Place Wall Range", "Max place distance when the spot can't be seen", 5, 0, 6, 0.1)).visibleWhen(() -> page.is(Page.PLACE) && !rayTrace.get());
+
+	// Base
+	private final BoolSetting basePlace = add(new BoolSetting("Base Place", "Place obsidian where a crystal would hit hardest when there's no good spot", false)).visibleWhen(() -> page.is(Page.BASE));
+	private final BoolSetting baseOverFacePlace = add(new BoolSetting("Over Face Place", "Also place a base when face placing is all that's left", true)).visibleWhen(() -> page.is(Page.BASE) && basePlace.get());
+	private final NumberSetting baseRadius = add(new NumberSetting("Base Radius", "Blocks around the target's feet to look for base spots", 2, 1, 4, 1)).visibleWhen(() -> page.is(Page.BASE) && basePlace.get());
+	private final NumberSetting baseDelay = add(new NumberSetting("Base Delay", "Milliseconds between obsidian places", 100, 0, 1000, 10)).visibleWhen(() -> page.is(Page.BASE) && basePlace.get());
+	private final ColorSetting baseColor = add(new ColorSetting("Base Color", "Highlight on newly placed bases", 0x50B077FF)).visibleWhen(() -> page.is(Page.BASE) && basePlace.get());
 
 	// Break
 	private final NumberSetting breakDelay = add(new NumberSetting("Break Delay", "Milliseconds between break attempts", 0, 0, 500, 5)).visibleWhen(() -> page.is(Page.BREAK));
@@ -148,6 +160,7 @@ public class AutoCrystalModule extends Module {
 	private final Timer placeTimer = new Timer();
 	private final Timer breakTimer = new Timer();
 	private final Timer idTimer = new Timer();
+	private final Timer baseTimer = new Timer();
 	private final AtomicInteger highestEntityId = new AtomicInteger(-1);
 	/** Crystal entity id to the time we last attacked it. */
 	private final Map<Integer, Long> attacked = new ConcurrentHashMap<>();
@@ -169,6 +182,10 @@ public class AutoCrystalModule extends Module {
 
 	private PlayerEntity target;
 	private PlacePlan pendingPlace;
+	/** This tick's targets, for placing a base after the movement packet. */
+	private List<PlayerEntity> baseTargets;
+	private BlockPos basePos;
+	private long baseTime;
 	private BreakPlan pendingBreak;
 
 	private BlockPos renderPos;
@@ -210,6 +227,8 @@ public class AutoCrystalModule extends Module {
 		placed.clear();
 		predictedBoxes.clear();
 		placeTimes.clear();
+		baseTargets = null;
+		basePos = null;
 		fastBreakReady = false;
 		if (gappleReturnSlot != -1 && !nullCheck()) InventoryUtil.select(gappleReturnSlot);
 		gappleReturnSlot = -1;
@@ -266,6 +285,7 @@ public class AutoCrystalModule extends Module {
 		pendingBreak = findBreak(targets);
 		boolean canPlaceThisTick = pendingBreak == null || oneTickAction.get();
 		if (canPlaceThisTick && hasCrystals()) pendingPlace = findPlace(targets, pendingBreak);
+		baseTargets = targets;
 
 		// Packet mode turns per action, but facing the plan already often saves the extra packet
 		if (rotate.is(RotateMode.OFF)) return;
@@ -283,8 +303,91 @@ public class AutoCrystalModule extends Module {
 			}
 		}
 
-		if (pendingPlace != null) tryPlace(pendingPlace);
+		// No spot at all, or only a face place left: a proper base may do much better
+		boolean wantBase = pendingBreak == null && (pendingPlace == null || (pendingPlace.facePlace && baseOverFacePlace.get()));
+		if (!(wantBase && tryBasePlace()) && pendingPlace != null) tryPlace(pendingPlace);
 		snapshotForFastBreak();
+	}
+
+	// ---------------------------------------------------------------- base place
+
+	/**
+	 * Places obsidian where a crystal would hit hardest, when there's no spot good enough already,
+	 * then puts a crystal on it straight away. The client shows the obsidian as soon as the place
+	 * packet goes out, so the crystal can follow in the same tick.
+	 */
+	private boolean tryBasePlace() {
+		if (!basePlace.get() || baseTargets == null || baseTargets.isEmpty() || !hasCrystals() || !hasObsidian()) return false;
+		if (!baseTimer.passed(baseDelay.get())) return false;
+		// Give the last base a chance to be used before spending more obsidian
+		if (basePos != null && System.currentTimeMillis() - baseTime < BASE_WAIT && mc.world.getBlockState(basePos).isOf(Blocks.OBSIDIAN)
+			&& mc.world.isAir(basePos.up())) return false;
+		BlockPos base = findBase(baseTargets);
+		if (base == null) return false;
+		BlockHitResult hit = BlockUtil.getPlacement(base, interact.is(Interact.STRICT));
+		if (hit == null) return false;
+		if (!rotate.is(RotateMode.OFF)) FemboyWare.getRotations().sendPacketRotation(Rotation.between(mc.player.getEyePos(), hit.getPos()));
+		if (!PlaceUtil.interact(hit, PlaceUtil.OBSIDIAN, switchMode.get(), false)) return false;
+		baseTimer.reset();
+		basePos = base;
+		baseTime = System.currentTimeMillis();
+
+		PlacePlan plan = planAt(base, baseTargets, null);
+		if (plan != null) tryPlace(plan);
+		return true;
+	}
+
+	/** The empty spot where obsidian would give the best crystal, judged by the same rules as any other place. */
+	private BlockPos findBase(List<PlayerEntity> targets) {
+		BlockPos best = null;
+		float bestDamage = 0;
+		float bestSelf = Float.MAX_VALUE;
+		Set<BlockPos> checked = new HashSet<>();
+		int radius = baseRadius.getInt();
+		for (PlayerEntity player : targets) {
+			// Search around where they're heading, not just where they stand
+			Box box = predictedBoxes.getOrDefault(player, player.getBoundingBox());
+			BlockPos feet = BlockPos.ofFloored(box.getCenter().x, box.minY, box.getCenter().z);
+			for (BlockPos pos : BlockPos.iterate(feet.add(-radius, -2, -radius), feet.add(radius, 0, radius))) {
+				BlockPos base = pos.toImmutable();
+				if (!checked.add(base) || !canBaseAt(base, targets)) continue;
+				Evaluation evaluation = evaluate(targets, Vec3d.ofBottomCenter(base.up()), base);
+				// A base has to beat face placing to be worth the obsidian
+				if (evaluation == null || evaluation.facePlace) continue;
+				if (evaluation.damage > bestDamage || (evaluation.damage == bestDamage && evaluation.self < bestSelf)) {
+					best = base;
+					bestDamage = evaluation.damage;
+					bestSelf = evaluation.self;
+				}
+			}
+		}
+		return best;
+	}
+
+	/** Obsidian can go at {@code base} and a crystal could then be placed on it and reached. */
+	private boolean canBaseAt(BlockPos base, List<PlayerEntity> targets) {
+		if (!PlaceUtil.canPlace(base, true)) return false;
+		for (PlayerEntity player : targets) {
+			if (predictedBoxes.getOrDefault(player, player.getBoundingBox()).intersects(new Box(base))) return false;
+		}
+		BlockPos up = base.up();
+		if (!mc.world.isAir(up) || (oldHitbox.get() && !mc.world.isAir(up.up()))) return false;
+		Box space = new Box(up.getX(), up.getY(), up.getZ(), up.getX() + 1, up.getY() + 2, up.getZ() + 1);
+		for (Entity entity : mc.world.getOtherEntities(null, space)) {
+			if (entity.isAlive()) return false;
+		}
+		Vec3d eyes = mc.player.getEyePos();
+		Vec3d top = Vec3d.ofCenter(base).add(0, 0.5, 0);
+		double distance = eyes.distanceTo(top);
+		if (distance > placeRange.get()) return false;
+		if (rayTrace.get() || distance > placeWallRange.get()) {
+			if (!BlockUtil.canSee(eyes, top)) return false;
+		}
+		return BlockUtil.getPlacement(base, interact.is(Interact.STRICT)) != null;
+	}
+
+	private boolean hasObsidian() {
+		return PlaceUtil.OBSIDIAN.test(mc.player.getOffHandStack()) || InventoryUtil.findHotbar(PlaceUtil.OBSIDIAN) != -1;
 	}
 
 	/**
@@ -392,6 +495,9 @@ public class AutoCrystalModule extends Module {
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
+		if (basePos != null && System.currentTimeMillis() - baseTime <= 500) {
+			RenderUtil.drawBox(event, new Box(basePos), baseColor.get(), baseColor.withAlpha(255), 1.5f);
+		}
 		if (!render.get() || renderPos == null) return;
 		long age = System.currentTimeMillis() - renderTime;
 		if (age > 1000) {
@@ -488,8 +594,12 @@ public class AutoCrystalModule extends Module {
 	}
 
 	private float targetDamage(PlayerEntity player, Vec3d crystal) {
+		return targetDamage(player, crystal, null);
+	}
+
+	private float targetDamage(PlayerEntity player, Vec3d crystal, BlockPos assumedSolid) {
 		Box box = predictedBoxes.getOrDefault(player, player.getBoundingBox());
-		return DamageCalculator.explosionDamage(player, box, crystal, DamageCalculator.CRYSTAL_POWER, destructibleTerrain.get(), assumeBestArmor.get());
+		return DamageCalculator.explosionDamage(player, box, crystal, DamageCalculator.CRYSTAL_POWER, destructibleTerrain.get(), assumeBestArmor.get(), assumedSolid);
 	}
 
 	private static boolean holdsTotem(PlayerEntity player) {
@@ -568,14 +678,20 @@ public class AutoCrystalModule extends Module {
 
 	/** Best damage this crystal position deals to any target, or null if it fails the damage rules. */
 	private Evaluation evaluate(List<PlayerEntity> targets, Vec3d crystal) {
-		float self = DamageCalculator.crystalDamage(mc.player, crystal, destructibleTerrain.get(), false);
+		return evaluate(targets, crystal, null);
+	}
+
+	/** {@code assumedSolid} counts as a block in the blast, for an obsidian base not placed yet. */
+	private Evaluation evaluate(List<PlayerEntity> targets, Vec3d crystal, BlockPos assumedSolid) {
+		float self = DamageCalculator.explosionDamage(mc.player, mc.player.getBoundingBox(), crystal, DamageCalculator.CRYSTAL_POWER,
+			destructibleTerrain.get(), false, assumedSolid);
 		float selfHealth = mc.player.getHealth() + mc.player.getAbsorptionAmount();
 		boolean selfLethal = self >= selfHealth - 0.5f;
 		if (selfLethal && !(sacrificeTotem.get() && holdsTotem(mc.player))) return null;
 
 		Evaluation best = null;
 		for (PlayerEntity player : targets) {
-			float damage = targetDamage(player, crystal);
+			float damage = targetDamage(player, crystal, assumedSolid);
 			float health = player.getHealth() + player.getAbsorptionAmount();
 			boolean lethal = damage >= health;
 			// Only trade our totem for an actual kill, not for popping theirs
