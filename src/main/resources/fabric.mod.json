@@ -1,0 +1,20 @@
+{
+	"schemaVersion": 1,
+	"id": "femboyware",
+	"version": "${version}",
+	"name": "femboyware",
+	"description": "femboyware utility client",
+	"authors": ["femboyware"],
+	"license": "GPL-3.0",
+	"environment": "client",
+	"entrypoints": {
+		"client": ["dev.femboyware.FemboyWare"]
+	},
+	"mixins": ["femboyware.mixins.json"],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~1.21.11",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}

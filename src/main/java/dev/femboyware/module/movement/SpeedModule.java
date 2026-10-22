@@ -1,0 +1,49 @@
+package dev.femboyware.module.movement;
+
+import dev.femboyware.module.Category;
+import dev.femboyware.module.Module;
+import dev.femboyware.setting.BoolSetting;
+import dev.femboyware.setting.EnumSetting;
+import dev.femboyware.setting.NumberSetting;
+import dev.femboyware.util.MoveUtil;
+import net.minecraft.util.math.Vec3d;
+
+public class SpeedModule extends Module {
+	public enum Mode {
+		/** Bunny hops and keeps full speed in the air, in whichever direction you press. */
+		STRAFE,
+		/** Multiplies your ground speed. */
+		VANILLA
+	}
+
+	private final EnumSetting<Mode> mode = add(new EnumSetting<>("Mode", "How to go faster", Mode.STRAFE));
+	private final NumberSetting speed = add(new NumberSetting("Speed", "Strafe speed in blocks per tick", 0.32, 0.1, 2, 0.01)).visibleWhen(() -> mode.is(Mode.STRAFE));
+	private final BoolSetting autoJump = add(new BoolSetting("Auto Jump", "Jump whenever you land", true)).visibleWhen(() -> mode.is(Mode.STRAFE));
+	private final NumberSetting multiplier = add(new NumberSetting("Multiplier", "Ground speed multiplier", 1.3, 1, 3, 0.05)).visibleWhen(() -> mode.is(Mode.VANILLA));
+
+	public SpeedModule() {
+		super("Speed", "Move faster", Category.RAGE);
+	}
+
+	@Override
+	public String getInfo() {
+		return mode.getDisplayName();
+	}
+
+	@Override
+	public void onPreMotion() {
+		if (!MoveUtil.isMoving() || mc.player.isSneaking() || mc.player.isTouchingWater() || mc.player.isInLava()
+			|| mc.player.isGliding() || mc.player.hasVehicle() || mc.player.getAbilities().flying) return;
+		Vec3d velocity = mc.player.getVelocity();
+		switch (mode.get()) {
+			case STRAFE -> {
+				if (autoJump.get() && mc.player.isOnGround()) mc.player.jump();
+				Vec3d horizontal = MoveUtil.strafe(Math.max(speed.get(), MoveUtil.horizontalSpeed()));
+				mc.player.setVelocity(horizontal.x, mc.player.getVelocity().y, horizontal.z);
+			}
+			case VANILLA -> {
+				if (mc.player.isOnGround()) mc.player.setVelocity(velocity.x * multiplier.get(), velocity.y, velocity.z * multiplier.get());
+			}
+		}
+	}
+}
