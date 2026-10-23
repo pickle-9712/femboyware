@@ -7,16 +7,13 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.StringSetting;
+import dev.femboyware.util.BlockMatcher;
 import dev.femboyware.util.ChatUtil;
 import dev.femboyware.util.ChunkScanner;
 import dev.femboyware.util.RenderUtil;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.RegistryKeys;
-import net.minecraft.registry.tag.TagKey;
-import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.ChunkPos;
@@ -84,8 +81,8 @@ public class BaseEspModule extends Module {
 	@Override
 	public void onTick() {
 		if (!strongBlocks.get().equals(parsedStrong) || !weakBlocks.get().equals(parsedWeak)) {
-			strong = parse(strongBlocks.get());
-			weak = parse(weakBlocks.get());
+			strong = BlockMatcher.parse(strongBlocks.get());
+			weak = BlockMatcher.parse(weakBlocks.get());
 			parsedStrong = strongBlocks.get();
 			parsedWeak = weakBlocks.get();
 			scanner.clear();
@@ -171,27 +168,5 @@ public class BaseEspModule extends Module {
 			RenderUtil.drawText(event, "Base? " + score(entry.getKey(), base) + " - " + summary(base),
 				new Vec3d(center.x, base.bounds.maxY + 1, center.z), color.get() | 0xFF000000, 0.5f);
 		}
-	}
-
-	/** Comma separated block ids and #tags into one test. */
-	private static Predicate<BlockState> parse(String text) {
-		Set<Block> blocks = new HashSet<>();
-		List<TagKey<Block>> tags = new ArrayList<>();
-		for (String part : text.split(",")) {
-			String entry = part.trim().toLowerCase();
-			if (entry.isEmpty()) continue;
-			boolean tag = entry.startsWith("#");
-			Identifier id = Identifier.tryParse(tag ? entry.substring(1) : entry);
-			if (id == null) continue;
-			if (tag) tags.add(TagKey.of(RegistryKeys.BLOCK, id));
-			else Registries.BLOCK.getOptionalValue(id).ifPresent(blocks::add);
-		}
-		return state -> {
-			if (blocks.contains(state.getBlock())) return true;
-			for (TagKey<Block> tag : tags) {
-				if (state.isIn(tag)) return true;
-			}
-			return false;
-		};
 	}
 }

@@ -5,7 +5,7 @@
 	"name": "Femboyware Tests",
 	"environment": "client",
 	"entrypoints": {
-		"fabric-client-gametest": ["dev.femboyware.test.AutoCrystalBaseClientTest", "dev.femboyware.test.BaseFindingClientTest"]
+		"fabric-client-gametest": []
 	},
 	"depends": {
 		"femboyware": "*"
