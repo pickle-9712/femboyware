@@ -1,9 +1,12 @@
 package dev.femboyware.mixin;
 
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.render.FullBrightModule;
 import net.minecraft.client.render.LightmapTextureManager;
+import net.minecraft.entity.LivingEntity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
@@ -15,8 +18,12 @@ public class LightmapTextureManagerMixin {
 		return hasNightVision || FemboyWare.isEnabled(FullBrightModule.class);
 	}
 
-	@ModifyExpressionValue(method = "update", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/render/GameRenderer;getNightVisionStrength(Lnet/minecraft/entity/LivingEntity;F)F"), require = 0)
-	private float femboyware$fullBrightStrength(float strength) {
-		return FemboyWare.isEnabled(FullBrightModule.class) ? 1f : strength;
+	/**
+	 * Skips vanilla's strength lookup entirely: it reads the player's night vision effect, which
+	 * isn't there when only Full Bright is on, and would crash on it.
+	 */
+	@WrapOperation(method = "update", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/render/GameRenderer;getNightVisionStrength(Lnet/minecraft/entity/LivingEntity;F)F"), require = 0)
+	private float femboyware$fullBrightStrength(LivingEntity entity, float tickProgress, Operation<Float> original) {
+		return FemboyWare.isEnabled(FullBrightModule.class) ? 1f : original.call(entity, tickProgress);
 	}
 }

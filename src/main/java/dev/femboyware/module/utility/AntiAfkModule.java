@@ -103,7 +103,7 @@ public class AntiAfkModule extends Module {
 	public void onPreMotion() {
 		if (!spin.get() || !spinMode.is(SpinMode.SERVER)) return;
 		yaw += spinSpeed.getFloat();
-		FemboyWare.getRotations().request(new Rotation(yaw, pitch.getFloat()), ROTATION_PRIORITY, 180, false);
+		FemboyWare.getRotations().request(new Rotation(yaw, pitch.getFloat()), ROTATION_PRIORITY, 180, false, false);
 	}
 
 	private List<String> messageList() {

@@ -1,5 +1,6 @@
 package dev.femboyware.module;
 
+import dev.femboyware.FemboyWare;
 import dev.femboyware.event.PacketEvent;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.Setting;
@@ -50,8 +51,13 @@ public abstract class Module {
 	public void setEnabled(boolean enabled) {
 		if (this.enabled == enabled) return;
 		this.enabled = enabled;
-		if (enabled) onEnable();
-		else onDisable();
+		try {
+			if (enabled) onEnable();
+			else onDisable();
+		} catch (Exception e) {
+			// Modules can be toggled from the main menu, before any world exists
+			FemboyWare.LOGGER.error("Module {} threw while being {}", name, enabled ? "enabled" : "disabled", e);
+		}
 	}
 
 	/** Extra text shown next to the module name in the array list. */

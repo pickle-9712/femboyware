@@ -23,6 +23,7 @@ import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -74,6 +75,11 @@ public class ClickGuiScreen extends Screen {
 	private Row slider;
 	private Module binding;
 	private StringSetting typing;
+	/** Text boxes keep their cursor, selection and scroll while the GUI is open. */
+	private final Map<StringSetting, TextEditor> editors = new HashMap<>();
+	/** Left edge of the focused text box's row, for drag-selecting. */
+	private int typingRowX;
+	private boolean selectingText;
 	private boolean closing;
 
 	public ClickGuiScreen(ClickGuiModule module) {
@@ -100,6 +106,7 @@ public class ClickGuiScreen extends Screen {
 		closing = true;
 		binding = null;
 		typing = null;
+		selectingText = false;
 		slider = null;
 		dragging = null;
 		module.setEnabled(false);
@@ -238,10 +245,10 @@ public class ClickGuiScreen extends Screen {
 				case StringSetting text -> {
 					context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT * 2, SETTING_BG);
 					context.drawTextWithShadow(font, text.getName(), left, y + 3, TEXT);
-					String shown = text.get() + (typing == text && (System.currentTimeMillis() / 500) % 2 == 0 ? "_" : "");
-					String clipped = font.trimToWidth(shown, right - left - 4);
-					context.fill(left, y + ROW_HEIGHT, right, y + ROW_HEIGHT * 2 - 1, typing == text ? 0xFF3A3242 : 0xFF2A2430);
-					context.drawTextWithShadow(font, clipped, left + 2, y + ROW_HEIGHT + 2, MUTED);
+					boolean focused = typing == text;
+					context.fill(left, y + ROW_HEIGHT, right, y + ROW_HEIGHT * 2 - 1, focused ? 0xFF3A3242 : 0xFF2A2430);
+					editor(text).render(context, font, left, y + ROW_HEIGHT, right, y + ROW_HEIGHT * 2 - 1, focused,
+						focused ? TEXT : MUTED, (accent & 0x00FFFFFF) | 0x90000000, accent);
 					yield new Row(RowType.STRING, x, y, PANEL_WIDTH, ROW_HEIGHT * 2, null, m, setting, 0);
 				}
 				default -> null;
@@ -290,6 +297,7 @@ public class ClickGuiScreen extends Screen {
 		double mouseX = click.x();
 		double mouseY = click.y();
 		int button = click.button();
+		StringSetting wasTyping = typing;
 		typing = null;
 
 		if (binding != null) {
@@ -325,7 +333,15 @@ public class ClickGuiScreen extends Screen {
 				case BIND -> binding = row.module;
 				case BOOL -> ((BoolSetting) row.setting).toggle();
 				case ENUM -> ((EnumSetting<?>) row.setting).cycle(button != GLFW.GLFW_MOUSE_BUTTON_RIGHT);
-				case STRING -> typing = (StringSetting) row.setting;
+				case STRING -> {
+					typing = (StringSetting) row.setting;
+					typingRowX = row.x;
+					TextEditor editor = editor(typing);
+					// Shift+click grows the selection, but only within the box that already had focus
+					editor.click(textRenderer, mouseX, row.x + 8, click.hasShift() && wasTyping == typing);
+					if (doubled) editor.selectWord();
+					selectingText = button == GLFW.GLFW_MOUSE_BUTTON_LEFT;
+				}
 				case NUMBER, COLOR -> {
 					if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
 						slider = row;
@@ -339,14 +355,32 @@ public class ClickGuiScreen extends Screen {
 	}
 
 	@Override
+	public boolean mouseDragged(Click click, double offsetX, double offsetY) {
+		if (selectingText && typing != null) {
+			editor(typing).drag(textRenderer, click.x(), typingRowX + 8);
+			return true;
+		}
+		return super.mouseDragged(click, offsetX, offsetY);
+	}
+
+	@Override
 	public boolean mouseReleased(Click click) {
 		dragging = null;
 		slider = null;
+		selectingText = false;
 		return super.mouseReleased(click);
 	}
 
 	@Override
 	public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+		// Over a text box, the wheel scrolls its text sideways instead of moving the panels
+		for (Row row : rows) {
+			if (row.type != RowType.STRING || mouseX < row.x + 8 || mouseX >= row.x + PANEL_WIDTH - 5
+				|| mouseY < row.y + ROW_HEIGHT || mouseY >= row.y + ROW_HEIGHT * 2) continue;
+			int pixels = (int) ((horizontalAmount - verticalAmount) * 12);
+			editor((StringSetting) row.setting).scrollBy(textRenderer, pixels, PANEL_WIDTH - 13 - 4);
+			return true;
+		}
 		for (Panel panel : panels.values()) panel.y += (int) (verticalAmount * 14);
 		return true;
 	}
@@ -373,12 +407,9 @@ public class ClickGuiScreen extends Screen {
 			return true;
 		}
 		if (typing != null) {
-			String value = typing.get();
-			if (key == GLFW.GLFW_KEY_BACKSPACE && !value.isEmpty()) {
-				typing.set(value.substring(0, value.length() - 1));
-			} else if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER || key == GLFW.GLFW_KEY_ESCAPE) {
-				typing = null;
-			}
+			if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER || key == GLFW.GLFW_KEY_ESCAPE) typing = null;
+			else editor(typing).keyPressed(input);
+			// Swallow everything else too, so typing never fires keybinds
 			return true;
 		}
 		return super.keyPressed(input);
@@ -387,10 +418,14 @@ public class ClickGuiScreen extends Screen {
 	@Override
 	public boolean charTyped(CharInput input) {
 		if (typing != null && input.isValidChar()) {
-			typing.set(typing.get() + input.asString());
+			editor(typing).type(input.asString());
 			return true;
 		}
 		return super.charTyped(input);
+	}
+
+	private TextEditor editor(StringSetting setting) {
+		return editors.computeIfAbsent(setting, TextEditor::new);
 	}
 
 	private static String keyName(int key) {

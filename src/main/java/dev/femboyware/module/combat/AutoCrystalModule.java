@@ -108,7 +108,7 @@ public class AutoCrystalModule extends Module {
 	private final BoolSetting basePlace = add(new BoolSetting("Base Place", "Place obsidian where a crystal would hit hardest when there's no good spot", false)).visibleWhen(() -> page.is(Page.BASE));
 	private final BoolSetting baseOverFacePlace = add(new BoolSetting("Over Face Place", "Also place a base when face placing is all that's left", true)).visibleWhen(() -> page.is(Page.BASE) && basePlace.get());
 	private final NumberSetting baseRadius = add(new NumberSetting("Base Radius", "Blocks around the target's feet to look for base spots", 2, 1, 4, 1)).visibleWhen(() -> page.is(Page.BASE) && basePlace.get());
-	private final NumberSetting baseDelay = add(new NumberSetting("Base Delay", "Milliseconds between obsidian places", 100, 0, 1000, 10)).visibleWhen(() -> page.is(Page.BASE) && basePlace.get());
+	private final NumberSetting baseDelay = add(new NumberSetting("Base Delay", "Milliseconds between obsidian places", 0, 0, 1000, 10)).visibleWhen(() -> page.is(Page.BASE) && basePlace.get());
 	private final ColorSetting baseColor = add(new ColorSetting("Base Color", "Highlight on newly placed bases", 0x50B077FF)).visibleWhen(() -> page.is(Page.BASE) && basePlace.get());
 
 	// Break
@@ -184,6 +184,7 @@ public class AutoCrystalModule extends Module {
 	private PlacePlan pendingPlace;
 	/** This tick's targets, for placing a base after the movement packet. */
 	private List<PlayerEntity> baseTargets;
+	private BasePlan pendingBase;
 	private BlockPos basePos;
 	private long baseTime;
 	private BreakPlan pendingBreak;
@@ -196,6 +197,9 @@ public class AutoCrystalModule extends Module {
 
 	private record PlacePlan(BlockPos base, Rotation rotation, float damage, float self, boolean facePlace) {}
 
+	/** Obsidian to place at {@code base} by clicking the top of the ground block under it. */
+	private record BasePlan(BlockPos base, BlockHitResult hit, Rotation rotation, float damage) {}
+
 	private record BreakPlan(EndCrystalEntity crystal, Rotation rotation, float damage, float self) {}
 
 	private record Evaluation(float damage, float self, boolean facePlace) {}
@@ -207,6 +211,11 @@ public class AutoCrystalModule extends Module {
 				onCrystalSpawned(entity.getId(), entity.getEntityPos());
 			}
 		});
+	}
+
+	/** The player currently being crystalled, or null. */
+	public PlayerEntity getTarget() {
+		return target;
 	}
 
 	@Override
@@ -274,6 +283,7 @@ public class AutoCrystalModule extends Module {
 	public void onPreMotion() {
 		pendingPlace = null;
 		pendingBreak = null;
+		pendingBase = null;
 		if (shouldPause()) return;
 
 		List<PlayerEntity> targets = findTargets();
@@ -286,10 +296,14 @@ public class AutoCrystalModule extends Module {
 		boolean canPlaceThisTick = pendingBreak == null || oneTickAction.get();
 		if (canPlaceThisTick && hasCrystals()) pendingPlace = findPlace(targets, pendingBreak);
 		baseTargets = targets;
+		// No spot at all, or only a face place left: a proper base may do much better
+		boolean wantBase = pendingBreak == null && (pendingPlace == null || (pendingPlace.facePlace && baseOverFacePlace.get()));
+		if (wantBase && canBasePlace()) pendingBase = findBase(targets);
 
 		// Packet mode turns per action, but facing the plan already often saves the extra packet
 		if (rotate.is(RotateMode.OFF)) return;
-		Rotation wanted = pendingBreak != null ? pendingBreak.rotation : pendingPlace != null ? pendingPlace.rotation : null;
+		Rotation wanted = pendingBreak != null ? pendingBreak.rotation : pendingBase != null ? pendingBase.rotation
+			: pendingPlace != null ? pendingPlace.rotation : null;
 		if (wanted != null) FemboyWare.getRotations().request(wanted, ROTATION_PRIORITY, degreesPerTick.getFloat(), false);
 	}
 
@@ -303,44 +317,45 @@ public class AutoCrystalModule extends Module {
 			}
 		}
 
-		// No spot at all, or only a face place left: a proper base may do much better
-		boolean wantBase = pendingBreak == null && (pendingPlace == null || (pendingPlace.facePlace && baseOverFacePlace.get()));
-		if (!(wantBase && tryBasePlace()) && pendingPlace != null) tryPlace(pendingPlace);
+		if (!(pendingBase != null && tryBasePlace(pendingBase)) && pendingPlace != null) tryPlace(pendingPlace);
 		snapshotForFastBreak();
 	}
 
 	// ---------------------------------------------------------------- base place
 
-	/**
-	 * Places obsidian where a crystal would hit hardest, when there's no spot good enough already,
-	 * then puts a crystal on it straight away. The client shows the obsidian as soon as the place
-	 * packet goes out, so the crystal can follow in the same tick.
-	 */
-	private boolean tryBasePlace() {
-		if (!basePlace.get() || baseTargets == null || baseTargets.isEmpty() || !hasCrystals() || !hasObsidian()) return false;
-		if (!baseTimer.passed(baseDelay.get())) return false;
+	/** Base Place is on, there's obsidian and crystals to use, and no fresh base is still waiting for its crystal. */
+	private boolean canBasePlace() {
+		if (!basePlace.get() || !hasCrystals() || !hasObsidian() || !baseTimer.passed(baseDelay.get())) return false;
 		// Give the last base a chance to be used before spending more obsidian
-		if (basePos != null && System.currentTimeMillis() - baseTime < BASE_WAIT && mc.world.getBlockState(basePos).isOf(Blocks.OBSIDIAN)
-			&& mc.world.isAir(basePos.up())) return false;
-		BlockPos base = findBase(baseTargets);
-		if (base == null) return false;
-		BlockHitResult hit = BlockUtil.getPlacement(base, interact.is(Interact.STRICT));
-		if (hit == null) return false;
-		if (!rotate.is(RotateMode.OFF)) FemboyWare.getRotations().sendPacketRotation(Rotation.between(mc.player.getEyePos(), hit.getPos()));
-		if (!PlaceUtil.interact(hit, PlaceUtil.OBSIDIAN, switchMode.get(), false)) return false;
+		return basePos == null || System.currentTimeMillis() - baseTime >= BASE_WAIT || !mc.world.getBlockState(basePos).isOf(Blocks.OBSIDIAN)
+			|| !mc.world.isAir(basePos.up());
+	}
+
+	/**
+	 * Places obsidian for {@code plan} the same way crystals go down: the server rotation has to
+	 * point at the click, Packet mode turns first if it doesn't, and the switch mode picks the slot.
+	 * The client shows the obsidian as soon as the packet goes out, so the crystal follows in the
+	 * same tick.
+	 */
+	private boolean tryBasePlace(BasePlan plan) {
+		BlockPos ground = plan.hit.getBlockPos();
+		if (!canHit(new Box(ground), plan.hit.getPos())) return false;
+		if (!placeObsidian(plan.hit)) return false;
 		baseTimer.reset();
-		basePos = base;
+		basePos = plan.base;
 		baseTime = System.currentTimeMillis();
 
-		PlacePlan plan = planAt(base, baseTargets, null);
-		if (plan != null) tryPlace(plan);
+		PlacePlan crystal = planAt(plan.base, baseTargets, null);
+		if (crystal != null) tryPlace(crystal);
 		return true;
 	}
 
-	/** The empty spot where obsidian would give the best crystal, judged by the same rules as any other place. */
-	private BlockPos findBase(List<PlayerEntity> targets) {
-		BlockPos best = null;
-		float bestDamage = 0;
+	/**
+	 * The ground spot where obsidian would give the crystal that hurts the target most, judged by
+	 * the same damage rules as any other place, with the new obsidian counted in the blast.
+	 */
+	private BasePlan findBase(List<PlayerEntity> targets) {
+		BasePlan best = null;
 		float bestSelf = Float.MAX_VALUE;
 		Set<BlockPos> checked = new HashSet<>();
 		int radius = baseRadius.getInt();
@@ -350,13 +365,14 @@ public class AutoCrystalModule extends Module {
 			BlockPos feet = BlockPos.ofFloored(box.getCenter().x, box.minY, box.getCenter().z);
 			for (BlockPos pos : BlockPos.iterate(feet.add(-radius, -2, -radius), feet.add(radius, 0, radius))) {
 				BlockPos base = pos.toImmutable();
-				if (!checked.add(base) || !canBaseAt(base, targets)) continue;
+				if (!checked.add(base)) continue;
+				BlockHitResult hit = baseHit(base, targets);
+				if (hit == null) continue;
 				Evaluation evaluation = evaluate(targets, Vec3d.ofBottomCenter(base.up()), base);
 				// A base has to beat face placing to be worth the obsidian
 				if (evaluation == null || evaluation.facePlace) continue;
-				if (evaluation.damage > bestDamage || (evaluation.damage == bestDamage && evaluation.self < bestSelf)) {
-					best = base;
-					bestDamage = evaluation.damage;
+				if (best == null || evaluation.damage > best.damage || (evaluation.damage == best.damage && evaluation.self < bestSelf)) {
+					best = new BasePlan(base, hit, Rotation.between(mc.player.getEyePos(), hit.getPos()), evaluation.damage);
 					bestSelf = evaluation.self;
 				}
 			}
@@ -364,30 +380,47 @@ public class AutoCrystalModule extends Module {
 		return best;
 	}
 
-	/** Obsidian can go at {@code base} and a crystal could then be placed on it and reached. */
-	private boolean canBaseAt(BlockPos base, List<PlayerEntity> targets) {
-		if (!PlaceUtil.canPlace(base, true)) return false;
+	/**
+	 * Where to click to put obsidian at {@code base}: the top of the ground block below it. Null if
+	 * the spot isn't on solid ground, is taken, or the obsidian or its crystal would be out of reach.
+	 */
+	private BlockHitResult baseHit(BlockPos base, List<PlayerEntity> targets) {
+		if (!mc.world.getBlockState(base).isReplaceable() || BlockUtil.hasBlockingEntity(base, false)) return null;
 		for (PlayerEntity player : targets) {
-			if (predictedBoxes.getOrDefault(player, player.getBoundingBox()).intersects(new Box(base))) return false;
+			if (predictedBoxes.getOrDefault(player, player.getBoundingBox()).intersects(new Box(base))) return null;
 		}
+		BlockPos ground = base.down();
+		if (!mc.world.getBlockState(ground).isSideSolidFullSquare(mc.world, ground, Direction.UP)) return null;
+
 		BlockPos up = base.up();
-		if (!mc.world.isAir(up) || (oldHitbox.get() && !mc.world.isAir(up.up()))) return false;
+		if (!mc.world.isAir(up) || (oldHitbox.get() && !mc.world.isAir(up.up()))) return null;
 		Box space = new Box(up.getX(), up.getY(), up.getZ(), up.getX() + 1, up.getY() + 2, up.getZ() + 1);
 		for (Entity entity : mc.world.getOtherEntities(null, space)) {
-			if (entity.isAlive()) return false;
+			if (entity.isAlive()) return null;
 		}
+
 		Vec3d eyes = mc.player.getEyePos();
-		Vec3d top = Vec3d.ofCenter(base).add(0, 0.5, 0);
-		double distance = eyes.distanceTo(top);
-		if (distance > placeRange.get()) return false;
-		if (rayTrace.get() || distance > placeWallRange.get()) {
-			if (!BlockUtil.canSee(eyes, top)) return false;
+		// Strict only clicks faces you could actually see
+		if (interact.is(Interact.STRICT) && !BlockUtil.isFaceExposed(ground, Direction.UP, eyes)) return null;
+		Vec3d click = Vec3d.ofBottomCenter(base);
+		double distance = eyes.distanceTo(click);
+		if (distance > placeRange.get()) return null;
+		if ((rayTrace.get() || distance > placeWallRange.get()) && !isVisible(eyes, click, ground)) return null;
+		return new BlockHitResult(click, Direction.UP, ground, false);
+	}
+
+	private boolean placeObsidian(BlockHitResult hit) {
+		if (PlaceUtil.OBSIDIAN.test(mc.player.getOffHandStack())) {
+			interactBlock(Hand.OFF_HAND, hit);
+			return true;
 		}
-		return BlockUtil.getPlacement(base, interact.is(Interact.STRICT)) != null;
+		int slot = InventoryUtil.find(PlaceUtil.OBSIDIAN, switchMode.get());
+		return InventoryUtil.withSlot(slot, switchMode.get(), () -> interactBlock(Hand.MAIN_HAND, hit));
 	}
 
 	private boolean hasObsidian() {
-		return PlaceUtil.OBSIDIAN.test(mc.player.getOffHandStack()) || InventoryUtil.findHotbar(PlaceUtil.OBSIDIAN) != -1;
+		if (PlaceUtil.OBSIDIAN.test(mc.player.getOffHandStack()) || PlaceUtil.OBSIDIAN.test(mc.player.getMainHandStack())) return true;
+		return !switchMode.is(SwitchMode.NONE) && InventoryUtil.find(PlaceUtil.OBSIDIAN, switchMode.get()) != -1;
 	}
 
 	/**

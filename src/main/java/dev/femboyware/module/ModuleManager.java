@@ -8,7 +8,7 @@ import dev.femboyware.module.client.FakePlayerModule;
 import dev.femboyware.module.client.HudModule;
 import dev.femboyware.module.client.MoveFixModule;
 import dev.femboyware.module.combat.AuraModule;
-import dev.femboyware.module.combat.AutoBasePlaceModule;
+import dev.femboyware.module.combat.AutoAnchorModule;
 import dev.femboyware.module.combat.AutoCrystalModule;
 import dev.femboyware.module.combat.AutoDripstoneModule;
 import dev.femboyware.module.combat.AutoGappleModule;
@@ -92,12 +92,15 @@ import dev.femboyware.module.render.HoleEspModule;
 import dev.femboyware.module.render.ItemPhysicsModule;
 import dev.femboyware.module.render.KelpEspModule;
 import dev.femboyware.module.render.LogoutSpotsModule;
+import dev.femboyware.module.render.MainMenuModule;
 import dev.femboyware.module.render.NametagsModule;
 import dev.femboyware.module.render.NoCameraClipModule;
 import dev.femboyware.module.render.ParticlesModule;
 import dev.femboyware.module.render.PopChamsModule;
 import dev.femboyware.module.render.PortalEspModule;
+import dev.femboyware.module.render.RainbowArmorModule;
 import dev.femboyware.module.render.SpawnerEspModule;
+import dev.femboyware.module.render.SpinbotModule;
 import dev.femboyware.module.render.StashEspModule;
 import dev.femboyware.module.render.StorageEspModule;
 import dev.femboyware.module.render.SwingAnimationsModule;
@@ -106,6 +109,7 @@ import dev.femboyware.module.render.TimeChangerModule;
 import dev.femboyware.module.render.TotemAnimationModule;
 import dev.femboyware.module.render.TracersModule;
 import dev.femboyware.module.render.TrajectoriesModule;
+import dev.femboyware.module.render.TungSahurModule;
 import dev.femboyware.module.render.ViewModelModule;
 import dev.femboyware.module.render.WorldRendererModule;
 import dev.femboyware.module.utility.AirPlaceModule;
@@ -117,6 +121,7 @@ import dev.femboyware.module.utility.AutoEatModule;
 import dev.femboyware.module.utility.AutoFishModule;
 import dev.femboyware.module.utility.AutoLandModule;
 import dev.femboyware.module.utility.AutoMendModule;
+import dev.femboyware.module.utility.AutoMeowModule;
 import dev.femboyware.module.utility.AutoReconnectModule;
 import dev.femboyware.module.utility.AutoReplenishModule;
 import dev.femboyware.module.utility.AutoRespawnModule;
@@ -138,6 +143,7 @@ import dev.femboyware.module.utility.PearlChaserModule;
 import dev.femboyware.module.utility.PotionSaverModule;
 import dev.femboyware.module.utility.ReachModule;
 import dev.femboyware.module.utility.SoilRipperModule;
+import dev.femboyware.module.utility.SoundBlockerModule;
 import dev.femboyware.module.utility.SpeedMineModule;
 import dev.femboyware.module.utility.TpsSyncModule;
 import dev.femboyware.module.utility.ZoomModule;
@@ -161,8 +167,8 @@ public class ModuleManager {
 
 	public ModuleManager() {
 		// Pvp: Attack
+		register(new AutoAnchorModule());
 		register(new AuraModule());
-		register(new AutoBasePlaceModule());
 		register(new AutoCrystalModule());
 		register(new AutoDripstoneModule());
 		register(new AutoMineModule());
@@ -232,6 +238,7 @@ public class ModuleManager {
 		register(new WaterSpeedModule());
 		// Visual: Cosmetic
 		register(new ItemPhysicsModule());
+		register(new MainMenuModule());
 		register(new TimeChangerModule());
 		register(new BetterTabModule());
 		register(new BreadcrumbsModule());
@@ -247,10 +254,13 @@ public class ModuleManager {
 		register(new NoCameraClipModule());
 		register(new ParticlesModule());
 		register(new PopChamsModule());
+		register(new RainbowArmorModule());
+		register(new SpinbotModule());
 		register(new SwingAnimationsModule());
 		register(new ThrowPetardModule());
 		register(new TotemAnimationModule());
 		register(new TrajectoriesModule());
+		register(new TungSahurModule());
 		register(new ViewModelModule());
 		register(new WorldRendererModule());
 		// Visual: Esp
@@ -303,8 +313,10 @@ public class ModuleManager {
 		register(new AntiAfkModule());
 		register(new FastUseModule());
 		// Utility: Misc
+		register(new AutoMeowModule());
 		register(new AutoReconnectModule());
 		register(new NameProtectModule());
+		register(new SoundBlockerModule());
 		register(new ClickGuiModule());
 		register(new HudModule());
 	}

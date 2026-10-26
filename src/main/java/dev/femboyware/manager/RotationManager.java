@@ -21,10 +21,13 @@ public class RotationManager {
 	private int requestedPriority = Integer.MIN_VALUE;
 	private float requestedStep;
 	private boolean requestedClientLook;
+	private boolean requestedMoveFix;
 
 	private Rotation serverRotation;
 	/** A silent rotation is in effect for this tick. */
 	private boolean silent;
+	/** This tick's silent rotation wants movement steered by the server yaw. */
+	private boolean silentMoveFix;
 	private boolean swapped;
 	private float savedYaw;
 	private float savedPitch;
@@ -34,11 +37,20 @@ public class RotationManager {
 	 * @param clientLook also turn the player's own camera
 	 */
 	public void request(Rotation rotation, int priority, float maxStep, boolean clientLook) {
+		request(rotation, priority, maxStep, clientLook, true);
+	}
+
+	/**
+	 * @param moveFix whether Move Fix should steer movement by this rotation while it's silent.
+	 *                Off for rotations that are just for show, like spinning, so walking stays normal
+	 */
+	public void request(Rotation rotation, int priority, float maxStep, boolean clientLook, boolean moveFix) {
 		if (priority < requestedPriority) return;
 		requested = rotation;
 		requestedPriority = priority;
 		requestedStep = maxStep;
 		requestedClientLook = clientLook;
+		requestedMoveFix = moveFix;
 	}
 
 	/** The rotation the server currently believes we have. */
@@ -54,7 +66,7 @@ public class RotationManager {
 
 	/** Whether movement this tick should be computed with the server yaw instead of the camera yaw. */
 	public boolean isMoveFixActive() {
-		return silent && FemboyWare.getModules().get(MoveFixModule.class).isEnabled()
+		return silent && silentMoveFix && FemboyWare.getModules().get(MoveFixModule.class).isEnabled()
 			&& !mc.player.hasVehicle() && !mc.player.isGliding();
 	}
 
@@ -79,6 +91,7 @@ public class RotationManager {
 			mc.player.setPitch(next.pitch());
 		} else {
 			silent = true;
+			silentMoveFix = requestedMoveFix;
 		}
 		requested = null;
 		requestedPriority = Integer.MIN_VALUE;

@@ -48,12 +48,21 @@ public final class DamageCalculator {
 
 	/** As above, treating {@code assumedSolid} as a full block, for a block about to be placed there. */
 	public static float explosionDamage(LivingEntity target, Box box, Vec3d center, float power, boolean destructible, boolean assumeBestArmor, BlockPos assumedSolid) {
+		return explosionDamage(target, box, center, power, destructible, assumeBestArmor, assumedSolid, null);
+	}
+
+	/**
+	 * As above, also treating {@code assumedAir} as empty: a respawn anchor is removed before it
+	 * explodes, so it doesn't shield anyone from its own blast.
+	 */
+	public static float explosionDamage(LivingEntity target, Box box, Vec3d center, float power, boolean destructible, boolean assumeBestArmor,
+										BlockPos assumedSolid, BlockPos assumedAir) {
 		double radius = power * 2.0;
 		Vec3d feet = new Vec3d((box.minX + box.maxX) / 2.0, box.minY, (box.minZ + box.maxZ) / 2.0);
 		double distance = Math.sqrt(feet.squaredDistanceTo(center)) / radius;
 		if (distance > 1.0) return 0f;
 
-		double impact = (1.0 - distance) * getExposure(target.getEntityWorld(), center, box, destructible, assumedSolid);
+		double impact = (1.0 - distance) * getExposure(target.getEntityWorld(), center, box, destructible, assumedSolid, assumedAir);
 		float damage = (float) ((impact * impact + impact) / 2.0 * 7.0 * radius + 1.0);
 
 		if (target instanceof PlayerEntity) {
@@ -100,10 +109,10 @@ public final class DamageCalculator {
 
 	/** Fraction of {@code box} visible from {@code center}, sampled exactly like vanilla. */
 	public static float getExposure(World world, Vec3d center, Box box, boolean destructible) {
-		return getExposure(world, center, box, destructible, null);
+		return getExposure(world, center, box, destructible, null, null);
 	}
 
-	private static float getExposure(World world, Vec3d center, Box box, boolean destructible, BlockPos assumedSolid) {
+	private static float getExposure(World world, Vec3d center, Box box, boolean destructible, BlockPos assumedSolid, BlockPos assumedAir) {
 		double stepX = 1.0 / ((box.maxX - box.minX) * 2.0 + 1.0);
 		double stepY = 1.0 / ((box.maxY - box.minY) * 2.0 + 1.0);
 		double stepZ = 1.0 / ((box.maxZ - box.minZ) * 2.0 + 1.0);
@@ -120,7 +129,7 @@ public final class DamageCalculator {
 						MathHelper.lerp(x, box.minX, box.maxX) + offsetX,
 						MathHelper.lerp(y, box.minY, box.maxY),
 						MathHelper.lerp(z, box.minZ, box.maxZ) + offsetZ);
-					if (!isObstructed(world, sample, center, destructible, assumedSolid)) visible++;
+					if (!isObstructed(world, sample, center, destructible, assumedSolid, assumedAir)) visible++;
 					total++;
 				}
 			}
@@ -128,9 +137,10 @@ public final class DamageCalculator {
 		return total == 0 ? 0f : (float) visible / total;
 	}
 
-	private static boolean isObstructed(World world, Vec3d from, Vec3d to, boolean destructible, BlockPos assumedSolid) {
+	private static boolean isObstructed(World world, Vec3d from, Vec3d to, boolean destructible, BlockPos assumedSolid, BlockPos assumedAir) {
 		return BlockView.raycast(from, to, world, (BlockView view, BlockPos pos) -> {
 			if (pos.equals(assumedSolid)) return VoxelShapes.fullCube().raycast(from, to, pos) != null ? Boolean.TRUE : null;
+			if (pos.equals(assumedAir)) return null;
 			BlockState state = view.getBlockState(pos);
 			if (state.isAir()) return null;
 			if (destructible && state.getBlock().getBlastResistance() < DESTRUCTIBLE_RESISTANCE) return null;

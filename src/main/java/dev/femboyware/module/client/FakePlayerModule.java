@@ -106,11 +106,12 @@ public class FakePlayerModule extends Module {
 	/** Called from the interaction manager mixin. Returns true when the attack was handled locally. */
 	public boolean onAttack(PlayerEntity attacker, Entity target) {
 		if (!isEnabled() || fake == null || target != fake) return false;
+		// Read the charge before resetting it, as vanilla does; resetting first made every hit uncharged
+		float progress = attacker.getAttackCooldownProgress(0.5f);
 		attacker.resetTicksSince();
 		if (fake.isDead()) return true;
 
 		// Mirrors PlayerEntity#attack; enchantment damage bonuses are server-side and not included
-		float progress = attacker.getAttackCooldownProgress(0.5f);
 		DamageSource source = mc.world.getDamageSources().playerAttack(attacker);
 		float damage = (float) attacker.getAttributeValue(EntityAttributes.ATTACK_DAMAGE) * (0.2f + progress * progress * 0.8f);
 		damage += attacker.getWeaponStack().getItem().getBonusAttackDamage(fake, damage, source);
