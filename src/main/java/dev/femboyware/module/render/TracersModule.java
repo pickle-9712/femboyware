@@ -1,8 +1,10 @@
 package dev.femboyware.module.render;
 
+import dev.femboyware.FemboyWare;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
+import dev.femboyware.module.utility.FriendsModule;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.EnumSetting;
@@ -135,6 +137,7 @@ public class TracersModule extends Module {
 	}
 
 	private int getColor(Entity entity) {
+		if (FemboyWare.getFriends().isFriend(entity) && FemboyWare.isEnabled(FriendsModule.class)) return FriendsModule.color(entity, 0);
 		if (distanceColors.get()) return ColorUtil.withAlpha(EntityKind.distanceColor(mc.player.distanceTo(entity)), 0xC0);
 		return switch (EntityKind.of(entity)) {
 			case PLAYER -> playersColor.get();

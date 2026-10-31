@@ -5,6 +5,7 @@ import dev.femboyware.event.PacketEvent;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
+import dev.femboyware.module.utility.FriendsModule;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.EnumSetting;
@@ -41,8 +42,8 @@ import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
 import net.minecraft.network.packet.s2c.play.EntitiesDestroyS2CPacket;
 import net.minecraft.network.packet.s2c.play.EntitySpawnS2CPacket;
 import net.minecraft.network.packet.s2c.play.PlaySoundS2CPacket;
-import net.minecraft.sound.SoundEvents;
 import net.minecraft.registry.tag.ItemTags;
+import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
@@ -642,7 +643,7 @@ public class AutoCrystalModule extends Module {
 	private List<PlayerEntity> findTargets() {
 		List<PlayerEntity> targets = new ArrayList<>();
 		for (PlayerEntity player : mc.world.getPlayers()) {
-			if (player == mc.player || !player.isAlive() || player.isSpectator() || player.isCreative()) continue;
+			if (player == mc.player || !player.isAlive() || player.isSpectator() || player.isCreative() || FriendsModule.protects(player)) continue;
 			if (player.squaredDistanceTo(mc.player) > TARGET_RANGE * TARGET_RANGE) continue;
 			targets.add(player);
 		}

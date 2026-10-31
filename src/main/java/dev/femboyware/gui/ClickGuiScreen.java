@@ -4,9 +4,11 @@ import dev.femboyware.FemboyWare;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.module.client.ClickGuiModule;
+import dev.femboyware.module.hud.HudElement;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.EnumSetting;
+import dev.femboyware.setting.KeySetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.Setting;
 import dev.femboyware.setting.StringSetting;
@@ -37,14 +39,39 @@ public class ClickGuiScreen extends Screen {
 	private static final int PANEL_WIDTH = 116;
 	private static final int HEADER_HEIGHT = 16;
 	private static final int ROW_HEIGHT = 13;
-	private static final int PANEL_BG = 0xE0161219;
-	private static final int SETTING_BG = 0xE01E1923;
-	private static final int TEXT = 0xFFFFFFFF;
-	private static final int MUTED = 0xFFAAA3B0;
+	private static final int TABS_PER_ROW = 3;
+	/** Settings sit in a slightly darker well inside the glass. */
+	private static final int SETTING_BG = 0x24000000;
 	private static final String[] CHANNEL_NAMES = {"Red", "Green", "Blue", "Alpha"};
 	private static final int[] CHANNEL_SHIFTS = {16, 8, 0, 24};
 
-	private enum RowType { HEADER, TAB, MODULE, BIND, BOOL, NUMBER, ENUM, STRING, COLOR }
+	private enum RowType { HEADER, SEARCH_HEADER, TAB, MODULE, BIND, BOOL, NUMBER, ENUM, STRING, COLOR, KEY, SEARCH, PAGE }
+
+	/** The three sections along the top; each shows its own panels. */
+	private enum Page {
+		MODULES("Modules"), HUD("HUD"), CUSTOMIZATION("Customization");
+
+		private final String label;
+
+		Page(String label) {
+			this.label = label;
+		}
+
+		/** The page a panel belongs on. */
+		static Page of(Category.Group group) {
+			return switch (group) {
+				case HUD -> HUD;
+				case CUSTOMIZE -> CUSTOMIZATION;
+				default -> MODULES;
+			};
+		}
+	}
+
+	private static final int PAGE_WIDTH = 92;
+	private static final int PAGE_HEIGHT = 18;
+	private static final int PAGE_GAP = 8;
+	/** Panels start below the page bar. */
+	private static final int TOP = 32;
 
 	private record Row(RowType type, int x, int y, int width, int height, Category category, Module module, Setting<?> setting, int shift) {
 		boolean contains(double mouseX, double mouseY) {
@@ -57,6 +84,8 @@ public class ClickGuiScreen extends Screen {
 		int y;
 		boolean open = true;
 		Category tab;
+		/** Height last frame, so the glass can go down before the rows are laid out. */
+		int height = HEADER_HEIGHT;
 
 		Panel(int x, int y) {
 			this.x = x;
@@ -70,10 +99,21 @@ public class ClickGuiScreen extends Screen {
 	private final List<Row> rows = new ArrayList<>();
 
 	private Panel dragging;
+	/** The section showing; kept while the game runs, so the menu opens where you left it. */
+	private Page page = Page.MODULES;
+	/** A HUD element being dragged around the screen, and where on it the mouse grabbed it. */
+	private static final int RESIZE_HANDLE = 5;
+	private HudElement draggingElement;
+	/** A HUD element whose corner is being dragged, to resize it. */
+	private HudElement resizingElement;
+	private int elementOffsetX;
+	private int elementOffsetY;
 	private int dragOffsetX;
 	private int dragOffsetY;
 	private Row slider;
 	private Module binding;
+	/** A key setting waiting for its key, like a module bind. */
+	private KeySetting bindingKey;
 	private StringSetting typing;
 	/** Text boxes keep their cursor, selection and scroll while the GUI is open. */
 	private final Map<StringSetting, TextEditor> editors = new HashMap<>();
@@ -81,15 +121,25 @@ public class ClickGuiScreen extends Screen {
 	private int typingRowX;
 	private boolean selectingText;
 	private boolean closing;
+	/** What's typed in the search bar; never saved, since it belongs to no module. */
+	private final StringSetting search = new StringSetting("Search", "Search modules by name or description", "");
+	private boolean searching;
+	/** The Search panel; starts under Customize, and drags and folds like the others. */
+	private final Panel searchPanel;
 
 	public ClickGuiScreen(ClickGuiModule module) {
 		super(Text.literal("femboyware"));
 		this.module = module;
 		int x = 10;
 		for (Category.Group group : Category.Group.values()) {
-			panels.put(group, new Panel(x, 10));
+			if (Page.of(group) != Page.MODULES) continue;
+			panels.put(group, new Panel(x, TOP));
 			x += PANEL_WIDTH + 8;
 		}
+		searchPanel = new Panel(x, TOP);
+		// The HUD and Customize panels each have a page to themselves
+		panels.put(Category.Group.HUD, new Panel(10, TOP));
+		panels.put(Category.Group.CUSTOMIZE, new Panel(10, TOP));
 	}
 
 	public boolean isClosing() {
@@ -105,7 +155,9 @@ public class ClickGuiScreen extends Screen {
 	public void removed() {
 		closing = true;
 		binding = null;
+		bindingKey = null;
 		typing = null;
+		searching = false;
 		selectingText = false;
 		slider = null;
 		dragging = null;
@@ -116,11 +168,74 @@ public class ClickGuiScreen extends Screen {
 
 	@Override
 	public void renderBackground(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
-		context.fill(0, 0, width, height, 0x60000000);
+		// Frosted: blur whatever is behind, then dim it a little so the glass stands out
+		if (Theme.blur()) applyBlur(context);
+		context.fill(0, 0, width, height, Theme.dim());
 	}
 
 	@Override
 	public void render(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
+		renderHudEditor(context, mouseX, mouseY);
+		// Lay out on a fixed canvas, so the GUI takes the same share of the screen at any GUI scale
+		float scale = UiScale.scale();
+		context.getMatrices().pushMatrix();
+		context.getMatrices().scale(scale, scale);
+		UiScale.begin();
+		renderScaled(context, (int) (mouseX / scale), (int) (mouseY / scale));
+		UiScale.end();
+		context.getMatrices().popMatrix();
+	}
+
+	/**
+	 * The HUD editor: every HUD element that's on, drawn over the blur in its real place, with an
+	 * outline. Drag one to move it.
+	 */
+	private void renderHudEditor(DrawContext context, int mouseX, int mouseY) {
+		if (page != Page.HUD) return;
+		if (draggingElement != null) {
+			draggingElement.moveTo(mouseX - elementOffsetX, mouseY - elementOffsetY, width, height);
+		}
+		if (resizingElement != null) {
+			// Its place is stored as a share of the spare room, so put the top left back after changing the size
+			int left = resizingElement.left(width, true), top = resizingElement.top(height, true);
+			resizingElement.resizeTo(mouseX - left, mouseY - top, width, height);
+			resizingElement.moveTo(left, top, width, height);
+		}
+		UiScale.beginClient();
+		try {
+			for (HudElement element : hudElements()) {
+				element.drawForEditor(context);
+				int left = element.left(width, true), top = element.top(height, true);
+				int right = left + element.width(true), bottom = top + element.height(true);
+				boolean hot = element == draggingElement || (draggingElement == null && mouseX >= left && mouseX < right && mouseY >= top && mouseY < bottom);
+				dashedOutline(context, left - 1, top - 1, right + 1, bottom + 1, hot ? Theme.accent() : 0x80FFFFFF);
+				if (element.resizable()) context.fill(right - RESIZE_HANDLE, bottom - RESIZE_HANDLE, right + 1, bottom + 1, element == resizingElement || hot ? Theme.accent() : 0xC0FFFFFF);
+			}
+		} finally {
+			UiScale.endClient();
+		}
+	}
+
+	private static List<HudElement> hudElements() {
+		List<HudElement> elements = new ArrayList<>();
+		for (Module m : FemboyWare.getModules().getModules(Category.ELEMENTS)) {
+			if (m instanceof HudElement element && m.isEnabled() && element.width(true) > 0) elements.add(element);
+		}
+		return elements;
+	}
+
+	private static void dashedOutline(DrawContext context, int x1, int y1, int x2, int y2, int color) {
+		for (int x = x1; x < x2; x += 4) {
+			context.fill(x, y1, Math.min(x + 2, x2), y1 + 1, color);
+			context.fill(x, y2 - 1, Math.min(x + 2, x2), y2, color);
+		}
+		for (int y = y1; y < y2; y += 4) {
+			context.fill(x1, y, x1 + 1, Math.min(y + 2, y2), color);
+			context.fill(x2 - 1, y, x2, Math.min(y + 2, y2), color);
+		}
+	}
+
+	private void renderScaled(DrawContext context, int mouseX, int mouseY) {
 		if (dragging != null) {
 			dragging.x = mouseX - dragOffsetX;
 			dragging.y = mouseY - dragOffsetY;
@@ -131,7 +246,9 @@ public class ClickGuiScreen extends Screen {
 		int accent = module.getAccent();
 		TextRenderer font = textRenderer;
 
+		renderPageBar(context, mouseX, mouseY, accent);
 		for (Category.Group group : Category.Group.values()) {
+			if (Page.of(group) != page) continue;
 			Panel panel = panels.get(group);
 			List<Category> tabs = tabs(group);
 			if (tabs.isEmpty()) continue;
@@ -139,49 +256,137 @@ public class ClickGuiScreen extends Screen {
 			int x = panel.x;
 			int y = panel.y;
 
-			context.fill(x, y, x + PANEL_WIDTH, y + HEADER_HEIGHT, accent);
-			context.drawTextWithShadow(font, group.getDisplayName(), x + 5, y + 4, TEXT);
+			Glass.draw(context, x, y, x + PANEL_WIDTH, y + panel.height, Theme.roundness(), Theme.panel(), true);
+			context.drawTextWithShadow(font, group.getDisplayName(), x + 7, y + 4, Theme.text());
 			String arrow = panel.open ? "-" : "+";
-			context.drawTextWithShadow(font, arrow, x + PANEL_WIDTH - 5 - font.getWidth(arrow), y + 4, TEXT);
+			context.drawTextWithShadow(font, arrow, x + PANEL_WIDTH - 7 - font.getWidth(arrow), y + 4, Theme.text());
 			rows.add(new Row(RowType.HEADER, x, y, PANEL_WIDTH, HEADER_HEIGHT, panel.tab, null, null, 0));
 			y += HEADER_HEIGHT;
-			if (!panel.open) continue;
+			if (!panel.open) {
+				panel.height = HEADER_HEIGHT;
+				continue;
+			}
+			context.fill(x + 6, y - 1, x + PANEL_WIDTH - 6, y, 0x30FFFFFF);
 
 			if (tabs.size() > 1) {
-				context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT, SETTING_BG);
-				for (int i = 0; i < tabs.size(); i++) {
-					Category tab = tabs.get(i);
-					int left = x + PANEL_WIDTH * i / tabs.size();
-					int right = x + PANEL_WIDTH * (i + 1) / tabs.size();
-					Row tabRow = new Row(RowType.TAB, left, y, right - left, ROW_HEIGHT, tab, null, null, 0);
-					rows.add(tabRow);
-					if (tab == panel.tab) context.fill(left + 1, y + 1, right - 1, y + ROW_HEIGHT - 1, ColorUtil.withAlpha(accent, 0x60));
-					else if (tabRow.contains(mouseX, mouseY)) context.fill(left, y, right, y + ROW_HEIGHT, 0x14FFFFFF);
-					String name = tab.getDisplayName();
-					context.drawTextWithShadow(font, name, (left + right - font.getWidth(name)) / 2, y + 3, tab == panel.tab ? TEXT : MUTED);
+				// At most three tabs to a row, so names never run into each other
+				int perRow = Math.min(TABS_PER_ROW, tabs.size());
+				for (int start = 0; start < tabs.size(); start += perRow) {
+					int count = Math.min(perRow, tabs.size() - start);
+					for (int i = 0; i < count; i++) {
+						Category tab = tabs.get(start + i);
+						int left = x + PANEL_WIDTH * i / count;
+						int right = x + PANEL_WIDTH * (i + 1) / count;
+						Row tabRow = new Row(RowType.TAB, left, y, right - left, ROW_HEIGHT, tab, null, null, 0);
+						rows.add(tabRow);
+						if (tab == panel.tab) Glass.draw(context, left + 3, y + 1, right - 3, y + ROW_HEIGHT - 1, 5, ColorUtil.withAlpha(accent, 0x70), false);
+						else if (tabRow.contains(mouseX, mouseY)) Glass.rounded(context, left + 3, y + 1, right - 3, y + ROW_HEIGHT - 1, 5, 0x18FFFFFF);
+						String name = tab.getDisplayName();
+						context.drawTextWithShadow(font, name, (left + right - font.getWidth(name)) / 2, y + 3, tab == panel.tab ? Theme.text() : Theme.muted());
+					}
+					y += ROW_HEIGHT;
 				}
-				y += ROW_HEIGHT;
 			}
 
-			for (Module m : FemboyWare.getModules().getModules(panel.tab)) {
-				Row moduleRow = new Row(RowType.MODULE, x, y, PANEL_WIDTH, ROW_HEIGHT, panel.tab, m, null, 0);
-				rows.add(moduleRow);
-				context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT, PANEL_BG);
-				if (m.isEnabled()) context.fill(x + 1, y, x + PANEL_WIDTH - 1, y + ROW_HEIGHT, ColorUtil.withAlpha(accent, 0x90));
-				if (moduleRow.contains(mouseX, mouseY)) context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT, 0x20FFFFFF);
-				context.drawTextWithShadow(font, m.getName(), x + 5, y + 3, m.isEnabled() ? TEXT : MUTED);
-				if (!m.getSettings().isEmpty()) {
-					String dots = expanded.contains(m) ? "v" : "...";
-					context.drawTextWithShadow(font, dots, x + PANEL_WIDTH - 5 - font.getWidth(dots), y + 2, MUTED);
-				}
-				y += ROW_HEIGHT;
-
-				if (expanded.contains(m)) y = renderSettings(context, m, x, y, mouseX, mouseY, accent);
-			}
-			context.fill(x, y, x + PANEL_WIDTH, y + 2, accent);
+			for (Module m : FemboyWare.getModules().getModules(panel.tab)) y = renderModule(context, m, x, y, mouseX, mouseY, accent);
+			// A little breathing room before the glass's rounded bottom
+			panel.height = y + 4 - panel.y;
 		}
 
+		if (page == Page.MODULES) renderSearchPanel(context, mouseX, mouseY, accent);
 		renderTooltip(context, mouseX, mouseY);
+	}
+
+	/** The Modules, HUD and Customization buttons centred along the top, each its own glass button. */
+	private void renderPageBar(DrawContext context, int mouseX, int mouseY, int accent) {
+		Page[] pages = Page.values();
+		int canvasWidth = (int) (width / UiScale.scale());
+		int total = pages.length * PAGE_WIDTH + (pages.length - 1) * PAGE_GAP;
+		int left = (canvasWidth - total) / 2;
+		int top = 8;
+		for (int i = 0; i < pages.length; i++) {
+			int x = left + i * (PAGE_WIDTH + PAGE_GAP);
+			Row row = new Row(RowType.PAGE, x, top, PAGE_WIDTH, PAGE_HEIGHT, null, null, null, i);
+			rows.add(row);
+			boolean selected = pages[i] == page;
+			int tint = selected ? ColorUtil.withAlpha(accent, 0xA0) : Theme.panel();
+			Glass.draw(context, x, top, x + PAGE_WIDTH, top + PAGE_HEIGHT, PAGE_HEIGHT / 2, tint, true);
+			if (!selected && row.contains(mouseX, mouseY)) Glass.rounded(context, x, top, x + PAGE_WIDTH, top + PAGE_HEIGHT, PAGE_HEIGHT / 2, 0x18FFFFFF);
+			String label = pages[i].label;
+			context.drawTextWithShadow(textRenderer, label, x + (PAGE_WIDTH - textRenderer.getWidth(label)) / 2, top + (PAGE_HEIGHT - 8) / 2 + 1, selected ? Theme.text() : Theme.muted());
+		}
+	}
+
+	/** One module's row, plus its settings when expanded. Returns the y below them. */
+	private int renderModule(DrawContext context, Module m, int x, int y, int mouseX, int mouseY, int accent) {
+		TextRenderer font = textRenderer;
+		Row moduleRow = new Row(RowType.MODULE, x, y, PANEL_WIDTH, ROW_HEIGHT, m.getCategory(), m, null, 0);
+		rows.add(moduleRow);
+		if (m.isEnabled()) Glass.draw(context, x + 3, y + 1, x + PANEL_WIDTH - 3, y + ROW_HEIGHT, 4, ColorUtil.withAlpha(accent, 0x80), false);
+		else if (moduleRow.contains(mouseX, mouseY)) Glass.rounded(context, x + 3, y + 1, x + PANEL_WIDTH - 3, y + ROW_HEIGHT, 4, 0x18FFFFFF);
+		context.drawTextWithShadow(font, m.getName(), x + 7, y + 3, m.isEnabled() ? Theme.text() : Theme.muted());
+		if (!m.getSettings().isEmpty()) {
+			String dots = expanded.contains(m) ? "v" : "...";
+			context.drawTextWithShadow(font, dots, x + PANEL_WIDTH - 7 - font.getWidth(dots), y + 2, m.isEnabled() ? Theme.text() : Theme.muted());
+		}
+		y += ROW_HEIGHT;
+		if (expanded.contains(m)) y = renderSettings(context, m, x, y, mouseX, mouseY, accent);
+		return y;
+	}
+
+	/** The Search panel: a text box, then every module whose name or description matches. */
+	private void renderSearchPanel(DrawContext context, int mouseX, int mouseY, int accent) {
+		TextRenderer font = textRenderer;
+		Panel panel = searchPanel;
+		int x = panel.x;
+		int y = panel.y;
+		Glass.draw(context, x, y, x + PANEL_WIDTH, y + panel.height, Theme.roundness(), Theme.panel(), true);
+		context.drawTextWithShadow(font, "Search", x + 7, y + 4, Theme.text());
+		String arrow = panel.open ? "-" : "+";
+		context.drawTextWithShadow(font, arrow, x + PANEL_WIDTH - 7 - font.getWidth(arrow), y + 4, Theme.text());
+		rows.add(new Row(RowType.SEARCH_HEADER, x, y, PANEL_WIDTH, HEADER_HEIGHT, null, null, null, 0));
+		y += HEADER_HEIGHT;
+		if (!panel.open) {
+			panel.height = HEADER_HEIGHT;
+			return;
+		}
+		context.fill(x + 6, y - 1, x + PANEL_WIDTH - 6, y, 0x30FFFFFF);
+
+		// The text box
+		Row box = new Row(RowType.SEARCH, x, y + 1, PANEL_WIDTH, ROW_HEIGHT, null, null, search, 0);
+		rows.add(box);
+		Glass.rounded(context, x + 5, y + 2, x + PANEL_WIDTH - 5, y + ROW_HEIGHT, 4,
+			searching ? ColorUtil.withAlpha(accent, 0x40) : box.contains(mouseX, mouseY) ? 0x40FFFFFF : 0x30000000);
+		if (search.get().isEmpty() && !searching) {
+			context.drawTextWithShadow(font, "Type to search...", x + 10, y + 4, Theme.muted());
+		} else {
+			editor(search).render(context, font, x + 8, y + 2, x + PANEL_WIDTH - 8, y + ROW_HEIGHT, searching,
+				Theme.text(), (accent & 0x00FFFFFF) | 0x90000000, accent);
+		}
+		y += ROW_HEIGHT + 3;
+
+		String query = search.get().trim().toLowerCase();
+		if (!query.isEmpty()) {
+			List<Module> results = matches(query);
+			if (results.isEmpty()) {
+				context.drawTextWithShadow(font, "No matches", x + 7, y + 3, Theme.muted());
+				y += ROW_HEIGHT;
+			}
+			for (Module m : results) y = renderModule(context, m, x, y, mouseX, mouseY, accent);
+		}
+		panel.height = y + 4 - panel.y;
+	}
+
+	/** Every module whose name or description contains {@code query}, name matches first. */
+	private static List<Module> matches(String query) {
+		List<Module> byName = new ArrayList<>();
+		List<Module> byDescription = new ArrayList<>();
+		for (Module m : FemboyWare.getModules().getModules()) {
+			if (m.getName().toLowerCase().contains(query)) byName.add(m);
+			else if (m.getDescription().toLowerCase().contains(query)) byDescription.add(m);
+		}
+		byName.addAll(byDescription);
+		return byName;
 	}
 
 	/** Tabs of {@code group} that have at least one module; empty tabs are hidden. */
@@ -200,7 +405,7 @@ public class ClickGuiScreen extends Screen {
 
 		context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT, SETTING_BG);
 		String bindText = binding == m ? "Bind: ..." : "Bind: " + keyName(m.getKey());
-		context.drawTextWithShadow(font, bindText, left, y + 3, MUTED);
+		context.drawTextWithShadow(font, bindText, left, y + 3, Theme.muted());
 		rows.add(new Row(RowType.BIND, x, y, PANEL_WIDTH, ROW_HEIGHT, null, m, null, 0));
 		y += ROW_HEIGHT;
 
@@ -209,7 +414,7 @@ public class ClickGuiScreen extends Screen {
 
 			if (setting instanceof ColorSetting color) {
 				context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT, SETTING_BG);
-				context.drawTextWithShadow(font, color.getName(), left, y + 3, TEXT);
+				context.drawTextWithShadow(font, color.getName(), left, y + 3, Theme.text());
 				context.fill(right - 10, y + 2, right, y + ROW_HEIGHT - 2, color.get() | 0xFF000000);
 				y += ROW_HEIGHT;
 				for (int i = 0; i < 4; i++) {
@@ -224,9 +429,12 @@ public class ClickGuiScreen extends Screen {
 			Row row = switch (setting) {
 				case BoolSetting bool -> {
 					context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT, SETTING_BG);
-					context.drawTextWithShadow(font, bool.getName(), left, y + 3, TEXT);
-					context.fill(right - 8, y + 3, right, y + ROW_HEIGHT - 2, 0xFF2A2430);
-					if (bool.get()) context.fill(right - 7, y + 4, right - 1, y + ROW_HEIGHT - 3, accent);
+					context.drawTextWithShadow(font, bool.getName(), left, y + 3, Theme.text());
+					// A little switch: a pill track with a round knob that slides across when on
+					int trackLeft = right - 14;
+					Glass.rounded(context, trackLeft, y + 3, right, y + ROW_HEIGHT - 3, 4, bool.get() ? accent : 0x40FFFFFF);
+					int knob = bool.get() ? right - 7 : trackLeft;
+					Glass.rounded(context, knob + 1, y + 4, knob + 6, y + ROW_HEIGHT - 4, 3, 0xFFFFFFFF);
 					yield new Row(RowType.BOOL, x, y, PANEL_WIDTH, ROW_HEIGHT, null, m, setting, 0);
 				}
 				case NumberSetting number -> {
@@ -237,24 +445,31 @@ public class ClickGuiScreen extends Screen {
 				}
 				case EnumSetting<?> mode -> {
 					context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT, SETTING_BG);
-					context.drawTextWithShadow(font, mode.getName(), left, y + 3, TEXT);
+					context.drawTextWithShadow(font, mode.getName(), left, y + 3, Theme.text());
 					String value = mode.getDisplayName();
 					context.drawTextWithShadow(font, value, right - font.getWidth(value), y + 3, accent);
 					yield new Row(RowType.ENUM, x, y, PANEL_WIDTH, ROW_HEIGHT, null, m, setting, 0);
 				}
 				case StringSetting text -> {
 					context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT * 2, SETTING_BG);
-					context.drawTextWithShadow(font, text.getName(), left, y + 3, TEXT);
+					context.drawTextWithShadow(font, text.getName(), left, y + 3, Theme.text());
 					boolean focused = typing == text;
-					context.fill(left, y + ROW_HEIGHT, right, y + ROW_HEIGHT * 2 - 1, focused ? 0xFF3A3242 : 0xFF2A2430);
+					Glass.rounded(context, left - 2, y + ROW_HEIGHT, right, y + ROW_HEIGHT * 2 - 1, 3, focused ? 0x40FFFFFF : 0x30000000);
 					editor(text).render(context, font, left, y + ROW_HEIGHT, right, y + ROW_HEIGHT * 2 - 1, focused,
-						focused ? TEXT : MUTED, (accent & 0x00FFFFFF) | 0x90000000, accent);
+						focused ? Theme.text() : Theme.muted(), (accent & 0x00FFFFFF) | 0x90000000, accent);
 					yield new Row(RowType.STRING, x, y, PANEL_WIDTH, ROW_HEIGHT * 2, null, m, setting, 0);
+				}
+				case KeySetting key -> {
+					context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT, SETTING_BG);
+					context.drawTextWithShadow(font, key.getName(), left, y + 3, Theme.text());
+					String value = bindingKey == key ? "..." : keyName(key.get());
+					context.drawTextWithShadow(font, value, right - font.getWidth(value), y + 3, accent);
+					yield new Row(RowType.KEY, x, y, PANEL_WIDTH, ROW_HEIGHT, null, m, setting, 0);
 				}
 				default -> null;
 			};
 			if (row == null) continue;
-			if (row.contains(mouseX, mouseY)) context.fill(row.x, row.y, row.x + row.width, row.y + row.height, 0x14FFFFFF);
+			if (row.contains(mouseX, mouseY)) context.fill(row.x, row.y, row.x + row.width, row.y + row.height, 0x10FFFFFF);
 			rows.add(row);
 			y += row.height;
 		}
@@ -267,25 +482,27 @@ public class ClickGuiScreen extends Screen {
 		int right = x + PANEL_WIDTH - 5;
 		context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT, SETTING_BG);
 		int filled = left + (int) Math.round((right - left) * Math.max(0, Math.min(1, fraction)));
-		context.fill(left, y + ROW_HEIGHT - 3, right, y + ROW_HEIGHT - 1, 0xFF2A2430);
-		context.fill(left, y + ROW_HEIGHT - 3, filled, y + ROW_HEIGHT - 1, accent);
-		context.drawTextWithShadow(font, name, left, y + 1, TEXT);
-		context.drawTextWithShadow(font, value, right - font.getWidth(value), y + 1, MUTED);
+		Glass.rounded(context, left, y + ROW_HEIGHT - 3, right, y + ROW_HEIGHT - 1, 1, 0x40FFFFFF);
+		if (filled > left) Glass.rounded(context, left, y + ROW_HEIGHT - 3, filled, y + ROW_HEIGHT - 1, 1, accent);
+		context.drawTextWithShadow(font, name, left, y + 1, Theme.text());
+		context.drawTextWithShadow(font, value, right - font.getWidth(value), y + 1, Theme.muted());
 	}
 
 	private void renderTooltip(DrawContext context, int mouseX, int mouseY) {
 		if (dragging != null || slider != null) return;
 		for (Row row : rows) {
 			if (!row.contains(mouseX, mouseY)) continue;
+			// The Customize panel's modules and settings explain themselves; no tooltips over them
+			if (row.module != null && row.module.getCategory() == Category.THEME) return;
 			String description = row.setting != null ? row.setting.getDescription()
 				: row.type == RowType.MODULE ? row.module.getDescription()
 				: row.type == RowType.BIND ? "Click, then press a key. Escape or Delete unbinds" : null;
 			if (description == null || description.isEmpty()) return;
 			int textWidth = textRenderer.getWidth(description);
-			int x = Math.min(mouseX + 8, width - textWidth - 6);
+			int x = Math.min(mouseX + 8, (int) (width / UiScale.scale()) - textWidth - 6);
 			int y = mouseY + 10;
-			context.fill(x - 3, y - 3, x + textWidth + 3, y + textRenderer.fontHeight + 2, 0xF0100C12);
-			context.drawTextWithShadow(textRenderer, description, x, y, TEXT);
+			Glass.draw(context, x - 4, y - 3, x + textWidth + 4, y + textRenderer.fontHeight + 2, Math.min(4, Theme.roundness()), Theme.tooltip(), true);
+			context.drawTextWithShadow(textRenderer, description, x, y, Theme.text());
 			return;
 		}
 	}
@@ -294,15 +511,18 @@ public class ClickGuiScreen extends Screen {
 
 	@Override
 	public boolean mouseClicked(Click click, boolean doubled) {
-		double mouseX = click.x();
-		double mouseY = click.y();
+		double mouseX = click.x() / UiScale.scale();
+		double mouseY = click.y() / UiScale.scale();
 		int button = click.button();
 		StringSetting wasTyping = typing;
+		boolean wasSearching = searching;
 		typing = null;
+		searching = false;
 
-		if (binding != null) {
+		if (binding != null || bindingKey != null) {
 			// Mouse buttons can't be bound; clicking anywhere cancels
 			binding = null;
+			bindingKey = null;
 			return true;
 		}
 
@@ -320,6 +540,19 @@ public class ClickGuiScreen extends Screen {
 						panel.open = !panel.open;
 					}
 				}
+				case PAGE -> {
+					page = Page.values()[row.shift];
+					draggingElement = null;
+				}
+				case SEARCH_HEADER -> {
+					if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+						dragging = searchPanel;
+						dragOffsetX = (int) mouseX - searchPanel.x;
+						dragOffsetY = (int) mouseY - searchPanel.y;
+					} else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+						searchPanel.open = !searchPanel.open;
+					}
+				}
 				case TAB -> panels.get(row.category.getGroup()).tab = row.category;
 				case MODULE -> {
 					if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
@@ -331,6 +564,7 @@ public class ClickGuiScreen extends Screen {
 					}
 				}
 				case BIND -> binding = row.module;
+				case KEY -> bindingKey = (KeySetting) row.setting;
 				case BOOL -> ((BoolSetting) row.setting).toggle();
 				case ENUM -> ((EnumSetting<?>) row.setting).cycle(button != GLFW.GLFW_MOUSE_BUTTON_RIGHT);
 				case STRING -> {
@@ -348,8 +582,32 @@ public class ClickGuiScreen extends Screen {
 						updateSlider(mouseX);
 					}
 				}
+				case SEARCH -> {
+					if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) search.set("");
+					searching = true;
+					editor(search).click(textRenderer, mouseX, row.x + 8, click.hasShift() && wasSearching);
+					if (doubled) editor(search).selectWord();
+				}
 			}
 			return true;
+		}
+		// Nothing in the menu was clicked: pick up a HUD element under the mouse, topmost first
+		if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && page == Page.HUD) {
+			List<HudElement> elements = hudElements();
+			for (int i = elements.size() - 1; i >= 0; i--) {
+				HudElement element = elements.get(i);
+				int left = element.left(width, true), top = element.top(height, true);
+				int right = left + element.width(true), bottom = top + element.height(true);
+				if (element.resizable() && Math.abs(click.x() - right) <= RESIZE_HANDLE && Math.abs(click.y() - bottom) <= RESIZE_HANDLE) {
+					resizingElement = element;
+					return true;
+				}
+				if (click.x() < left || click.x() >= left + element.width(true) || click.y() < top || click.y() >= top + element.height(true)) continue;
+				draggingElement = element;
+				elementOffsetX = (int) click.x() - left;
+				elementOffsetY = (int) click.y() - top;
+				return true;
+			}
 		}
 		return super.mouseClicked(click, doubled);
 	}
@@ -357,7 +615,7 @@ public class ClickGuiScreen extends Screen {
 	@Override
 	public boolean mouseDragged(Click click, double offsetX, double offsetY) {
 		if (selectingText && typing != null) {
-			editor(typing).drag(textRenderer, click.x(), typingRowX + 8);
+			editor(typing).drag(textRenderer, click.x() / UiScale.scale(), typingRowX + 8);
 			return true;
 		}
 		return super.mouseDragged(click, offsetX, offsetY);
@@ -366,13 +624,17 @@ public class ClickGuiScreen extends Screen {
 	@Override
 	public boolean mouseReleased(Click click) {
 		dragging = null;
+		draggingElement = null;
+		resizingElement = null;
 		slider = null;
 		selectingText = false;
 		return super.mouseReleased(click);
 	}
 
 	@Override
-	public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+	public boolean mouseScrolled(double rawX, double rawY, double horizontalAmount, double verticalAmount) {
+		double mouseX = rawX / UiScale.scale();
+		double mouseY = rawY / UiScale.scale();
 		// Over a text box, the wheel scrolls its text sideways instead of moving the panels
 		for (Row row : rows) {
 			if (row.type != RowType.STRING || mouseX < row.x + 8 || mouseX >= row.x + PANEL_WIDTH - 5
@@ -382,6 +644,7 @@ public class ClickGuiScreen extends Screen {
 			return true;
 		}
 		for (Panel panel : panels.values()) panel.y += (int) (verticalAmount * 14);
+		searchPanel.y += (int) (verticalAmount * 14);
 		return true;
 	}
 
@@ -401,15 +664,44 @@ public class ClickGuiScreen extends Screen {
 	@Override
 	public boolean keyPressed(KeyInput input) {
 		int key = input.key();
+		boolean unbind = key == GLFW.GLFW_KEY_ESCAPE || key == GLFW.GLFW_KEY_DELETE || key == GLFW.GLFW_KEY_BACKSPACE;
 		if (binding != null) {
-			binding.setKey(key == GLFW.GLFW_KEY_ESCAPE || key == GLFW.GLFW_KEY_DELETE || key == GLFW.GLFW_KEY_BACKSPACE ? -1 : key);
+			binding.setKey(unbind ? -1 : key);
 			binding = null;
+			return true;
+		}
+		if (bindingKey != null) {
+			bindingKey.set(unbind ? -1 : key);
+			bindingKey = null;
 			return true;
 		}
 		if (typing != null) {
 			if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER || key == GLFW.GLFW_KEY_ESCAPE) typing = null;
 			else editor(typing).keyPressed(input);
 			// Swallow everything else too, so typing never fires keybinds
+			return true;
+		}
+		if (searching) {
+			if (key == GLFW.GLFW_KEY_ESCAPE) {
+				// First Escape clears the search, the next closes the menu
+				if (search.get().isEmpty()) searching = false;
+				else clearSearch();
+			} else if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) {
+				searching = false;
+			} else {
+				editor(search).keyPressed(input);
+			}
+			return true;
+		}
+		if (key == GLFW.GLFW_KEY_F && input.hasCtrl()) {
+			searching = true;
+			searchPanel.open = true;
+			// Search lives on the Modules page
+			page = Page.MODULES;
+			return true;
+		}
+		if (key == GLFW.GLFW_KEY_ESCAPE && !search.get().isEmpty()) {
+			clearSearch();
 			return true;
 		}
 		return super.keyPressed(input);
@@ -421,7 +713,21 @@ public class ClickGuiScreen extends Screen {
 			editor(typing).type(input.asString());
 			return true;
 		}
+		// Typing with nothing else focused goes straight into the search
+		if (binding == null && bindingKey == null && input.isValidChar() && (searching || !input.asString().isBlank())) {
+			searching = true;
+			searchPanel.open = true;
+			// Search lives on the Modules page
+			page = Page.MODULES;
+			editor(search).type(input.asString());
+			return true;
+		}
 		return super.charTyped(input);
+	}
+
+	private void clearSearch() {
+		search.set("");
+		editors.remove(search);
 	}
 
 	private TextEditor editor(StringSetting setting) {

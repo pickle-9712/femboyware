@@ -12,9 +12,11 @@ import net.minecraft.entity.player.PlayerEntity;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 /**
  * Meows in chat :3 Every so often on a random timer, and after you kill someone.
@@ -41,6 +43,12 @@ public class AutoMeowModule extends Module {
 	private final Random random = new Random();
 	/** Player entity id to when we last hit them. */
 	private final Map<Integer, Long> recentTargets = new HashMap<>();
+	/**
+	 * Player entity ids whose death we already meowed about. Their body stays around for a while
+	 * (longer with Tung Sahur) and Auto Crystal keeps targeting it, so without this every tick
+	 * would count the same death again.
+	 */
+	private final Set<Integer> celebrated = new HashSet<>();
 	private final List<String> queued = new ArrayList<>();
 	private long nextTimed;
 	private long nextQueued;
@@ -60,12 +68,13 @@ public class AutoMeowModule extends Module {
 	protected void onEnable() {
 		scheduleTimed();
 		recentTargets.clear();
+		celebrated.clear();
 		queued.clear();
 	}
 
 	@Override
 	public void onPostAttack(Entity target) {
-		if (target instanceof PlayerEntity && target != mc.player) recentTargets.put(target.getId(), System.currentTimeMillis());
+		if (target instanceof PlayerEntity player && player != mc.player && !player.isDead()) track(player, System.currentTimeMillis());
 	}
 
 	@Override
@@ -88,11 +97,14 @@ public class AutoMeowModule extends Module {
 
 	private void checkKills(long now) {
 		AutoCrystalModule crystal = FemboyWare.getModules().get(AutoCrystalModule.class);
-		if (crystal.isEnabled() && crystal.getTarget() != null) recentTargets.put(crystal.getTarget().getId(), now);
+		if (crystal.isEnabled() && crystal.getTarget() instanceof PlayerEntity target && !target.isDead()) track(target, now);
+		// Forget a death once its body is gone or back alive; respawned players usually get a new id anyway
+		celebrated.removeIf(id -> !(mc.world.getEntityById(id) instanceof PlayerEntity player) || !player.isDead());
 		recentTargets.entrySet().removeIf(entry -> {
 			if (now - entry.getValue() > KILL_WINDOW_MILLIS) return true;
 			Entity entity = mc.world.getEntityById(entry.getKey());
 			if (!(entity instanceof PlayerEntity player) || !player.isDead()) return false;
+			if (!celebrated.add(entry.getKey())) return true;
 			String message = pick(killMessages.get(), player.getName().getString());
 			if (message != null) {
 				queued.add(message);
@@ -100,6 +112,10 @@ public class AutoMeowModule extends Module {
 			}
 			return true;
 		});
+	}
+
+	private void track(PlayerEntity player, long now) {
+		if (!celebrated.contains(player.getId())) recentTargets.put(player.getId(), now);
 	}
 
 	/** A random message from {@code list}, with {player} filled in and maybe stretched. */

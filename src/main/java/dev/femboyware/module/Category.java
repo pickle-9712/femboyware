@@ -14,13 +14,20 @@ public enum Category {
 	BUILD(Group.UTILITY, "Build"),
 	EQUIP(Group.UTILITY, "Equip"),
 	PLAYER(Group.UTILITY, "Player"),
-	MISC(Group.UTILITY, "Misc");
+	MISC(Group.UTILITY, "Misc"),
+	THEME(Group.CUSTOMIZE, "Theme"),
+	TARGETS(Group.CUSTOMIZE, "Targets"),
+	EFFECTS(Group.CUSTOMIZE, "Effects"),
+	SKY(Group.CUSTOMIZE, "Sky"),
+	ELEMENTS(Group.HUD, "Elements");
 
 	public enum Group {
 		PVP("Pvp"),
 		MOVEMENT("Movement"),
 		VISUAL("Visual"),
-		UTILITY("Utility");
+		UTILITY("Utility"),
+		CUSTOMIZE("Customize"),
+		HUD("HUD");
 
 		private final String displayName;
 

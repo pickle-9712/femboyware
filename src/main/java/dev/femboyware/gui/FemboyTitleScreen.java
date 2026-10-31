@@ -1,90 +1,102 @@
 package dev.femboyware.gui;
 
-import com.mojang.authlib.GameProfile;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.client.ClickGuiModule;
+import dev.femboyware.module.render.CleanFontModule;
 import dev.femboyware.module.render.MainMenuModule;
 import net.minecraft.SharedConstants;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.TitleScreen;
+import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen;
 import net.minecraft.client.gui.screen.option.OptionsScreen;
 import net.minecraft.client.gui.screen.world.SelectWorldScreen;
+import net.minecraft.client.gui.widget.PlayerSkinWidget;
 import net.minecraft.client.sound.PositionedSoundInstance;
 import net.minecraft.client.util.DefaultSkinHelper;
-import net.minecraft.entity.player.PlayerSkinType;
 import net.minecraft.entity.player.SkinTextures;
 import net.minecraft.sound.SoundEvents;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.MathHelper;
+import net.minecraft.text.Style;
+import net.minecraft.text.StyleSpriteSource;
+import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 import java.util.function.Supplier;
 
 /**
- * Femboyware's main menu: a dark room with pink curtains flowing at the sides and hearts drifting
- * up, a heart logo and plain text buttons in the middle, and your skin on the right.
+ * Femboyware's main menu: a slowly turning pink swirl, a clean title, solid rounded buttons in
+ * the middle, and a 3D model of your skin on the right that you can drag to spin. All text is in
+ * the clean font even if Clean Font is off.
  *
- * <p>It extends {@link TitleScreen} so anything that waits for the title screen still finds it.
+ * <p>It's a plain {@link Screen}, not a {@code TitleScreen}: mods like Essential lay their own main
+ * menu over any title screen, which swallowed every click on these buttons.
  */
-public class FemboyTitleScreen extends TitleScreen {
-	private static final int BACKGROUND = 0xFF0C090E;
-	private static final int PINK = 0xFFFF77C8;
-	private static final int SOFT_PINK = 0xFFFFC2E2;
-	private static final int TEXT = 0xFFF2E8F0;
-	private static final int MUTED = 0xFFB9A8B6;
-	/** A 7 by 6 pixel heart, row by row. */
-	private static final String[] HEART = {
-		".XX.XX.",
-		"XXXXXXX",
-		"XXXXXXX",
-		".XXXXX.",
-		"..XXX..",
-		"...X..."};
+public class FemboyTitleScreen extends Screen {
+	private static final int BUTTON_WIDTH = 130;
+	private static final int BUTTON_HEIGHT = 20;
+	private static final int BUTTON_GAP = 5;
+	private static final int RADIUS = 4;
+	/** Space the title and tagline take above the first button. */
+	private static final int TITLE_BLOCK = 40;
+	private static final int TEXT = 0xFFFFFFFF;
+	private static final int MUTED = 0xFFE8CFE2;
+	/** Size of the 3D skin on the canvas. */
+	private static final int SKIN_WIDTH = 90;
+	private static final int SKIN_HEIGHT = 140;
 
-	private record Button(String label, Runnable action, int gapBefore) {}
+	private enum Kind {
+		/** Solid pink, for the main actions. */
+		PRIMARY(0xFFFF6FBF, 0xFFFF92CF),
+		/** Solid deep plum, for everything else. */
+		SECONDARY(0xF0401838, 0xF0582452);
 
-	private record Heart(float x, float startY, float speed, float sway, float phase, int scale, int alpha) {}
+		private final int color;
+		private final int hover;
+
+		Kind(int color, int hover) {
+			this.color = color;
+			this.hover = hover;
+		}
+	}
+
+	private record Button(String label, Kind kind, Runnable action, int gapBefore) {}
 
 	private final List<Button> buttons = new ArrayList<>();
-	private final List<Heart> hearts = new ArrayList<>();
-	private final Random random = new Random();
-	private final long openedAt = System.currentTimeMillis();
 	private Supplier<SkinTextures> skin;
-	/** Top of each button's text, from the last frame, for clicks. */
+	private PlayerSkinWidget skinWidget;
+	/** Top of each button, from the last frame, for clicks. */
 	private int[] buttonY = new int[0];
+	/** The layout canvas: everything but the background is drawn on it, scaled to the window. */
+	private float scale = 1;
+	private int canvasWidth;
+	private int canvasHeight;
 
 	public FemboyTitleScreen() {
-		super(false);
+		super(Text.literal("femboyware"));
 	}
 
 	@Override
 	protected void init() {
 		buttons.clear();
-		buttons.add(new Button("Singleplayer", () -> client.setScreen(new SelectWorldScreen(this)), 0));
-		buttons.add(new Button("Multiplayer", () -> client.setScreen(new MultiplayerScreen(this)), 0));
-		buttons.add(new Button("Minecraft Settings", () -> client.setScreen(new OptionsScreen(this, client.options)), 8));
-		buttons.add(new Button("Client", () -> client.setScreen(new ClickGuiScreen(FemboyWare.getModules().get(ClickGuiModule.class))), 0));
-		buttons.add(new Button("Quit Game", client::scheduleStop, 8));
-
-		GameProfile profile = client.getGameProfile();
-		skin = client.getSkinProvider().supplySkinTextures(profile, false);
-
-		hearts.clear();
-		for (int i = 0; i < module().particleCount(); i++) {
-			hearts.add(new Heart(random.nextFloat() * width, random.nextFloat() * height, 4 + random.nextFloat() * 10,
-				4 + random.nextFloat() * 10, random.nextFloat() * MathHelper.TAU, 1 + random.nextInt(2), 40 + random.nextInt(90)));
-		}
-	}
-
-	@Override
-	public void tick() {
+		buttons.add(new Button("Singleplayer", Kind.PRIMARY, () -> client.setScreen(new SelectWorldScreen(this)), 0));
+		buttons.add(new Button("Multiplayer", Kind.PRIMARY, () -> client.setScreen(new MultiplayerScreen(this)), 0));
+		buttons.add(new Button("Minecraft Settings", Kind.SECONDARY, () -> client.setScreen(new OptionsScreen(this, client.options)), 10));
+		buttons.add(new Button("Client", Kind.SECONDARY, () -> client.setScreen(new ClickGuiScreen(FemboyWare.getModules().get(ClickGuiModule.class))), 0));
+		buttons.add(new Button("Quit Game", Kind.SECONDARY, client::scheduleStop, 10));
+		skin = client.getSkinProvider().supplySkinTextures(client.getGameProfile(), false);
+		Supplier<SkinTextures> loaded = skin;
+		skinWidget = addDrawableChild(new PlayerSkinWidget(SKIN_WIDTH, SKIN_HEIGHT, client.getLoadedEntityModels(), () -> {
+			SkinTextures textures = loaded.get();
+			return textures != null ? textures : DefaultSkinHelper.getSkinTextures(client.getGameProfile());
+		}) {
+			/** Spins left and right only: tilting would swing the head away from the name tag above it. */
+			@Override
+			protected void onDrag(Click click, double offsetX, double offsetY) {
+				super.onDrag(click, offsetX, 0);
+			}
+		});
 	}
 
 	@Override
@@ -94,156 +106,122 @@ public class FemboyTitleScreen extends TitleScreen {
 
 	@Override
 	public void renderBackground(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
-		context.fill(0, 0, width, height, BACKGROUND);
+		SwirlBackground.draw(context, width, height);
+		// Darker towards the edges so the middle stays easy to read
+		context.fillGradient(0, 0, width, height / 3, 0x60000000, 0x00000000);
+		context.fillGradient(0, height * 2 / 3, width, height, 0x00000000, 0x70000000);
 	}
 
 	@Override
 	public void render(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
-		float time = (System.currentTimeMillis() - openedAt) / 1000f;
 		renderBackground(context, mouseX, mouseY, deltaTicks);
-		if (module().curtains()) {
-			drawCurtain(context, time, false);
-			drawCurtain(context, time, true);
+		scale = UiScale.scale();
+		canvasWidth = (int) (width / scale);
+		canvasHeight = (int) (height / scale);
+		context.getMatrices().pushMatrix();
+		context.getMatrices().scale(scale, scale);
+		UiScale.begin();
+		renderCanvas(context, (int) (mouseX / scale), (int) (mouseY / scale));
+		UiScale.end();
+		context.getMatrices().popMatrix();
+		// The 3D model draws in real GUI units, over its spot on the canvas
+		skinWidget.visible = module().skin();
+		if (skinWidget.visible) {
+			placeSkinWidget();
+			skinWidget.render(context, mouseX, mouseY, deltaTicks);
 		}
-		if (module().particles()) drawHearts(context, time);
+	}
 
-		TextRenderer font = textRenderer;
-		int center = width / 2;
-		// Logo and name
-		int logoScale = 5;
-		int logoTop = height / 2 - 105;
-		drawOutlinedHeart(context, center - 7 * logoScale / 2, logoTop + (int) (Math.sin(time * 2) * 2), logoScale);
-		drawScaledText(context, "femboyware", center, logoTop + 6 * logoScale + 10, 2f, TEXT);
+	private void renderCanvas(DrawContext context, int mouseX, int mouseY) {
+		int center = canvasWidth / 2;
 
-		// Buttons
-		int y = logoTop + 6 * logoScale + 42;
+		// Centre the title and buttons together, whatever the window size
+		int buttonsHeight = buttons.size() * (BUTTON_HEIGHT + BUTTON_GAP) - BUTTON_GAP;
+		for (Button button : buttons) buttonsHeight += button.gapBefore;
+		int titleY = Math.max(8, (canvasHeight - (TITLE_BLOCK + buttonsHeight)) / 2);
+		Text title = text("femboyware", CleanFontModule.TITLE);
+		context.drawText(textRenderer, title, center - textRenderer.getWidth(title) / 2, titleY, TEXT, false);
+		Text tagline = text("pink utility client", CleanFontModule.CLEAN);
+		context.drawText(textRenderer, tagline, center - textRenderer.getWidth(tagline) / 2, titleY + 22, MUTED, false);
+
+		int y = titleY + TITLE_BLOCK;
 		buttonY = new int[buttons.size()];
 		for (int i = 0; i < buttons.size(); i++) {
 			Button button = buttons.get(i);
 			y += button.gapBefore;
 			buttonY[i] = y;
 			boolean hovered = hovered(i, mouseX, mouseY);
-			int color = hovered ? PINK : i >= 2 ? MUTED : TEXT;
-			context.drawCenteredTextWithShadow(font, button.label, center, y, color);
-			if (hovered) {
-				int half = font.getWidth(button.label) / 2;
-				// Tiny hearts either side, and a pink underline
-				drawHeart(context, center - half - 12, y + 1, 1, PINK);
-				drawHeart(context, center + half + 5, y + 1, 1, PINK);
-				context.fill(center - half, y + font.fontHeight + 1, center + half, y + font.fontHeight + 2, PINK);
-			}
-			y += 16;
+			int left = center - BUTTON_WIDTH / 2;
+			roundedRect(context, left, y, left + BUTTON_WIDTH, y + BUTTON_HEIGHT, RADIUS, hovered ? button.kind.hover : button.kind.color);
+			Text label = text(button.label, CleanFontModule.CLEAN);
+			int labelY = y + (BUTTON_HEIGHT - textRenderer.fontHeight) / 2 + 1;
+			context.drawText(textRenderer, label, center - textRenderer.getWidth(label) / 2, labelY, TEXT, false);
+			y += BUTTON_HEIGHT + BUTTON_GAP;
 		}
 
-		if (module().skin()) drawSkin(context, time);
+		if (module().skin()) drawSkinExtras(context);
 
-		String version = "femboyware " + FemboyWare.VERSION + " · Minecraft " + SharedConstants.getGameVersion().name();
-		context.drawTextWithShadow(font, version, 4, height - 12, 0xFF6E5C6B);
-	}
-
-	// ---------------------------------------------------------------- background
-
-	/** Bands of pink that sway like curtains, darkest at the screen edge. */
-	private void drawCurtain(DrawContext context, float time, boolean right) {
-		int bands = 6;
-		for (int band = 0; band < bands; band++) {
-			float base = width * (0.06f + band * 0.035f);
-			float amplitude = 10 + band * 4;
-			int alpha = 26 - band * 3;
-			int color = (alpha << 24) | (PINK & 0x00FFFFFF);
-			for (int y = 0; y < height; y += 2) {
-				float wave = (float) Math.sin(y * 0.018f + time * 0.6f + band * 0.9f) * amplitude
-					+ (float) Math.sin(y * 0.007f - time * 0.35f + band) * amplitude * 0.6f;
-				int edge = (int) (base + wave);
-				if (right) context.fill(width - edge, y, width, y + 2, color);
-				else context.fill(0, y, edge, y + 2, color);
-			}
-		}
-	}
-
-	/** Hearts drifting upwards, swaying, wrapping round to the bottom. */
-	private void drawHearts(DrawContext context, float time) {
-		for (Heart heart : hearts) {
-			float travel = (heart.startY - time * heart.speed) % (height + 20);
-			if (travel < -20) travel += height + 20;
-			float x = heart.x + (float) Math.sin(time * 0.8f + heart.phase) * heart.sway;
-			int color = (heart.alpha << 24) | (SOFT_PINK & 0x00FFFFFF);
-			drawHeart(context, (int) x, (int) travel, heart.scale, color);
-		}
+		Text version = text("femboyware " + FemboyWare.VERSION + "  ·  Minecraft " + SharedConstants.getGameVersion().name(), CleanFontModule.CLEAN);
+		context.drawText(textRenderer, version, 6, canvasHeight - 14, 0xB0FFFFFF, false);
+		Text credit = text("made by yum", CleanFontModule.CLEAN);
+		context.drawText(textRenderer, credit, canvasWidth - 6 - textRenderer.getWidth(credit), canvasHeight - 14, 0xB0FFFFFF, false);
 	}
 
 	// ---------------------------------------------------------------- skin
 
-	/** Your skin standing front-on, drawn from the skin texture, gently bobbing on a pink glow. */
-	private void drawSkin(DrawContext context, float time) {
-		SkinTextures textures = skin != null ? skin.get() : null;
-		if (textures == null) textures = DefaultSkinHelper.getSkinTextures(client.getGameProfile());
-		Identifier texture = textures.body().texturePath();
-		boolean slim = textures.model() == PlayerSkinType.SLIM;
-		int arm = slim ? 3 : 4;
-		int scale = Math.max(3, height / 90);
-		int centerX = (int) (width * 0.76f);
-		int top = height / 2 - 16 * scale + (int) (Math.sin(time * 1.5f) * 2);
-
-		// Glow under the feet
-		for (int i = 0; i < 6; i++) {
-			int w = (12 + i * 3) * scale;
-			int alpha = 22 - i * 3;
-			context.fill(centerX - w / 2, top + 32 * scale - i, centerX + w / 2, top + 32 * scale + 2 + i, (alpha << 24) | (PINK & 0x00FFFFFF));
-		}
-
-		int left = centerX - 4 * scale;
-		// Base layer, then the overlay layer on top: head, body, arms, legs
-		part(context, texture, left, top, 8, 8, 8, 8, scale);
-		part(context, texture, left, top + 8 * scale, 20, 20, 8, 12, scale);
-		part(context, texture, left - arm * scale, top + 8 * scale, 44, 20, arm, 12, scale);
-		part(context, texture, left + 8 * scale, top + 8 * scale, 36, 52, arm, 12, scale);
-		part(context, texture, left, top + 20 * scale, 4, 20, 4, 12, scale);
-		part(context, texture, left + 4 * scale, top + 20 * scale, 20, 52, 4, 12, scale);
-		part(context, texture, left, top, 40, 8, 8, 8, scale);
-		part(context, texture, left, top + 8 * scale, 20, 36, 8, 12, scale);
-		part(context, texture, left - arm * scale, top + 8 * scale, 44, 36, arm, 12, scale);
-		part(context, texture, left + 8 * scale, top + 8 * scale, 52, 52, arm, 12, scale);
-		part(context, texture, left, top + 20 * scale, 4, 36, 4, 12, scale);
-		part(context, texture, left + 4 * scale, top + 20 * scale, 4, 52, 4, 12, scale);
-
-		// Name with a little underline, like an account picker
-		String name = client.getGameProfile().name();
-		int nameY = top - 26;
-		context.drawCenteredTextWithShadow(textRenderer, name + " ♡", centerX, nameY, TEXT);
-		int half = (textRenderer.getWidth(name + " ♡")) / 2;
-		context.fill(centerX - half, nameY + textRenderer.fontHeight + 2, centerX + half, nameY + textRenderer.fontHeight + 3, 0x80FF77C8);
+	/** Where the 3D skin goes on the canvas: right of the buttons, standing still so its tag and shadow stay put. */
+	private int skinTop() {
+		return canvasHeight / 2 - SKIN_HEIGHT / 2;
 	}
 
-	private static void part(DrawContext context, Identifier texture, int x, int y, int u, int v, int w, int h, int scale) {
-		context.drawTexture(RenderPipelines.GUI_TEXTURED, texture, x, y, u, v, w * scale, h * scale, w, h, 64, 64);
+	/** A soft shadow on the ground under the skin's feet and your name on a tag above its head; the model itself is {@link #skinWidget}. */
+	private void drawSkinExtras(DrawContext context) {
+		int centerX = (int) (canvasWidth * 0.78f);
+		int top = skinTop();
+		// The model is drawn 97% of the widget's height, centred, so its feet are just above the bottom
+		int feet = top + Math.round(SKIN_HEIGHT * 0.985f);
+		Glass.ellipse(context, centerX - 30, feet - 6, centerX + 30, feet + 6, 0x80000000);
+
+		Text name = text(client.getGameProfile().name(), CleanFontModule.CLEAN);
+		int nameWidth = textRenderer.getWidth(name);
+		int tagTop = top - 20;
+		roundedRect(context, centerX - nameWidth / 2 - 8, tagTop, centerX + nameWidth / 2 + 8, tagTop + 16, 4, 0xF0401838);
+		context.drawText(textRenderer, name, centerX - nameWidth / 2, tagTop + 5, TEXT, false);
 	}
 
-	// ---------------------------------------------------------------- shapes
-
-	private static void drawHeart(DrawContext context, int x, int y, int scale, int color) {
-		for (int row = 0; row < HEART.length; row++) {
-			for (int column = 0; column < HEART[row].length(); column++) {
-				if (HEART[row].charAt(column) != 'X') continue;
-				context.fill(x + column * scale, y + row * scale, x + (column + 1) * scale, y + (row + 1) * scale, color);
-			}
-		}
+	/** Keeps the 3D model's widget over its spot on the canvas, in real GUI units, whatever the window size. */
+	private void placeSkinWidget() {
+		int centerX = (int) (canvasWidth * 0.78f);
+		skinWidget.setX(Math.round((centerX - SKIN_WIDTH / 2f) * scale));
+		skinWidget.setY(Math.round(skinTop() * scale));
+		skinWidget.setWidth(Math.round(SKIN_WIDTH * scale));
+		skinWidget.setHeight(Math.round(SKIN_HEIGHT * scale));
 	}
 
-	/** A pink heart with a dark heart inside it, so only the outline shows. */
-	private static void drawOutlinedHeart(DrawContext context, int x, int y, int scale) {
-		drawHeart(context, x, y, scale, PINK);
-		int inner = Math.max(1, scale - 2);
-		int offsetX = (7 * scale - 7 * inner) / 2;
-		int offsetY = (int) ((6 * scale - 6 * inner) / 2.5f);
-		drawHeart(context, x + offsetX, y + offsetY, inner, BACKGROUND);
+	// ---------------------------------------------------------------- drawing helpers
+
+	private static Text text(String text, StyleSpriteSource font) {
+		return Text.literal(text).setStyle(Style.EMPTY.withFont(font));
 	}
 
-	private void drawScaledText(DrawContext context, String text, int centerX, int y, float scale, int color) {
+	/**
+	 * A solid rectangle with its corners rounded off by {@code radius}. The curve is drawn in real
+	 * screen pixels, not layout units, so it stays smooth however far the canvas is scaled.
+	 */
+	static void roundedRect(DrawContext context, int x1, int y1, int x2, int y2, int radius, int color) {
+		int density = UiScale.density();
 		context.getMatrices().pushMatrix();
-		context.getMatrices().translate(centerX, y);
-		context.getMatrices().scale(scale, scale);
-		context.drawCenteredTextWithShadow(textRenderer, text, 0, 0, color);
+		context.getMatrices().scale(1f / density, 1f / density);
+		int left = x1 * density, top = y1 * density, right = x2 * density, bottom = y2 * density;
+		int r = Math.min(radius * density, Math.min((right - left) / 2, (bottom - top) / 2));
+		context.fill(left, top + r, right, bottom - r, color);
+		for (int row = 0; row < r; row++) {
+			// How far in the curve sits on this pixel row, from the circle through the corner
+			double dy = r - row - 0.5;
+			int inset = (int) Math.round(r - Math.sqrt(r * r - dy * dy));
+			context.fill(left + inset, top + row, right - inset, top + row + 1, color);
+			context.fill(left + inset, bottom - row - 1, right - inset, bottom - row, color);
+		}
 		context.getMatrices().popMatrix();
 	}
 
@@ -251,21 +229,23 @@ public class FemboyTitleScreen extends TitleScreen {
 
 	private boolean hovered(int index, double mouseX, double mouseY) {
 		if (index >= buttonY.length) return false;
-		int half = textRenderer.getWidth(buttons.get(index).label) / 2 + 6;
+		int left = canvasWidth / 2 - BUTTON_WIDTH / 2;
 		int y = buttonY[index];
-		return mouseX >= width / 2.0 - half && mouseX <= width / 2.0 + half && mouseY >= y - 3 && mouseY < y + textRenderer.fontHeight + 3;
+		return mouseX >= left && mouseX < left + BUTTON_WIDTH && mouseY >= y && mouseY < y + BUTTON_HEIGHT;
 	}
 
 	@Override
 	public boolean mouseClicked(Click click, boolean doubled) {
-		if (click.button() != GLFW.GLFW_MOUSE_BUTTON_LEFT) return false;
-		for (int i = 0; i < buttons.size(); i++) {
-			if (!hovered(i, click.x(), click.y())) continue;
-			client.getSoundManager().play(PositionedSoundInstance.ui(SoundEvents.UI_BUTTON_CLICK, 1f));
-			buttons.get(i).action.run();
-			return true;
+		if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+			for (int i = 0; i < buttons.size(); i++) {
+				if (!hovered(i, click.x() / scale, click.y() / scale)) continue;
+				client.getSoundManager().play(PositionedSoundInstance.ui(SoundEvents.UI_BUTTON_CLICK, 1f));
+				buttons.get(i).action.run();
+				return true;
+			}
 		}
-		return false;
+		// Anything else goes to the skin, which spins when dragged
+		return super.mouseClicked(click, doubled);
 	}
 
 	private static MainMenuModule module() {

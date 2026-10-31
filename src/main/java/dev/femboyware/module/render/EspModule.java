@@ -3,6 +3,7 @@ package dev.femboyware.module.render;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
+import dev.femboyware.module.utility.FriendsModule;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.EnumSetting;
@@ -130,7 +131,7 @@ public class EspModule extends Module {
 
 	private int getColor(Entity entity) {
 		if (isTarget(entity)) return targetColor.get();
-		int color = switch (colorMode.get()) {
+		int color = FriendsModule.color(entity, switch (colorMode.get()) {
 			case ENTITY_TYPE -> switch (EntityKind.of(entity)) {
 				case PLAYER -> playersColor.get();
 				case ANIMAL -> animalsColor.get();
@@ -141,7 +142,7 @@ public class EspModule extends Module {
 			};
 			case DISTANCE -> EntityKind.distanceColor(mc.gameRenderer.getCamera().getCameraPos().distanceTo(entity.getEntityPos()));
 			case HEALTH -> healthColor(entity);
-		};
+		});
 
 		// Fade out entities right next to the camera so they don't cover the screen
 		double distance = mc.gameRenderer.getCamera().getCameraPos().distanceTo(entity.getEyePos());

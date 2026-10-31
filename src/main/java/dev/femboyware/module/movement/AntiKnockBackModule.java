@@ -4,17 +4,18 @@ import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
+import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 
 /** Scales the knockback you take from hits and explosions. Applied by the network handler mixin. */
 public class AntiKnockBackModule extends Module {
 	private final NumberSetting horizontal = add(new NumberSetting("Horizontal", "Percent of horizontal knockback to keep", 0, 0, 100, 1));
 	private final NumberSetting vertical = add(new NumberSetting("Vertical", "Percent of vertical knockback to keep", 0, 0, 100, 1));
-	private final BoolSetting hits = add(new BoolSetting("Hits", "Scale knockback from attacks", true));
-	private final BoolSetting explosions = add(new BoolSetting("Explosions", "Scale knockback from explosions", true));
+	private final BoolSetting hits = add(new BoolSetting("Hits", "Knockback from hits, arrows, fishing rods and anything else that shoves you", true));
+	private final BoolSetting explosions = add(new BoolSetting("Explosions", "Knockback from crystals, anchors, TNT, beds and wind charges", true));
 
 	public AntiKnockBackModule() {
-		super("Anti Knock Back", "Reduces the knockback you take", Category.BASIC);
+		super("Anti Knock Back", "Stops knockback from moving you; at 0% you don't budge at all", Category.BASIC);
 	}
 
 	@Override
@@ -22,10 +23,16 @@ public class AntiKnockBackModule extends Module {
 		return horizontal.getInt() + "% " + vertical.getInt() + "%";
 	}
 
-	/** Velocity the server set on us from a hit. */
+	/**
+	 * Velocity the server set on us from a hit. At 0% the knockback is ignored outright, so we keep
+	 * moving exactly as we were (standing still stays standing still) instead of being stopped dead.
+	 */
 	public Vec3d modifyVelocity(Vec3d velocity) {
 		if (!isEnabled() || !hits.get()) return velocity;
-		return scale(velocity);
+		Vec3d current = mc.player.getVelocity();
+		double h = horizontal.get() / 100.0;
+		double v = vertical.get() / 100.0;
+		return new Vec3d(MathHelper.lerp(h, current.x, velocity.x), MathHelper.lerp(v, current.y, velocity.y), MathHelper.lerp(h, current.z, velocity.z));
 	}
 
 	/** Velocity added to us by an explosion. */

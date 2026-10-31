@@ -3,9 +3,9 @@ package dev.femboyware.module;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.event.PacketEvent;
 import dev.femboyware.event.Render3DEvent;
+import dev.femboyware.gui.UiScale;
 import dev.femboyware.module.client.ClickGuiModule;
 import dev.femboyware.module.client.FakePlayerModule;
-import dev.femboyware.module.client.HudModule;
 import dev.femboyware.module.client.MoveFixModule;
 import dev.femboyware.module.combat.AuraModule;
 import dev.femboyware.module.combat.AutoAnchorModule;
@@ -22,6 +22,12 @@ import dev.femboyware.module.combat.BreachSwapModule;
 import dev.femboyware.module.combat.BurrowModule;
 import dev.femboyware.module.combat.CriticalsModule;
 import dev.femboyware.module.combat.HoleFillerModule;
+import dev.femboyware.module.combat.LegitAnchorModule;
+import dev.femboyware.module.combat.BodyguardModule;
+import dev.femboyware.module.combat.LegitAuraModule;
+import dev.femboyware.module.combat.LegitCrystalModule;
+import dev.femboyware.module.combat.LegitPotModule;
+import dev.femboyware.module.combat.LegitTotemModule;
 import dev.femboyware.module.combat.MaceKillerModule;
 import dev.femboyware.module.combat.MainhandTotemModule;
 import dev.femboyware.module.combat.MoreKnockbackModule;
@@ -30,6 +36,44 @@ import dev.femboyware.module.combat.QuiverModule;
 import dev.femboyware.module.combat.SelfTrapModule;
 import dev.femboyware.module.combat.SurroundModule;
 import dev.femboyware.module.combat.TrapModule;
+import dev.femboyware.module.effects.AuraParticlesModule;
+import dev.femboyware.module.effects.AuroraModule;
+import dev.femboyware.module.effects.ComboCounterModule;
+import dev.femboyware.module.effects.ConeHatModule;
+import dev.femboyware.module.effects.CryptoOrbitModule;
+import dev.femboyware.module.effects.FairyCompanionModule;
+import dev.femboyware.module.effects.FirefliesModule;
+import dev.femboyware.module.effects.HaloModule;
+import dev.femboyware.module.effects.JumpCirclesModule;
+import dev.femboyware.module.effects.KillEffectsModule;
+import dev.femboyware.module.effects.LightningLinkModule;
+import dev.femboyware.module.effects.MagicCircleModule;
+import dev.femboyware.module.effects.NekoModule;
+import dev.femboyware.module.effects.PetalRainModule;
+import dev.femboyware.module.effects.PlanetModule;
+import dev.femboyware.module.effects.RainbowModule;
+import dev.femboyware.module.effects.RibbonTrailModule;
+import dev.femboyware.module.effects.SkyLanternsModule;
+import dev.femboyware.module.effects.SkySwirlsModule;
+import dev.femboyware.module.effects.StarfieldModule;
+import dev.femboyware.module.effects.SwingTrailModule;
+import dev.femboyware.module.effects.TargetMarkerModule;
+import dev.femboyware.module.effects.TargetRingModule;
+import dev.femboyware.module.effects.TargetSwirlModule;
+import dev.femboyware.module.effects.TotemPopsModule;
+import dev.femboyware.module.effects.WingsModule;
+import dev.femboyware.module.hud.ArmorModule;
+import dev.femboyware.module.hud.CoordinatesModule;
+import dev.femboyware.module.hud.InfoModule;
+import dev.femboyware.module.hud.KeystrokesModule;
+import dev.femboyware.module.hud.IslandModule;
+import dev.femboyware.module.hud.LyricsModule;
+import dev.femboyware.module.hud.MediaPlayerModule;
+import dev.femboyware.module.hud.ModuleListModule;
+import dev.femboyware.module.hud.NotificationsModule;
+import dev.femboyware.module.hud.PotionEffectsModule;
+import dev.femboyware.module.hud.TargetHudModule;
+import dev.femboyware.module.hud.WatermarkModule;
 import dev.femboyware.module.movement.AirJumpModule;
 import dev.femboyware.module.movement.AntiKnockBackModule;
 import dev.femboyware.module.movement.AntiVoidModule;
@@ -76,7 +120,11 @@ import dev.femboyware.module.render.AspectModule;
 import dev.femboyware.module.render.BaseEspModule;
 import dev.femboyware.module.render.BetterTabModule;
 import dev.femboyware.module.render.BlockEspModule;
+import dev.femboyware.module.render.BlockOutlineModule;
 import dev.femboyware.module.render.BreadcrumbsModule;
+import dev.femboyware.module.render.CapeModule;
+import dev.femboyware.module.render.CleanFontModule;
+import dev.femboyware.module.render.CrosshairModule;
 import dev.femboyware.module.render.CrystalChamsModule;
 import dev.femboyware.module.render.DamageParticlesModule;
 import dev.femboyware.module.render.DamageTintModule;
@@ -85,6 +133,7 @@ import dev.femboyware.module.render.EspModule;
 import dev.femboyware.module.render.FarmEspModule;
 import dev.femboyware.module.render.FreeLookModule;
 import dev.femboyware.module.render.FullBrightModule;
+import dev.femboyware.module.render.FurryModule;
 import dev.femboyware.module.render.GeodeEspModule;
 import dev.femboyware.module.render.HandChamsModule;
 import dev.femboyware.module.render.HitFxModule;
@@ -94,8 +143,10 @@ import dev.femboyware.module.render.KelpEspModule;
 import dev.femboyware.module.render.LogoutSpotsModule;
 import dev.femboyware.module.render.MainMenuModule;
 import dev.femboyware.module.render.NametagsModule;
+import dev.femboyware.module.render.NewChunksModule;
 import dev.femboyware.module.render.NoCameraClipModule;
 import dev.femboyware.module.render.ParticlesModule;
+import dev.femboyware.module.render.PinkSkyModule;
 import dev.femboyware.module.render.PopChamsModule;
 import dev.femboyware.module.render.PortalEspModule;
 import dev.femboyware.module.render.RainbowArmorModule;
@@ -112,6 +163,10 @@ import dev.femboyware.module.render.TrajectoriesModule;
 import dev.femboyware.module.render.TungSahurModule;
 import dev.femboyware.module.render.ViewModelModule;
 import dev.femboyware.module.render.WorldRendererModule;
+import dev.femboyware.module.theme.BackgroundModule;
+import dev.femboyware.module.theme.ColorsModule;
+import dev.femboyware.module.theme.GlassModule;
+import dev.femboyware.module.theme.ShineModule;
 import dev.femboyware.module.utility.AirPlaceModule;
 import dev.femboyware.module.utility.AntiAfkModule;
 import dev.femboyware.module.utility.AutoArmorModule;
@@ -122,14 +177,17 @@ import dev.femboyware.module.utility.AutoFishModule;
 import dev.femboyware.module.utility.AutoLandModule;
 import dev.femboyware.module.utility.AutoMendModule;
 import dev.femboyware.module.utility.AutoMeowModule;
+import dev.femboyware.module.utility.AutoMoanModule;
 import dev.femboyware.module.utility.AutoReconnectModule;
 import dev.femboyware.module.utility.AutoReplenishModule;
 import dev.femboyware.module.utility.AutoRespawnModule;
 import dev.femboyware.module.utility.AutoShearModule;
 import dev.femboyware.module.utility.AutoSignModule;
 import dev.femboyware.module.utility.AutoToolModule;
+import dev.femboyware.module.utility.ChatPlusModule;
 import dev.femboyware.module.utility.FastUseModule;
 import dev.femboyware.module.utility.FreeCamModule;
+import dev.femboyware.module.utility.FriendsModule;
 import dev.femboyware.module.utility.FtHelperModule;
 import dev.femboyware.module.utility.LiquidInteractModule;
 import dev.femboyware.module.utility.MiddleClickExtraModule;
@@ -146,6 +204,7 @@ import dev.femboyware.module.utility.SoilRipperModule;
 import dev.femboyware.module.utility.SoundBlockerModule;
 import dev.femboyware.module.utility.SpeedMineModule;
 import dev.femboyware.module.utility.TpsSyncModule;
+import dev.femboyware.module.utility.WaypointsModule;
 import dev.femboyware.module.utility.ZoomModule;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.gui.DrawContext;
@@ -169,6 +228,12 @@ public class ModuleManager {
 		// Pvp: Attack
 		register(new AutoAnchorModule());
 		register(new AuraModule());
+		register(new LegitAuraModule());
+		register(new LegitCrystalModule());
+		register(new LegitAnchorModule());
+		register(new LegitTotemModule());
+		register(new LegitPotModule());
+		register(new BodyguardModule());
 		register(new AutoCrystalModule());
 		register(new AutoDripstoneModule());
 		register(new AutoMineModule());
@@ -242,6 +307,16 @@ public class ModuleManager {
 		register(new TimeChangerModule());
 		register(new BetterTabModule());
 		register(new BreadcrumbsModule());
+		register(new CleanFontModule());
+		register(new CapeModule());
+		register(new FurryModule());
+		register(new CrosshairModule());
+		register(new BlockOutlineModule());
+		register(new NewChunksModule());
+		register(new ColorsModule());
+		register(new GlassModule());
+		register(new ShineModule());
+		register(new BackgroundModule());
 		register(new AspectModule());
 		register(new CrystalChamsModule());
 		register(new DamageParticlesModule());
@@ -278,6 +353,36 @@ public class ModuleManager {
 		register(new NametagsModule());
 		register(new StorageEspModule());
 		register(new TracersModule());
+		// Customize: Targets
+		register(new TargetSwirlModule());
+		register(new TargetRingModule());
+		register(new TargetMarkerModule());
+		register(new KillEffectsModule());
+		register(new LightningLinkModule());
+		register(new ComboCounterModule());
+		register(new TotemPopsModule());
+		// Customize: Effects
+		register(new WingsModule());
+		register(new CryptoOrbitModule());
+		register(new HaloModule());
+		register(new ConeHatModule());
+		register(new MagicCircleModule());
+		register(new JumpCirclesModule());
+		register(new RibbonTrailModule());
+		register(new NekoModule());
+		register(new FairyCompanionModule());
+		register(new AuraParticlesModule());
+		register(new SwingTrailModule());
+		// Customize: Sky
+		register(new PinkSkyModule());
+		register(new SkySwirlsModule());
+		register(new AuroraModule());
+		register(new StarfieldModule());
+		register(new PlanetModule());
+		register(new RainbowModule());
+		register(new SkyLanternsModule());
+		register(new PetalRainModule());
+		register(new FirefliesModule());
 		// Utility: World
 		register(new AutoBoneMealModule());
 		register(new AutoLandModule());
@@ -308,17 +413,37 @@ public class ModuleManager {
 		register(new AutoMendModule());
 		register(new AutoReplenishModule());
 		register(new MiddleClickExtraModule());
+		register(new FriendsModule());
+		register(new WaypointsModule());
+		register(new ChatPlusModule());
 		register(new NoRotateModule());
 		register(new ReachModule());
 		register(new AntiAfkModule());
 		register(new FastUseModule());
 		// Utility: Misc
 		register(new AutoMeowModule());
+		register(new AutoMoanModule());
+		// Hit Sounds is hidden for now; register it again to bring it back
+		// register(new HitSoundsModule());
 		register(new AutoReconnectModule());
 		register(new NameProtectModule());
 		register(new SoundBlockerModule());
 		register(new ClickGuiModule());
-		register(new HudModule());
+		register(new WatermarkModule());
+		register(new ModuleListModule());
+		register(new CoordinatesModule());
+		register(new TargetHudModule());
+		register(new PotionEffectsModule());
+		register(new ArmorModule());
+		register(new InfoModule());
+		register(new KeystrokesModule());
+		register(new MediaPlayerModule());
+		register(new IslandModule());
+		register(new LyricsModule());
+		register(new dev.femboyware.module.hud.GuardHudModule());
+		register(new dev.femboyware.module.hud.SessionStatsModule());
+		register(new dev.femboyware.module.combat.GuardCommandModule());
+		register(new NotificationsModule());
 	}
 
 	private void register(Module module) {
@@ -355,10 +480,19 @@ public class ModuleManager {
 		for (Module module : modules) {
 			if (module.getKey() == key) module.toggle();
 		}
+		dispatch(module -> module.onKey(key));
 	}
 
 	public void onTick() {
 		dispatch(Module::onTick);
+	}
+
+	public void onInput() {
+		dispatch(Module::onInput);
+	}
+
+	public void onFrame() {
+		dispatch(Module::onFrame);
 	}
 
 	public void onPreMotion() {
@@ -395,11 +529,22 @@ public class ModuleManager {
 	}
 
 	public void onRender3D(Render3DEvent event) {
-		dispatch(module -> module.onRender3D(event));
+		// Our labels and nametags use the clean font even though Minecraft's in-game text doesn't
+		UiScale.beginClient();
+		try {
+			dispatch(module -> module.onRender3D(event));
+		} finally {
+			UiScale.endClient();
+		}
 	}
 
 	public void onRender2D(DrawContext context, float tickDelta) {
-		dispatch(module -> module.onRender2D(context, tickDelta));
+		UiScale.beginClient();
+		try {
+			dispatch(module -> module.onRender2D(context, tickDelta));
+		} finally {
+			UiScale.endClient();
+		}
 	}
 
 	public boolean onPacketReceive(PacketEvent event) {

@@ -1,5 +1,6 @@
 package dev.femboyware.module.utility;
 
+import dev.femboyware.FemboyWare;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
@@ -68,7 +69,8 @@ public class MiddleClickExtraModule extends Module {
 		// Runs before vanilla handles input this tick, so taking the press here stops pick block
 		boolean clicked = false;
 		while (mc.options.pickItemKey.wasPressed()) clicked = true;
-		if (clicked) use();
+		// A middle click on a player adds or removes them as a friend instead
+		if (clicked && !FemboyWare.getModules().get(FriendsModule.class).onMiddleClick()) use();
 	}
 
 	private void use() {

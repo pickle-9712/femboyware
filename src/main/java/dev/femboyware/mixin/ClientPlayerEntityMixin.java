@@ -5,6 +5,7 @@ import com.llamalad7.mixinextras.injector.ModifyReturnValue;
 import com.llamalad7.mixinextras.sugar.Local;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.movement.NoPushModule;
+import dev.femboyware.module.movement.PhaseModule;
 import dev.femboyware.module.movement.NoSlowModule;
 import dev.femboyware.module.utility.FreeCamModule;
 import dev.femboyware.module.utility.LiquidInteractModule;
@@ -33,6 +34,7 @@ public class ClientPlayerEntityMixin {
 	 */
 	@Inject(method = "tickMovement", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/input/Input;tick()V", shift = At.Shift.AFTER))
 	private void femboyware$fixMovementInput(CallbackInfo ci) {
+		FemboyWare.getModules().onInput();
 		if (FemboyWare.getRotations().isMoveFixActive() && !FemboyWare.isEnabled(FreeCamModule.class)) {
 			MoveFix.fixInput((ClientPlayerEntity) (Object) this, FemboyWare.getRotations().getServerYaw());
 		}
@@ -56,7 +58,8 @@ public class ClientPlayerEntityMixin {
 
 	@Inject(method = "pushOutOfBlocks", at = @At("HEAD"), cancellable = true)
 	private void femboyware$noBlockPush(double x, double z, CallbackInfo ci) {
-		if (FemboyWare.getModules().get(NoPushModule.class).blocks()) ci.cancel();
+		// No Push, or Phase holding us in the block we pearled into
+		if (FemboyWare.getModules().get(NoPushModule.class).blocks() || FemboyWare.getModules().get(PhaseModule.class).holdInBlock()) ci.cancel();
 	}
 
 	@ModifyExpressionValue(method = "applyMovementSpeedFactors", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/network/ClientPlayerEntity;isUsingItem()Z"))

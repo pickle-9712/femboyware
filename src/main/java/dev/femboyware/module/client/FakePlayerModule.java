@@ -1,9 +1,11 @@
 package dev.femboyware.module.client;
 
 import com.mojang.authlib.GameProfile;
+import dev.femboyware.FemboyWare;
 import dev.femboyware.event.PacketEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
+import dev.femboyware.module.render.TungSahurModule;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.StringSetting;
@@ -88,10 +90,13 @@ public class FakePlayerModule extends Module {
 		if (invulnerableTicks > 0) invulnerableTicks--;
 		if (fake != null && !fake.isDead()) return;
 
+		// Leave the body for the death animation, and for Tung Sahur's bonking, before removing it
+		if (fake != null && (deadTicks < 20 || FemboyWare.getModules().get(TungSahurModule.class).holdsBody(fake))) {
+			deadTicks = Math.min(deadTicks + 1, 20);
+			return;
+		}
+		if (fake != null) despawn();
 		deadTicks++;
-		// Leave the body for the vanilla death animation before removing it
-		if (deadTicks == 20) despawn();
-		if (deadTicks < 20) return;
 		if (!respawn.get()) setEnabled(false);
 		else if (deadTicks >= 20 + respawnDelay.getInt()) spawn(spawnPos, spawnYaw);
 	}

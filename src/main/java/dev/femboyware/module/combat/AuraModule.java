@@ -3,6 +3,7 @@ package dev.femboyware.module.combat;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
+import dev.femboyware.module.utility.FriendsModule;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
@@ -158,6 +159,11 @@ public class AuraModule extends Module {
 		return target == null ? null : target.getName().getString();
 	}
 
+	/** Who Aura is fighting, or null; for the Target HUD. */
+	public LivingEntity getTarget() {
+		return isEnabled() ? target : null;
+	}
+
 	@Override
 	protected void onEnable() {
 		reset();
@@ -279,7 +285,7 @@ public class AuraModule extends Module {
 		double bestDistance = Double.MAX_VALUE;
 		for (Entity entity : mc.world.getEntities()) {
 			if (!(entity instanceof LivingEntity living) || entity == mc.player || !living.isAlive()) continue;
-			if (!isValidType(living)) continue;
+			if (!isValidType(living) || FriendsModule.protects(living)) continue;
 			double distance = eyes.distanceTo(BlockUtil.closestPoint(living.getBoundingBox(), eyes));
 			if (distance > maxRange || distance >= bestDistance) continue;
 			// Otherwise we'd lock onto someone behind a wall and never swing at anyone

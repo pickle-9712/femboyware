@@ -3,6 +3,7 @@ package dev.femboyware.module;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.event.PacketEvent;
 import dev.femboyware.event.Render3DEvent;
+import dev.femboyware.module.hud.NotificationsModule;
 import dev.femboyware.setting.Setting;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
@@ -58,6 +59,7 @@ public abstract class Module {
 			// Modules can be toggled from the main menu, before any world exists
 			FemboyWare.LOGGER.error("Module {} threw while being {}", name, enabled ? "enabled" : "disabled", e);
 		}
+		if (FemboyWare.getModules() != null) NotificationsModule.onToggle(this);
 	}
 
 	/** Extra text shown next to the module name in the array list. */
@@ -78,7 +80,18 @@ public abstract class Module {
 	}
 
 	/** Called after vanilla computed this tick's movement input, before the player moves. */
+	/** Right after the movement keys are read each tick, before anything acts on them; change {@code mc.player.input} here. */
+	public void onInput() {
+	}
+
 	public void onMovementInput() {
+	}
+
+	/**
+	 * Called once every frame while in a world, whether or not the world is drawn (Bodyguard's low
+	 * power mode skips drawing it). Turn the camera here.
+	 */
+	public void onFrame() {
 	}
 
 	/** Called right before the local player attacks {@code target}. */
@@ -90,6 +103,10 @@ public abstract class Module {
 	}
 
 	/** Called on the netty thread. Only touch thread-safe state or schedule work with {@code mc.execute}. */
+	/** A key was pressed in game, with no screen open; for modules with their own key settings. */
+	public void onKey(int key) {
+	}
+
 	public void onPacketReceive(PacketEvent event) {
 	}
 

@@ -1,0 +1,30 @@
+{
+	"providers": [
+		{
+			"type": "ttf",
+			"file": "femboyware:poppins-semibold.ttf",
+			"size": 8.0,
+			"oversample": 8.0,
+			"shift": [
+				0.0,
+				0.0
+			],
+			"skip": ""
+		},
+		{
+			"type": "ttf",
+			"file": "femboyware:inter-bold.ttf",
+			"size": 8.0,
+			"oversample": 8.0,
+			"shift": [
+				0.0,
+				0.0
+			],
+			"skip": ""
+		},
+		{
+			"type": "reference",
+			"id": "minecraft:default"
+		}
+	]
+}

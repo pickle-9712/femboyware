@@ -22,6 +22,12 @@ import java.util.Optional;
 /** Fires block updates on the main thread after the client world has applied them. */
 @Mixin(ClientPlayNetworkHandler.class)
 public class ClientPlayNetworkHandlerMixin {
+	/** Chat starting with "." is a femboyware command: handled here, never sent to the server. */
+	@Inject(method = "sendChatMessage", at = @At("HEAD"), cancellable = true)
+	private void femboyware$command(String message, CallbackInfo ci) {
+		if (FemboyWare.getCommands() != null && FemboyWare.getCommands().handle(message)) ci.cancel();
+	}
+
 	@Inject(method = "onBlockUpdate", at = @At("TAIL"))
 	private void femboyware$onBlockUpdate(BlockUpdateS2CPacket packet, CallbackInfo ci) {
 		FemboyWare.getModules().onBlockUpdate(packet.getPos(), packet.getState());

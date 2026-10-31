@@ -4,6 +4,7 @@ import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import com.llamalad7.mixinextras.injector.ModifyReturnValue;
 import com.llamalad7.mixinextras.sugar.Local;
 import dev.femboyware.FemboyWare;
+import dev.femboyware.module.combat.LegitAuraModule;
 import dev.femboyware.module.render.FreeLookModule;
 import dev.femboyware.module.render.NoCameraClipModule;
 import dev.femboyware.module.utility.FreeCamModule;
@@ -30,12 +31,16 @@ public abstract class CameraMixin {
 	/** Free Look: the camera turns with the free look angles instead of the player's. */
 	@ModifyExpressionValue(method = "update", at = @At(value = "INVOKE", target = "Lnet/minecraft/entity/Entity;getYaw(F)F"), require = 0)
 	private float femboyware$freeLookYaw(float yaw, @Local(argsOnly = true) Entity focusedEntity) {
-		return isFreeLook(focusedEntity) ? FemboyWare.getModules().get(FreeLookModule.class).getYaw() : yaw;
+		if (isFreeLook(focusedEntity)) return FemboyWare.getModules().get(FreeLookModule.class).getYaw();
+		// Legit Aura's side view: turned a quarter round, the third person camera sits beside you instead of behind
+		return isSideView(focusedEntity) ? yaw - 90 : yaw;
 	}
 
 	@ModifyExpressionValue(method = "update", at = @At(value = "INVOKE", target = "Lnet/minecraft/entity/Entity;getPitch(F)F"), require = 0)
 	private float femboyware$freeLookPitch(float pitch, @Local(argsOnly = true) Entity focusedEntity) {
-		return isFreeLook(focusedEntity) ? FemboyWare.getModules().get(FreeLookModule.class).getPitch() : pitch;
+		if (isFreeLook(focusedEntity)) return FemboyWare.getModules().get(FreeLookModule.class).getPitch();
+		// From the side, a steady slight downward look keeps both of you in view whichever way you aim
+		return isSideView(focusedEntity) ? 12 : pitch;
 	}
 
 	@Inject(method = "update", at = @At("TAIL"))
@@ -55,6 +60,11 @@ public abstract class CameraMixin {
 	@Inject(method = "clipToSpace", at = @At("HEAD"), cancellable = true)
 	private void femboyware$noCameraClip(float distance, CallbackInfoReturnable<Float> cir) {
 		if (FemboyWare.isEnabled(NoCameraClipModule.class)) cir.setReturnValue(FemboyWare.getModules().get(NoCameraClipModule.class).getDistance());
+	}
+
+	private static boolean isSideView(Entity focusedEntity) {
+		return focusedEntity == MinecraftClient.getInstance().player && FemboyWare.getModules() != null
+			&& FemboyWare.getModules().get(LegitAuraModule.class).sideView();
 	}
 
 	private static boolean isFreeLook(Entity focusedEntity) {

@@ -4,6 +4,7 @@ import dev.femboyware.FemboyWare;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
+import dev.femboyware.module.utility.FriendsModule;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.EnumSetting;
@@ -129,6 +130,11 @@ public class AutoAnchorModule extends Module {
 		super("Auto Anchor", "Places, charges and blows up respawn anchors next to your target", Category.ATTACK);
 	}
 
+	/** The player currently being anchored, or null. */
+	public PlayerEntity getTarget() {
+		return target;
+	}
+
 	@Override
 	public String getInfo() {
 		return target == null ? null : target.getName().getString() + " " + detonations;
@@ -238,7 +244,7 @@ public class AutoAnchorModule extends Module {
 	private List<PlayerEntity> findTargets() {
 		List<PlayerEntity> targets = new ArrayList<>();
 		for (PlayerEntity player : mc.world.getPlayers()) {
-			if (player == mc.player || !player.isAlive() || player.isSpectator() || player.isCreative()) continue;
+			if (player == mc.player || !player.isAlive() || player.isSpectator() || player.isCreative() || FriendsModule.protects(player)) continue;
 			if (player.squaredDistanceTo(mc.player) > targetRange.get() * targetRange.get()) continue;
 			targets.add(player);
 		}

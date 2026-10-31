@@ -1,6 +1,8 @@
 package dev.femboyware.mixin;
 
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
+import dev.femboyware.FemboyWare;
+import dev.femboyware.module.render.BlockOutlineModule;
 import dev.femboyware.util.ProjectionUtil;
 import net.minecraft.client.render.Camera;
 import net.minecraft.client.render.RenderTickCounter;
@@ -20,5 +22,11 @@ public class WorldRendererMixin {
 											Camera camera, Matrix4f positionMatrix, Matrix4f basicProjectionMatrix, Matrix4f projectionMatrix,
 											GpuBufferSlice fogBuffer, Vector4f fogColor, boolean renderSky, CallbackInfo ci) {
 		ProjectionUtil.update(positionMatrix, basicProjectionMatrix, camera.getCameraPos());
+	}
+
+	/** Block Outline draws its own outline, so the vanilla one is skipped. */
+	@Inject(method = "renderTargetBlockOutline", at = @At("HEAD"), cancellable = true)
+	private void femboyware$blockOutline(CallbackInfo ci) {
+		if (FemboyWare.isEnabled(BlockOutlineModule.class)) ci.cancel();
 	}
 }

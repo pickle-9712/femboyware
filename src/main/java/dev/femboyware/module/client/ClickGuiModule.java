@@ -1,21 +1,21 @@
 package dev.femboyware.module.client;
 
 import dev.femboyware.gui.ClickGuiScreen;
+import dev.femboyware.gui.Theme;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
-import dev.femboyware.setting.ColorSetting;
 import org.lwjgl.glfw.GLFW;
 
 public class ClickGuiModule extends Module {
-	private final ColorSetting accent = add(new ColorSetting("Accent", "GUI accent colour", 0xFFFF77C8));
 	private ClickGuiScreen screen;
 
 	public ClickGuiModule() {
 		super("ClickGUI", "Opens this menu", Category.MISC, GLFW.GLFW_KEY_RIGHT_SHIFT);
 	}
 
+	/** The accent lives in the Customize panel's Colors module. */
 	public int getAccent() {
-		return accent.get() | 0xFF000000;
+		return Theme.accent();
 	}
 
 	@Override
