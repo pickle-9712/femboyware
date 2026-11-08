@@ -1,17 +1,16 @@
 package dev.femboyware.util;
 
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.RegistryKeys;
-import net.minecraft.registry.tag.TagKey;
-import net.minecraft.util.Identifier;
-
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Predicate;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 
 /** Turns a setting like {@code "crafting_table, #beds"} into a block test. */
 public final class BlockMatcher {
@@ -28,13 +27,13 @@ public final class BlockMatcher {
 			boolean tag = entry.startsWith("#");
 			Identifier id = Identifier.tryParse(tag ? entry.substring(1) : entry);
 			if (id == null) continue;
-			if (tag) tags.add(TagKey.of(RegistryKeys.BLOCK, id));
-			else Registries.BLOCK.getOptionalValue(id).ifPresent(blocks::add);
+			if (tag) tags.add(TagKey.create(Registries.BLOCK, id));
+			else BuiltInRegistries.BLOCK.getOptional(id).ifPresent(blocks::add);
 		}
 		return state -> {
 			if (blocks.contains(state.getBlock())) return true;
 			for (TagKey<Block> tag : tags) {
-				if (state.isIn(tag)) return true;
+				if (state.is(tag)) return true;
 			}
 			return false;
 		};

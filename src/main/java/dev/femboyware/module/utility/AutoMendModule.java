@@ -5,15 +5,14 @@ import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.StringSetting;
 import dev.femboyware.util.InventoryUtil;
-import net.minecraft.enchantment.Enchantments;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.Identifier;
-
 import java.util.HashSet;
 import java.util.Set;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.enchantment.Enchantments;
 
 /**
  * Cycles damaged Mending items through your offhand so XP repairs them one after another.
@@ -46,7 +45,7 @@ public class AutoMendModule extends Module {
 			blacklisted = parseItems(blacklist.get());
 			parsedFrom = blacklist.get();
 		}
-		if (mc.player.currentScreenHandler != mc.player.playerScreenHandler || shouldWait()) return;
+		if (mc.player.containerMenu != mc.player.inventoryMenu || shouldWait()) return;
 
 		int slot = findDamaged();
 		if (slot != -1) {
@@ -64,17 +63,17 @@ public class AutoMendModule extends Module {
 
 	/** Wait while the offhand holds a Mending item still being repaired, or anything else unless forced. */
 	private boolean shouldWait() {
-		ItemStack offhand = mc.player.getOffHandStack();
+		ItemStack offhand = mc.player.getOffhandItem();
 		if (offhand.isEmpty()) return false;
-		if (InventoryUtil.getEnchantmentLevel(offhand, Enchantments.MENDING) > 0) return offhand.getDamage() != 0;
+		if (InventoryUtil.getEnchantmentLevel(offhand, Enchantments.MENDING) > 0) return offhand.getDamageValue() != 0;
 		return !force.get();
 	}
 
 	private int findDamaged() {
-		for (int i = 0; i < PlayerInventory.MAIN_SIZE; i++) {
-			ItemStack stack = mc.player.getInventory().getStack(i);
+		for (int i = 0; i < Inventory.INVENTORY_SIZE; i++) {
+			ItemStack stack = mc.player.getInventory().getItem(i);
 			if (blacklisted.contains(stack.getItem())) continue;
-			if (InventoryUtil.getEnchantmentLevel(stack, Enchantments.MENDING) > 0 && stack.getDamage() > 0) return i;
+			if (InventoryUtil.getEnchantmentLevel(stack, Enchantments.MENDING) > 0 && stack.getDamageValue() > 0) return i;
 		}
 		return -1;
 	}
@@ -84,7 +83,7 @@ public class AutoMendModule extends Module {
 		for (String part : text.split(",")) {
 			if (part.isBlank()) continue;
 			Identifier id = Identifier.tryParse(part.trim().toLowerCase());
-			if (id != null) Registries.ITEM.getOptionalValue(id).ifPresent(result::add);
+			if (id != null) BuiltInRegistries.ITEM.getOptional(id).ifPresent(result::add);
 		}
 		return result;
 	}

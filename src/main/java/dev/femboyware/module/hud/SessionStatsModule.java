@@ -8,12 +8,11 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.util.ChatUtil;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.EntityStatuses;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.network.packet.s2c.play.EntityStatusS2CPacket;
-
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.protocol.game.ClientboundEntityEventPacket;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityEvent;
+import net.minecraft.world.entity.player.Player;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -83,7 +82,7 @@ public class SessionStatsModule extends HudElement {
 		hit.clear();
 		hasLast = false;
 		wasDead = false;
-		lastServer = mc.getCurrentServerEntry() == null ? "Singleplayer" : mc.getCurrentServerEntry().address;
+		lastServer = mc.getCurrentServer() == null ? "Singleplayer" : mc.getCurrentServer().ip;
 	}
 
 	/** Called on leaving, whether or not the HUD element is showing. */
@@ -108,24 +107,24 @@ public class SessionStatsModule extends HudElement {
 
 	@Override
 	protected void onEnable() {
-		if (joined == 0 && mc.world != null) start();
+		if (joined == 0 && mc.level != null) start();
 	}
 
 	@Override
 	public void onPostAttack(Entity target) {
-		if (target instanceof PlayerEntity) hit.put(target.getUuid(), System.currentTimeMillis());
+		if (target instanceof Player) hit.put(target.getUUID(), System.currentTimeMillis());
 	}
 
 	/** Runs on the network thread, as packets arrive. */
 	@Override
 	public void onPacketReceive(PacketEvent event) {
-		if (!(event.getPacket() instanceof EntityStatusS2CPacket packet) || mc.world == null || mc.player == null) return;
-		Entity entity = packet.getEntity(mc.world);
-		if (!(entity instanceof PlayerEntity)) return;
-		if (packet.getStatus() == EntityStatuses.USE_TOTEM_OF_UNDYING) {
+		if (!(event.getPacket() instanceof ClientboundEntityEventPacket packet) || mc.level == null || mc.player == null) return;
+		Entity entity = packet.getEntity(mc.level);
+		if (!(entity instanceof Player)) return;
+		if (packet.getEventId() == EntityEvent.PROTECTED_FROM_DEATH) {
 			if (entity == mc.player) pops.incrementAndGet();
-		} else if (packet.getStatus() == EntityStatuses.PLAY_DEATH_SOUND_OR_ADD_PROJECTILE_HIT_PARTICLES && entity != mc.player) {
-			Long when = hit.remove(entity.getUuid());
+		} else if (packet.getEventId() == EntityEvent.DEATH && entity != mc.player) {
+			Long when = hit.remove(entity.getUUID());
 			if (when != null && System.currentTimeMillis() - when <= KILL_WINDOW) {
 				kills.incrementAndGet();
 				bestStreak.accumulateAndGet(currentStreak.incrementAndGet(), Math::max);
@@ -140,7 +139,7 @@ public class SessionStatsModule extends HudElement {
 			ChatUtil.info(waitingSummary);
 			waitingSummary = null;
 		}
-		boolean dead = mc.player.isDead();
+		boolean dead = mc.player.isDeadOrDying();
 		if (dead && !wasDead) {
 			deaths++;
 			currentStreak.set(0);
@@ -176,7 +175,7 @@ public class SessionStatsModule extends HudElement {
 	@Override
 	public int width(boolean editing) {
 		int widest = 0;
-		for (String[] line : lines()) widest = Math.max(widest, mc.textRenderer.getWidth(line[0] + "  " + line[1]));
+		for (String[] line : lines()) widest = Math.max(widest, mc.font.width(line[0] + "  " + line[1]));
 		return widest == 0 ? 0 : widest + 12;
 	}
 
@@ -186,15 +185,15 @@ public class SessionStatsModule extends HudElement {
 	}
 
 	@Override
-	protected void draw(DrawContext context, int left, int top, boolean editing) {
+	protected void draw(GuiGraphics context, int left, int top, boolean editing) {
 		List<String[]> lines = lines();
 		if (lines.isEmpty()) return;
 		if (background.get()) Glass.draw(context, left, top, left + width(editing), top + height(editing), 4, backgroundColor(Theme.list()), false);
 		for (int i = 0; i < lines.size(); i++) {
 			String[] line = lines.get(i);
 			int y = top + 4 + i * 10;
-			context.drawTextWithShadow(mc.textRenderer, line[0], left + 6, y, accentColor());
-			context.drawTextWithShadow(mc.textRenderer, line[1], left + width(editing) - 6 - mc.textRenderer.getWidth(line[1]), y, textColor());
+			context.drawString(mc.font, line[0], left + 6, y, accentColor());
+			context.drawString(mc.font, line[1], left + width(editing) - 6 - mc.font.width(line[1]), y, textColor());
 		}
 	}
 }

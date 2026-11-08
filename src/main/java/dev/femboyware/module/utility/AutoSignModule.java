@@ -4,8 +4,8 @@ import dev.femboyware.event.PacketEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.StringSetting;
-import net.minecraft.network.packet.c2s.play.UpdateSignC2SPacket;
-import net.minecraft.network.packet.s2c.play.SignEditorOpenS2CPacket;
+import net.minecraft.network.protocol.game.ClientboundOpenSignEditorPacket;
+import net.minecraft.network.protocol.game.ServerboundSignUpdatePacket;
 
 /** Fills in signs you place with preset text, skipping the editor. */
 public class AutoSignModule extends Module {
@@ -20,11 +20,11 @@ public class AutoSignModule extends Module {
 
 	@Override
 	public void onPacketReceive(PacketEvent event) {
-		if (!(event.getPacket() instanceof SignEditorOpenS2CPacket packet)) return;
+		if (!(event.getPacket() instanceof ClientboundOpenSignEditorPacket packet)) return;
 		event.cancel();
 		mc.execute(() -> {
-			if (mc.getNetworkHandler() == null) return;
-			mc.getNetworkHandler().sendPacket(new UpdateSignC2SPacket(packet.getPos(), packet.isFront(), line1.get(), line2.get(), line3.get(), line4.get()));
+			if (mc.getConnection() == null) return;
+			mc.getConnection().send(new ServerboundSignUpdatePacket(packet.getPos(), packet.isFrontText(), line1.get(), line2.get(), line3.get(), line4.get()));
 		});
 	}
 }

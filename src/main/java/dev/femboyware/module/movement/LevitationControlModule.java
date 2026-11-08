@@ -3,7 +3,7 @@ package dev.femboyware.module.movement;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.entity.effect.StatusEffects;
+import net.minecraft.world.effect.MobEffects;
 
 /**
  * Lets you steer levitation: jump rises, sneak sinks and doing neither hovers. Applied after
@@ -18,10 +18,10 @@ public class LevitationControlModule extends Module {
 	}
 
 	public void afterTravel() {
-		if (!isEnabled() || !mc.player.hasStatusEffect(StatusEffects.LEVITATION)) return;
+		if (!isEnabled() || !mc.player.hasEffect(MobEffects.LEVITATION)) return;
 		double y = 0;
-		if (mc.options.jumpKey.isPressed()) y = upSpeed.get();
-		else if (mc.options.sneakKey.isPressed()) y = -downSpeed.get();
-		mc.player.setVelocity(mc.player.getVelocity().x, y, mc.player.getVelocity().z);
+		if (mc.options.keyJump.isDown()) y = upSpeed.get();
+		else if (mc.options.keyShift.isDown()) y = -downSpeed.get();
+		mc.player.setDeltaMovement(mc.player.getDeltaMovement().x, y, mc.player.getDeltaMovement().z);
 	}
 }

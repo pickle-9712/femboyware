@@ -7,9 +7,6 @@ import dev.femboyware.module.combat.AutoCrystalModule;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.StringSetting;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.player.PlayerEntity;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -17,6 +14,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 
 /**
  * Meows in chat :3 Every so often on a random timer, and after you kill someone.
@@ -74,7 +73,7 @@ public class AutoMeowModule extends Module {
 
 	@Override
 	public void onPostAttack(Entity target) {
-		if (target instanceof PlayerEntity player && player != mc.player && !player.isDead()) track(player, System.currentTimeMillis());
+		if (target instanceof Player player && player != mc.player && !player.isDeadOrDying()) track(player, System.currentTimeMillis());
 	}
 
 	@Override
@@ -97,13 +96,13 @@ public class AutoMeowModule extends Module {
 
 	private void checkKills(long now) {
 		AutoCrystalModule crystal = FemboyWare.getModules().get(AutoCrystalModule.class);
-		if (crystal.isEnabled() && crystal.getTarget() instanceof PlayerEntity target && !target.isDead()) track(target, now);
+		if (crystal.isEnabled() && crystal.getTarget() instanceof Player target && !target.isDeadOrDying()) track(target, now);
 		// Forget a death once its body is gone or back alive; respawned players usually get a new id anyway
-		celebrated.removeIf(id -> !(mc.world.getEntityById(id) instanceof PlayerEntity player) || !player.isDead());
+		celebrated.removeIf(id -> !(mc.level.getEntity(id) instanceof Player player) || !player.isDeadOrDying());
 		recentTargets.entrySet().removeIf(entry -> {
 			if (now - entry.getValue() > KILL_WINDOW_MILLIS) return true;
-			Entity entity = mc.world.getEntityById(entry.getKey());
-			if (!(entity instanceof PlayerEntity player) || !player.isDead()) return false;
+			Entity entity = mc.level.getEntity(entry.getKey());
+			if (!(entity instanceof Player player) || !player.isDeadOrDying()) return false;
 			if (!celebrated.add(entry.getKey())) return true;
 			String message = pick(killMessages.get(), player.getName().getString());
 			if (message != null) {
@@ -114,7 +113,7 @@ public class AutoMeowModule extends Module {
 		});
 	}
 
-	private void track(PlayerEntity player, long now) {
+	private void track(Player player, long now) {
 		if (!celebrated.contains(player.getId())) recentTargets.put(player.getId(), now);
 	}
 
@@ -146,8 +145,8 @@ public class AutoMeowModule extends Module {
 	}
 
 	private void send(String message) {
-		if (message.startsWith("/")) mc.getNetworkHandler().sendChatCommand(message.substring(1));
-		else mc.getNetworkHandler().sendChatMessage(message);
+		if (message.startsWith("/")) mc.getConnection().sendCommand(message.substring(1));
+		else mc.getConnection().sendChat(message);
 		lastSent = System.currentTimeMillis();
 		sent++;
 	}

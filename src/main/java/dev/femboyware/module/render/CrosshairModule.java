@@ -6,9 +6,9 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.entity.Entity;
-import net.minecraft.util.hit.HitResult;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.HitResult;
 
 /**
  * Your own crosshair in place of Minecraft's: a cross, dot, circle or heart in any colour, with a
@@ -42,15 +42,15 @@ public class CrosshairModule extends Module {
 	}
 
 	/** Called from InGameHudMixin in place of the vanilla crosshair. */
-	public void render(DrawContext context) {
-		if (!mc.options.getPerspective().isFirstPerson()) return;
-		if (mc.player.isSpectator() && (mc.crosshairTarget == null || mc.crosshairTarget.getType() != HitResult.Type.ENTITY)) return;
+	public void render(GuiGraphics context) {
+		if (!mc.options.getCameraType().isFirstPerson()) return;
+		if (mc.player.isSpectator() && (mc.hitResult == null || mc.hitResult.getType() != HitResult.Type.ENTITY)) return;
 
 		// Work in real screen pixels from the middle of the screen
-		float scale = (float) mc.getWindow().getScaleFactor();
-		context.getMatrices().pushMatrix();
-		context.getMatrices().translate(context.getScaledWindowWidth() / 2f, context.getScaledWindowHeight() / 2f);
-		context.getMatrices().scale(1 / scale, 1 / scale);
+		float scale = (float) mc.getWindow().getGuiScale();
+		context.pose().pushMatrix();
+		context.pose().translate(context.guiWidth() / 2f, context.guiHeight() / 2f);
+		context.pose().scale(1 / scale, 1 / scale);
 
 		int s = size.getInt();
 		int t = thickness.getInt();
@@ -73,18 +73,18 @@ public class CrosshairModule extends Module {
 			}
 		}
 
-		float progress = mc.player.getAttackCooldownProgress(0);
+		float progress = mc.player.getAttackStrengthScale(0);
 		if (charge.get() && progress < 1) {
 			int width = Math.max(16, s * 2);
 			int top = s / 2 + 6;
 			context.fill(-width / 2, top, width / 2, top + 2, 0x80000000);
 			context.fill(-width / 2, top, -width / 2 + Math.round(width * progress), top + 2, tint);
 		}
-		context.getMatrices().popMatrix();
+		context.pose().popMatrix();
 	}
 
 	/** The crosshair shape, grown by {@code grow} pixels on every side (for the outline). */
-	private void shape(DrawContext context, int s, int t, int color, int grow) {
+	private void shape(GuiGraphics context, int s, int t, int color, int grow) {
 		switch (style.get()) {
 			case CROSS -> {
 				int g = gap.getInt();
@@ -103,7 +103,7 @@ public class CrosshairModule extends Module {
 	}
 
 	/** A filled circle of {@code radius}, or a ring when {@code hole} is above zero. */
-	private static void disc(DrawContext context, int radius, int hole, int color) {
+	private static void disc(GuiGraphics context, int radius, int hole, int color) {
 		for (int y = -radius; y <= radius; y++) {
 			int outer = (int) Math.round(Math.sqrt(radius * radius - y * y + 0.25));
 			if (hole <= 0 || Math.abs(y) >= hole) {
@@ -117,7 +117,7 @@ public class CrosshairModule extends Module {
 	}
 
 	/** A small heart about {@code size} pixels across, filled row by row. */
-	private static void heart(DrawContext context, int size, int color) {
+	private static void heart(GuiGraphics context, int size, int color) {
 		double half = size / 2.0;
 		for (int py = -size / 2; py <= size / 2; py++) {
 			int start = Integer.MIN_VALUE;

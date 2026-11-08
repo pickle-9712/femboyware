@@ -1,16 +1,15 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.phys.Vec3;
 
 /** Glowing paper lanterns drifting up into the sky all round you, swaying and flickering as they rise. */
 public class SkyLanternsModule extends SkyFxModule {
@@ -57,7 +56,7 @@ public class SkyLanternsModule extends SkyFxModule {
 		long now = System.nanoTime();
 		float delta = lastFrame == 0 ? 0 : Math.min(0.1f, (now - lastFrame) / 1e9f);
 		lastFrame = now;
-		Vec3d cam = event.camera().pos;
+		Vec3 cam = event.camera().pos;
 		double range = spread.get();
 
 		lanterns.removeIf(l -> l.y > cam.y + 120 || Math.abs(l.x - cam.x) > range * 1.5 || Math.abs(l.z - cam.z) > range * 1.5);
@@ -85,12 +84,12 @@ public class SkyLanternsModule extends SkyFxModule {
 			VertexConsumer light = FxRender.textured(event, FxRender.GLOW, true, false);
 			for (Lantern lantern : lanterns) {
 				float flicker = 0.8f + 0.2f * (float) Math.sin(time * 9 + lantern.phase) * (float) Math.sin(time * 5.3 + lantern.phase * 2);
-				FxRender.glow(event, light, new Vec3d(lantern.x, lantern.y, lantern.z), 1.8f * s, FxRender.fade(palette.at(lantern.tint), 0.6f * flicker * fadeOut(lantern, cam)));
+				FxRender.glow(event, light, new Vec3(lantern.x, lantern.y, lantern.z), 1.8f * s, FxRender.fade(palette.at(lantern.tint), 0.6f * flicker * fadeOut(lantern, cam)));
 			}
 		}
 		VertexConsumer bodies = FxRender.textured(event, LANTERN, false, false);
 		for (Lantern lantern : lanterns) {
-			Vec3d pos = new Vec3d(lantern.x, lantern.y, lantern.z);
+			Vec3 pos = new Vec3(lantern.x, lantern.y, lantern.z);
 			float sway = (float) Math.sin(time * 1.3 + lantern.phase) * 0.12f;
 			FxRender.billboard(event, bodies, (float) (pos.x - cam.x), (float) (pos.y - cam.y), (float) (pos.z - cam.z), 0.6f * s, sway,
 				FxRender.fade(FxRender.lighten(palette.at(lantern.tint), 0.45f), fadeOut(lantern, cam)));
@@ -98,7 +97,7 @@ public class SkyLanternsModule extends SkyFxModule {
 	}
 
 	/** Lanterns fade as they climb out of sight. */
-	private static float fadeOut(Lantern lantern, Vec3d cam) {
+	private static float fadeOut(Lantern lantern, Vec3 cam) {
 		return (float) Math.max(0, Math.min(1, (cam.y + 120 - lantern.y) / 40));
 	}
 }

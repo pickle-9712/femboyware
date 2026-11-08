@@ -5,13 +5,12 @@ import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.StringSetting;
 import dev.femboyware.util.MoveUtil;
-import net.minecraft.entity.effect.StatusEffect;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.util.Identifier;
-
 import java.util.HashSet;
 import java.util.Set;
+import net.minecraft.core.Holder;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.effect.MobEffect;
 
 /**
  * Stops chosen effects counting down. In singleplayer the effect really lasts; on servers the
@@ -23,7 +22,7 @@ public class PotionSaverModule extends Module {
 		"strength, absorption, resistance, fire_resistance, speed, haste, regeneration, water_breathing, saturation, luck, slow_falling, dolphins_grace, conduit_power, hero_of_the_village"));
 	private final BoolSetting onlyWhenStationary = add(new BoolSetting("Only Stationary", "Only freeze effects while you stand still", false));
 
-	private Set<StatusEffect> frozen = Set.of();
+	private Set<MobEffect> frozen = Set.of();
 	private String parsedFrom;
 
 	public PotionSaverModule() {
@@ -31,7 +30,7 @@ public class PotionSaverModule extends Module {
 	}
 
 	/** Called from StatusEffectInstanceMixin before an effect ticks down. */
-	public boolean shouldFreeze(RegistryEntry<StatusEffect> effect) {
+	public boolean shouldFreeze(Holder<MobEffect> effect) {
 		if (!isEnabled() || mc.player == null) return false;
 		if (!effects.get().equals(parsedFrom)) {
 			frozen = parseEffects(effects.get());
@@ -41,12 +40,12 @@ public class PotionSaverModule extends Module {
 		return frozen.contains(effect.value());
 	}
 
-	private static Set<StatusEffect> parseEffects(String text) {
-		Set<StatusEffect> result = new HashSet<>();
+	private static Set<MobEffect> parseEffects(String text) {
+		Set<MobEffect> result = new HashSet<>();
 		for (String part : text.split(",")) {
 			if (part.isBlank()) continue;
 			Identifier id = Identifier.tryParse(part.trim().toLowerCase());
-			if (id != null) Registries.STATUS_EFFECT.getOptionalValue(id).ifPresent(result::add);
+			if (id != null) BuiltInRegistries.MOB_EFFECT.getOptional(id).ifPresent(result::add);
 		}
 		return result;
 	}

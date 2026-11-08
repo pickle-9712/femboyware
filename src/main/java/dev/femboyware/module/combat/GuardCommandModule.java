@@ -5,29 +5,24 @@ import dev.femboyware.manager.CommandManager;
 import dev.femboyware.manager.GuardLink;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
-import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.KeySetting;
-import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.StringSetting;
 import dev.femboyware.util.ChatUtil;
-import net.minecraft.util.hit.HitResult;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Turn this on on the principal's game to give bodyguards orders privately: {@code .g pause} goes
  * straight to every connected guard over {@link GuardLink}, and nothing reaches the server's chat.
  */
 public class GuardCommandModule extends Module {
-	private final StringSetting key = add(new StringSetting("Link Key", "Password shared with the guards' Link Key setting; use something long, since it protects commands run on the guards", ""));
-	private final NumberSetting port = add(new NumberSetting("Port", "Port the guards connect to", GuardLink.DEFAULT_PORT, 1024, 65535, 1));
-	private final BoolSetting otherComputers = add(new BoolSetting("Other Computers", "Accept guards on other computers, not just this one", false));
+	private final StringSetting key = add(new StringSetting("Link Key", "Password shared with the guards' Link Key setting. Works between any computers and networks; use something long, since it protects commands run on the guards", ""));
 	private final KeySetting rallyKey = add(new KeySetting("Rally Key", "Press to call every guard to you", -1));
 	private final KeySetting hereKey = add(new KeySetting("Send Here Key", "Press to send every guard to the block you're looking at", -1));
 
@@ -43,7 +38,11 @@ public class GuardCommandModule extends Module {
 	private static final long STATUS_GONE = 30_000;
 	private static final double LOOK_RANGE = 128;
 
+	private static final int DEFAULT_ROUNDS = 3;
+	private static final double DEFAULT_ARENA_RADIUS = 6;
+
 	private final Map<String, GuardStatus> statuses = new ConcurrentHashMap<>();
+	private final BotArena arena = new BotArena(this);
 	private GuardLink.Server server;
 	private String running = "";
 
@@ -58,6 +57,7 @@ public class GuardCommandModule extends Module {
 
 	@Override
 	protected void onDisable() {
+		arena.stop();
 		stopServer();
 	}
 
@@ -65,6 +65,11 @@ public class GuardCommandModule extends Module {
 	public void onTick() {
 		sync();
 		statuses.values().removeIf(status -> status.age() > STATUS_GONE);
+		arena.tick();
+	}
+
+	public BotArena arena() {
+		return arena;
 	}
 
 	@Override
@@ -94,12 +99,12 @@ public class GuardCommandModule extends Module {
 
 	/** Starts the link, or restarts it if the settings changed. */
 	private void sync() {
-		String wanted = key.get() + "|" + port.getInt() + "|" + otherComputers.get();
+		String wanted = key.get();
 		if (wanted.equals(running)) return;
 		stopServer();
 		if (key.get().isBlank()) return;
 		running = wanted;
-		server = new GuardLink.Server(key.get(), port.getInt(), otherComputers.get(), event -> mc.execute(() -> ChatUtil.info(event)), this::noteStatus);
+		server = new GuardLink.Server(key.get(), event -> mc.execute(() -> ChatUtil.info(event)), this::noteStatus);
 	}
 
 	private void stopServer() {
@@ -113,24 +118,62 @@ public class GuardCommandModule extends Module {
 	private String placed(String order) {
 		String lower = order.toLowerCase(Locale.ROOT);
 		if (mc.player == null) return order;
-		if (lower.equals("rally") || lower.equals("r")) return "rally " + coordinates(mc.player.getEntityPos());
+		if (lower.equals("rally") || lower.equals("r")) return "rally " + coordinates(mc.player.position());
 		if (lower.equals("ffa")) {
 			// Everyone connected, so guards on other computers know who's in it
 			List<String> names = new ArrayList<>();
 			for (GuardStatus guard : guards()) names.add(guard.name());
 			return names.size() < 2 ? null : "ffa " + String.join(",", names);
 		}
-		if (lower.equals("crowd")) return "crowd " + coordinates(mc.player.getEntityPos());
+		if (lower.equals("crowd")) return "crowd " + coordinates(mc.player.position());
 		if (lower.equals("here")) {
-			HitResult look = mc.player.raycast(LOOK_RANGE, 1, false);
+			HitResult look = mc.player.pick(LOOK_RANGE, 1, false);
 			if (look.getType() != HitResult.Type.BLOCK) return null;
-			return "goto " + coordinates(look.getPos());
+			return "goto " + coordinates(look.getLocation());
 		}
 		return order;
 	}
 
-	private static String coordinates(Vec3d pos) {
+	private static String coordinates(Vec3 pos) {
 		return String.format(Locale.ROOT, "%.2f %.2f %.2f", pos.x, pos.y, pos.z);
+	}
+
+	/** Sends an order to every connected guard without saying anything in chat; how many got it. */
+	int sendToGuards(String order) {
+		if (!isEnabled()) return 0;
+		sync();
+		return server == null ? 0 : server.send(order);
+	}
+
+	/** {@code .g arena [first to] [radius]} starts a match where you're standing, and {@code .g arena stop} ends it. */
+	private void arenaCommand(String[] parts) {
+		String usage = "Usage: " + CommandManager.PREFIX + "g arena [first to] [radius], or " + CommandManager.PREFIX + "g arena stop";
+		if (parts.length > 1 && (parts[1].equalsIgnoreCase("stop") || parts[1].equalsIgnoreCase("end") || parts[1].equalsIgnoreCase("off"))) {
+			if (arena.phase() == BotArena.Phase.OFF) ChatUtil.info("No arena match is running");
+			else {
+				arena.stop();
+				ChatUtil.info("Stopped the arena match");
+			}
+			return;
+		}
+		if (arena.phase() != BotArena.Phase.OFF) {
+			ChatUtil.info("A match is already running. Stop it with " + CommandManager.PREFIX + "g arena stop");
+			return;
+		}
+		int rounds;
+		double radius;
+		try {
+			rounds = parts.length > 1 ? Integer.parseInt(parts[1]) : DEFAULT_ROUNDS;
+			radius = parts.length > 2 ? Double.parseDouble(parts[2]) : DEFAULT_ARENA_RADIUS;
+		} catch (NumberFormatException e) {
+			ChatUtil.info(usage);
+			return;
+		}
+		if (rounds < 1 || radius < 2 || radius > 64) {
+			ChatUtil.info(usage + " (first to 1 or more, radius 2 to 64)");
+			return;
+		}
+		arena.start(rounds, radius);
 	}
 
 	/** Handles {@code .g <order>}. */
@@ -147,6 +190,19 @@ public class GuardCommandModule extends Module {
 		if (order.isEmpty()) {
 			ChatUtil.info("Usage: " + CommandManager.PREFIX + "g <order>, like " + CommandManager.PREFIX + "g pause or " + CommandManager.PREFIX + "g say /leave");
 			return;
+		}
+		String[] parts = order.split("\\s+");
+		switch (parts[0].toLowerCase(Locale.ROOT)) {
+			case "arena" -> {
+				arenaCommand(parts);
+				return;
+			}
+			case "bet" -> {
+				arena.bet(parts);
+				return;
+			}
+			default -> {
+			}
 		}
 		String words = placed(order);
 		if (words == null) {

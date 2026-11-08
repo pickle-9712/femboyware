@@ -1,16 +1,15 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.List;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
 /** A see-through cone hat with a gradient swirling round it, worn at the angle of your head. */
 public class ConeHatModule extends PlayerFxModule {
@@ -30,20 +29,20 @@ public class ConeHatModule extends PlayerFxModule {
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
-		List<PlayerEntity> wearers = wearers(false);
+		List<Player> wearers = wearers(false);
 		if (wearers.isEmpty()) return;
 		float tickDelta = tickDelta();
-		Vec3d cam = event.camera().pos;
-		MatrixStack matrices = event.matrices();
+		Vec3 cam = event.camera().pos;
+		PoseStack matrices = event.matrices();
 		float r = radius.getFloat(), h = height.getFloat(), alpha = opacity.getFloat();
 		float swirl = (float) (time() * spin.get() * 0.5);
 
 		VertexConsumer cone = FxRender.quads(event, false, false);
-		for (PlayerEntity player : wearers) {
-			matrices.push();
+		for (Player player : wearers) {
+			matrices.pushPose();
 			toHead(matrices, player, cam.x, cam.y, cam.z, tickDelta);
 			matrices.translate(0, -0.02f, 0);
-			MatrixStack.Entry pose = matrices.peek();
+			PoseStack.Pose pose = matrices.last();
 			int apex = FxRender.fade(FxRender.lighten(palette.at(swirl), 0.4f), Math.min(1, alpha * 1.4f));
 			for (int i = 0; i < SEGMENTS; i++) {
 				float t1 = (float) i / SEGMENTS, t2 = (float) (i + 1) / SEGMENTS;
@@ -52,23 +51,23 @@ public class ConeHatModule extends PlayerFxModule {
 					(float) Math.cos(a1) * r, 0, (float) Math.sin(a1) * r, FxRender.fade(palette.at(t1 + swirl), alpha),
 					(float) Math.cos(a2) * r, 0, (float) Math.sin(a2) * r, FxRender.fade(palette.at(t2 + swirl), alpha));
 			}
-			matrices.pop();
+			matrices.popPose();
 		}
 
 		if (!outline.get()) return;
 		VertexConsumer lines = FxRender.lines(event);
-		for (PlayerEntity player : wearers) {
-			matrices.push();
+		for (Player player : wearers) {
+			matrices.pushPose();
 			toHead(matrices, player, cam.x, cam.y, cam.z, tickDelta);
 			matrices.translate(0, -0.02f, 0);
-			MatrixStack.Entry pose = matrices.peek();
+			PoseStack.Pose pose = matrices.last();
 			for (int i = 0; i < SEGMENTS; i++) {
 				float t1 = (float) i / SEGMENTS, t2 = (float) (i + 1) / SEGMENTS;
 				double a1 = t1 * Math.PI * 2, a2 = t2 * Math.PI * 2;
 				FxRender.line(lines, pose, (float) Math.cos(a1) * r, 0, (float) Math.sin(a1) * r,
 					(float) Math.cos(a2) * r, 0, (float) Math.sin(a2) * r, FxRender.opaque(palette.at(t1 + swirl)), 2f);
 			}
-			matrices.pop();
+			matrices.popPose();
 		}
 	}
 }

@@ -20,6 +20,14 @@ public class EnumSetting<E extends Enum<E>> extends Setting<E> {
 		set(constants[Math.floorMod(index, constants.length)]);
 	}
 
+	public E[] getConstants() {
+		return constants.clone();
+	}
+
+	public void setIndex(int index) {
+		set(constants[Math.floorMod(index, constants.length)]);
+	}
+
 	public String getDisplayName() {
 		return prettify(get().name());
 	}

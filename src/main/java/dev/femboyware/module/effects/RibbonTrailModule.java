@@ -1,20 +1,19 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
 /** A ribbon of light streaming behind you as you move, fading away over a moment. */
 public class RibbonTrailModule extends PlayerFxModule {
@@ -29,7 +28,7 @@ public class RibbonTrailModule extends PlayerFxModule {
 	private final Palette palette = palette(0xFFFF77C8, 0xFF8AB8FF);
 	private final EnumSetting<ShowOn> showOn = showOnSetting();
 
-	private record Point(Vec3d pos, long time) {}
+	private record Point(Vec3 pos, long time) {}
 
 	private final Map<Integer, ArrayDeque<Point>> trails = new HashMap<>();
 
@@ -48,19 +47,19 @@ public class RibbonTrailModule extends PlayerFxModule {
 		long life = (long) (length.get() * 1e9);
 		float tickDelta = tickDelta();
 		Set<Integer> present = new HashSet<>();
-		for (PlayerEntity player : wearers(true)) {
+		for (Player player : wearers(true)) {
 			present.add(player.getId());
 			ArrayDeque<Point> trail = trails.computeIfAbsent(player.getId(), id -> new ArrayDeque<>());
-			Vec3d pos = player.getLerpedPos(tickDelta);
+			Vec3 pos = player.getPosition(tickDelta);
 			Point last = trail.peekLast();
 			// Teleports would draw a ribbon across the world, so start again instead
-			if (last != null && last.pos.squaredDistanceTo(pos) > 16) trail.clear();
-			if (last == null || last.pos.squaredDistanceTo(pos) > MIN_STEP * MIN_STEP) trail.addLast(new Point(pos, now));
+			if (last != null && last.pos.distanceToSqr(pos) > 16) trail.clear();
+			if (last == null || last.pos.distanceToSqr(pos) > MIN_STEP * MIN_STEP) trail.addLast(new Point(pos, now));
 		}
 		trails.keySet().retainAll(present);
 
-		Vec3d cam = event.camera().pos;
-		MatrixStack.Entry pose = event.matrices().peek();
+		Vec3 cam = event.camera().pos;
+		PoseStack.Pose pose = event.matrices().last();
 		VertexConsumer consumer = FxRender.quads(event, glow.get(), false);
 		float y1 = bottom.getFloat(), y2 = Math.max(y1 + 0.02f, top.getFloat());
 		for (ArrayDeque<Point> trail : trails.values()) {

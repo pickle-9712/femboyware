@@ -1,5 +1,7 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.event.PacketEvent;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
@@ -8,21 +10,18 @@ import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.EntityStatuses;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.network.packet.s2c.play.EntityStatusS2CPacket;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.sound.SoundEvent;
-import net.minecraft.sound.SoundEvents;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import net.minecraft.network.protocol.game.ClientboundEntityEventPacket;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityEvent;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * When a player pops a totem: rings of light burst out round them and a pop count rises over their
@@ -40,7 +39,7 @@ public class TotemPopsModule extends FxModule {
 	private final EnumSetting<Sound> sound = add(new EnumSetting<>("Sound", "Sound played on someone else's pop", Sound.NONE));
 	private final Palette palette = palette(0xFFFFE066, 0xFF66FF99);
 
-	private record Pop(int entityId, Vec3d pos, float height, int count, long time) {}
+	private record Pop(int entityId, Vec3 pos, float height, int count, long time) {}
 
 	private final Map<Integer, Integer> counts = new HashMap<>();
 	private final List<Pop> pops = new ArrayList<>();
@@ -57,28 +56,28 @@ public class TotemPopsModule extends FxModule {
 
 	@Override
 	public void onPacketReceive(PacketEvent event) {
-		if (!(event.getPacket() instanceof EntityStatusS2CPacket packet)) return;
-		byte status = packet.getStatus();
-		if (status != EntityStatuses.USE_TOTEM_OF_UNDYING && status != EntityStatuses.PLAY_DEATH_SOUND_OR_ADD_PROJECTILE_HIT_PARTICLES) return;
+		if (!(event.getPacket() instanceof ClientboundEntityEventPacket packet)) return;
+		byte status = packet.getEventId();
+		if (status != EntityEvent.PROTECTED_FROM_DEATH && status != EntityEvent.DEATH) return;
 		// Packets arrive on the network thread; world state is only safe on the main thread
 		mc.execute(() -> {
-			if (mc.world == null) return;
-			Entity entity = packet.getEntity(mc.world);
-			if (!(entity instanceof PlayerEntity player)) return;
-			if (status != EntityStatuses.USE_TOTEM_OF_UNDYING) {
+			if (mc.level == null) return;
+			Entity entity = packet.getEntity(mc.level);
+			if (!(entity instanceof Player player)) return;
+			if (status != EntityEvent.PROTECTED_FROM_DEATH) {
 				counts.remove(player.getId());
 				return;
 			}
 			int popped = counts.merge(player.getId(), 1, Integer::sum);
 			if (player == mc.player && !yours.get()) return;
-			pops.add(new Pop(player.getId(), player.getEntityPos(), player.getHeight(), popped, System.nanoTime()));
+			pops.add(new Pop(player.getId(), player.position(), player.getBbHeight(), popped, System.nanoTime()));
 			SoundEvent soundEvent = switch (sound.get()) {
 				case NONE -> null;
-				case ORB -> SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP;
-				case BELL -> SoundEvents.BLOCK_NOTE_BLOCK_BELL.value();
-				case CHIME -> SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME;
+				case ORB -> SoundEvents.EXPERIENCE_ORB_PICKUP;
+				case BELL -> SoundEvents.NOTE_BLOCK_BELL.value();
+				case CHIME -> SoundEvents.AMETHYST_BLOCK_CHIME;
 			};
-			if (soundEvent != null) mc.world.playSoundClient(player.getX(), player.getY(), player.getZ(), soundEvent, SoundCategory.PLAYERS, 0.8f, 1.2f, false);
+			if (soundEvent != null) mc.level.playLocalSound(player.getX(), player.getY(), player.getZ(), soundEvent, SoundSource.PLAYERS, 0.8f, 1.2f, false);
 		});
 	}
 
@@ -88,15 +87,15 @@ public class TotemPopsModule extends FxModule {
 		pops.removeIf(pop -> (now - pop.time) / 1e9 > duration.get());
 		if (pops.isEmpty()) return;
 		float tickDelta = tickDelta();
-		Vec3d cam = event.camera().pos;
+		Vec3 cam = event.camera().pos;
 
 		if (rings.get()) {
-			MatrixStack matrices = event.matrices();
+			PoseStack matrices = event.matrices();
 			VertexConsumer light = FxRender.quads(event, true, false);
 			for (Pop pop : pops) {
 				float t = (float) ((now - pop.time) / 1e9 / duration.get());
-				Vec3d pos = follow(pop, tickDelta);
-				matrices.push();
+				Vec3 pos = follow(pop, tickDelta);
+				matrices.pushPose();
 				matrices.translate((float) (pos.x - cam.x), (float) (pos.y - cam.y), (float) (pos.z - cam.z));
 				// Three rings bursting out at the feet, waist and head, one just after another
 				for (int i = 0; i < 3; i++) {
@@ -106,9 +105,9 @@ public class TotemPopsModule extends FxModule {
 					float alpha = 1 - local;
 					float y = pop.height * (0.1f + i * 0.4f);
 					float inner = r * 0.82f;
-					FxRender.ring(light, matrices.peek(), inner, r, y, SEGMENTS, (around, in) -> FxRender.fade(palette.at(around), in ? 0 : alpha));
+					FxRender.ring(light, matrices.last(), inner, r, y, SEGMENTS, (around, in) -> FxRender.fade(palette.at(around), in ? 0 : alpha));
 				}
-				matrices.pop();
+				matrices.popPose();
 			}
 		}
 
@@ -117,15 +116,15 @@ public class TotemPopsModule extends FxModule {
 			float t = (float) ((now - pop.time) / 1e9 / duration.get());
 			float fade = 1 - t * t;
 			if (fade < 0.04f) continue;
-			Vec3d pos = follow(pop, tickDelta).add(0, pop.height + 0.5 + t * 0.8, 0);
+			Vec3 pos = follow(pop, tickDelta).add(0, pop.height + 0.5 + t * 0.8, 0);
 			String text = pop.count == 1 ? "Popped!" : "Popped x" + pop.count;
 			RenderUtil.drawText(event, text, pos, FxRender.fade(FxRender.opaque(palette.at(0)), fade), 0.55f);
 		}
 	}
 
 	/** Their current position if they're still around, else where they popped. */
-	private static Vec3d follow(Pop pop, float tickDelta) {
-		Entity entity = mc.world.getEntityById(pop.entityId);
-		return entity != null ? entity.getLerpedPos(tickDelta) : pop.pos;
+	private static Vec3 follow(Pop pop, float tickDelta) {
+		Entity entity = mc.level.getEntity(pop.entityId);
+		return entity != null ? entity.getPosition(tickDelta) : pop.pos;
 	}
 }

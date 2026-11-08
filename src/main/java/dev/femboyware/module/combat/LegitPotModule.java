@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.mixin.HandledScreenAccessor;
 import dev.femboyware.mixin.MinecraftClientAccessor;
@@ -11,28 +12,28 @@ import dev.femboyware.util.InventoryUtil;
 import dev.femboyware.util.KeyUtil;
 import dev.femboyware.util.MouseTurner;
 import dev.femboyware.util.TargetUtil;
-import net.minecraft.client.gui.screen.ingame.InventoryScreen;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.FoodComponent;
-import net.minecraft.component.type.PotionContentsComponent;
-import net.minecraft.entity.effect.StatusEffect;
-import net.minecraft.entity.effect.StatusEffectCategory;
-import net.minecraft.entity.effect.StatusEffectInstance;
-import net.minecraft.entity.effect.StatusEffects;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.registry.tag.ItemTags;
-import net.minecraft.screen.slot.Slot;
-import net.minecraft.screen.slot.SlotActionType;
-import net.minecraft.util.math.MathHelper;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.Random;
 import java.util.Set;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.core.Holder;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.util.Mth;
+import net.minecraft.world.effect.MobEffect;
+import net.minecraft.world.effect.MobEffectCategory;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.food.FoodProperties;
+import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.alchemy.PotionContents;
 
 /**
  * Keeps you alive like a nethpot player: when you're low on health, or strength, speed or fire
@@ -113,7 +114,7 @@ public class LegitPotModule extends Module {
 
 	/** How many healing splash potions you're carrying. */
 	public static int healingPots() {
-		return InventoryUtil.count(stack -> splashOf(stack, StatusEffects.INSTANT_HEALTH));
+		return InventoryUtil.count(stack -> splashOf(stack, MobEffects.INSTANT_HEALTH));
 	}
 
 	/** Whether something is being thrown, eaten or moved right now; Legit Aura stops aiming and hitting meanwhile. */
@@ -128,14 +129,14 @@ public class LegitPotModule extends Module {
 	public boolean isReady() {
 		if (!isEnabled()) return true;
 		if (step != Step.IDLE) return false;
-		if (healing.get() && mc.player.getHealth() <= health.get() && have(StatusEffects.INSTANT_HEALTH)) return false;
-		if (strength.get() && !mc.player.hasStatusEffect(StatusEffects.STRENGTH) && have(StatusEffects.STRENGTH)) return false;
-		if (speed.get() && !mc.player.hasStatusEffect(StatusEffects.SPEED) && have(StatusEffects.SPEED)) return false;
-		if (fireResistance.get() && !mc.player.hasStatusEffect(StatusEffects.FIRE_RESISTANCE) && have(StatusEffects.FIRE_RESISTANCE)) return false;
+		if (healing.get() && mc.player.getHealth() <= health.get() && have(MobEffects.INSTANT_HEALTH)) return false;
+		if (strength.get() && !mc.player.hasEffect(MobEffects.STRENGTH) && have(MobEffects.STRENGTH)) return false;
+		if (speed.get() && !mc.player.hasEffect(MobEffects.SPEED) && have(MobEffects.SPEED)) return false;
+		if (fireResistance.get() && !mc.player.hasEffect(MobEffects.FIRE_RESISTANCE) && have(MobEffects.FIRE_RESISTANCE)) return false;
 		return !needRefill() && !needFoodBack();
 	}
 
-	private boolean have(RegistryEntry<StatusEffect> effect) {
+	private boolean have(Holder<MobEffect> effect) {
 		return InventoryUtil.findInventory(stack -> splashOf(stack, effect)) >= 0;
 	}
 
@@ -165,18 +166,18 @@ public class LegitPotModule extends Module {
 			case IDLE -> start();
 			case OPEN -> {
 				screen = new InventoryScreen(mc.player);
-				mc.setScreen(screen);
+				Mc.setScreen(screen);
 				next(Step.SWAP, clickDelay.getInt());
 			}
 			case SWAP -> {
-				if (mc.currentScreen != screen) {
+				if (Mc.screen() != screen) {
 					finish(0);
 					return;
 				}
 				swap();
 			}
 			case CLOSE -> {
-				if (mc.currentScreen == screen) mc.player.closeHandledScreen();
+				if (Mc.screen() == screen) mc.player.closeContainer();
 				screen = null;
 				finish(1);
 			}
@@ -185,7 +186,7 @@ public class LegitPotModule extends Module {
 					finish(0);
 					return;
 				}
-				if (mc.player.getPitch() < downPitch - 4) return;
+				if (mc.player.getXRot() < downPitch - 4) return;
 				// Press the number key once the camera is down, then throw on a later tick like a hand would
 				if (mc.player.getInventory().getSelectedSlot() != potSlot) {
 					InventoryUtil.select(potSlot);
@@ -193,7 +194,7 @@ public class LegitPotModule extends Module {
 				} else next(Step.THROW, 0);
 			}
 			case THROW -> {
-				if (!mc.player.getInventory().getStack(potSlot).isOf(Items.SPLASH_POTION) || mc.player.getInventory().getSelectedSlot() != potSlot || stepTicks > 20) {
+				if (!mc.player.getInventory().getItem(potSlot).is(Items.SPLASH_POTION) || mc.player.getInventory().getSelectedSlot() != potSlot || stepTicks > 20) {
 					finish(0);
 					return;
 				}
@@ -207,7 +208,7 @@ public class LegitPotModule extends Module {
 				if (mc.player.getInventory().getSelectedSlot() != previousSlot) InventoryUtil.select(previousSlot);
 				// Legit Aura turns back onto its target on its own, so only look up when it isn't fighting
 				boolean fighting = FemboyWare.getModules().get(LegitAuraModule.class).getTarget() != null;
-				if (!lookBack.get() || fighting || Math.abs(mc.player.getPitch() - previousPitch) < 2 || stepTicks > 20) {
+				if (!lookBack.get() || fighting || Math.abs(mc.player.getXRot() - previousPitch) < 2 || stepTicks > 20) {
 					finish(throwDelay.getInt());
 				}
 			}
@@ -217,7 +218,7 @@ public class LegitPotModule extends Module {
 	/** Starts whatever is most urgent: a totem, then healing, a golden apple, effects, and restocking last. */
 	private void start() {
 		// A raised shield is fine: Legit Aura lowers it as soon as we're busy
-		if (mc.currentScreen != null || (mc.player.isUsingItem() && !mc.player.getActiveItem().contains(DataComponentTypes.BLOCKS_ATTACKS))) return;
+		if (Mc.screen() != null || (mc.player.isUsingItem() && !mc.player.getUseItem().has(DataComponents.BLOCKS_ATTACKS))) return;
 		if (needTotem()) {
 			openFor(Job.TOTEM);
 			return;
@@ -226,18 +227,18 @@ public class LegitPotModule extends Module {
 			openFor(Job.FOOD_BACK);
 			return;
 		}
-		if (healing.get() && mc.player.getHealth() <= health.get() && splash(StatusEffects.INSTANT_HEALTH)) return;
+		if (healing.get() && mc.player.getHealth() <= health.get() && splash(MobEffects.INSTANT_HEALTH)) return;
 		if (eat.get() && mc.player.getHealth() <= eatHealth.get() && !threatened() && startEating()) return;
-		if (strength.get() && !mc.player.hasStatusEffect(StatusEffects.STRENGTH) && splash(StatusEffects.STRENGTH)) return;
-		if (speed.get() && !mc.player.hasStatusEffect(StatusEffects.SPEED) && splash(StatusEffects.SPEED)) return;
-		if (fireResistance.get() && !mc.player.hasStatusEffect(StatusEffects.FIRE_RESISTANCE) && splash(StatusEffects.FIRE_RESISTANCE)) return;
+		if (strength.get() && !mc.player.hasEffect(MobEffects.STRENGTH) && splash(MobEffects.STRENGTH)) return;
+		if (speed.get() && !mc.player.hasEffect(MobEffects.SPEED) && splash(MobEffects.SPEED)) return;
+		if (fireResistance.get() && !mc.player.hasEffect(MobEffects.FIRE_RESISTANCE) && splash(MobEffects.FIRE_RESISTANCE)) return;
 		if (needRefill()) openFor(Job.REFILL);
 	}
 
 	// ---------------------------------------------------------------- potions
 
 	/** Starts throwing a potion of {@code effect} from the hotbar, or fetching one from the inventory. False if there's none. */
-	private boolean splash(RegistryEntry<StatusEffect> effect) {
+	private boolean splash(Holder<MobEffect> effect) {
 		int slot = InventoryUtil.findHotbar(stack -> splashOf(stack, effect));
 		if (slot >= 0) {
 			potSlot = slot;
@@ -264,7 +265,7 @@ public class LegitPotModule extends Module {
 
 	/** Whether no player is within Safe Distance, so there's time to stand in the inventory. */
 	private boolean safe() {
-		for (PlayerEntity player : mc.world.getPlayers()) {
+		for (Player player : mc.level.players()) {
 			if (TargetUtil.isValid(player) && mc.player.distanceTo(player) < safeDistance.get()) return false;
 		}
 		return true;
@@ -272,43 +273,43 @@ public class LegitPotModule extends Module {
 
 	private int hotbarHealing() {
 		int count = 0;
-		for (int slot = 0; slot < PlayerInventory.HOTBAR_SIZE; slot++) {
-			if (healingPot(mc.player.getInventory().getStack(slot))) count++;
+		for (int slot = 0; slot < Inventory.SELECTION_SIZE; slot++) {
+			if (healingPot(mc.player.getInventory().getItem(slot))) count++;
 		}
 		return count;
 	}
 
 	private static boolean healingPot(ItemStack stack) {
-		return splashOf(stack, StatusEffects.INSTANT_HEALTH);
+		return splashOf(stack, MobEffects.INSTANT_HEALTH);
 	}
 
 	/** An empty hotbar slot to move a potion into, never the one in hand; -1 if the hotbar is full. */
 	private int freeHotbarSlot() {
 		int held = mc.player.getInventory().getSelectedSlot();
-		for (int slot = 0; slot < PlayerInventory.HOTBAR_SIZE; slot++) {
-			if (slot != held && mc.player.getInventory().getStack(slot).isEmpty()) return slot;
+		for (int slot = 0; slot < Inventory.SELECTION_SIZE; slot++) {
+			if (slot != held && mc.player.getInventory().getItem(slot).isEmpty()) return slot;
 		}
 		return -1;
 	}
 
 	/** Whether a player within Eat Safe Distance is facing us and could hit us while we eat. */
 	private boolean threatened() {
-		for (PlayerEntity player : mc.world.getPlayers()) {
+		for (Player player : mc.level.players()) {
 			if (TargetUtil.isValid(player) && mc.player.distanceTo(player) < eatSafeDistance.get()
-				&& TargetUtil.isFacing(player, mc.player.getEyePos())) return true;
+				&& TargetUtil.isFacing(player, mc.player.getEyePosition())) return true;
 		}
 		return false;
 	}
 
 	/** Whether {@code stack} is a splash potion giving {@code effect}, with nothing harmful mixed in. */
-	private static boolean splashOf(ItemStack stack, RegistryEntry<StatusEffect> effect) {
-		if (!stack.isOf(Items.SPLASH_POTION)) return false;
-		PotionContentsComponent contents = stack.get(DataComponentTypes.POTION_CONTENTS);
+	private static boolean splashOf(ItemStack stack, Holder<MobEffect> effect) {
+		if (!stack.is(Items.SPLASH_POTION)) return false;
+		PotionContents contents = stack.get(DataComponents.POTION_CONTENTS);
 		if (contents == null) return false;
 		boolean found = false;
-		for (StatusEffectInstance instance : contents.getEffects()) {
-			if (instance.getEffectType().value().getCategory() == StatusEffectCategory.HARMFUL) return false;
-			if (instance.getEffectType().equals(effect)) found = true;
+		for (MobEffectInstance instance : contents.getAllEffects()) {
+			if (instance.getEffect().value().getCategory() == MobEffectCategory.HARMFUL) return false;
+			if (instance.getEffect().equals(effect)) found = true;
 		}
 		return found;
 	}
@@ -321,13 +322,13 @@ public class LegitPotModule extends Module {
 	 * hotbar's best. False if there's nothing worth eating.
 	 */
 	private boolean startEating() {
-		ItemStack main = mc.player.getMainHandStack();
-		boolean offhandUsable = main.isEmpty() || main.isIn(ItemTags.SWORDS) || main.isIn(ItemTags.AXES);
-		float offhandScore = offhandUsable ? foodScore(mc.player.getOffHandStack()) : 0;
+		ItemStack main = mc.player.getMainHandItem();
+		boolean offhandUsable = main.isEmpty() || main.is(ItemTags.SWORDS) || main.is(ItemTags.AXES);
+		float offhandScore = offhandUsable ? foodScore(mc.player.getOffhandItem()) : 0;
 		int slot = -1;
 		float best = 0;
-		for (int i = 0; i < PlayerInventory.HOTBAR_SIZE; i++) {
-			float score = foodScore(mc.player.getInventory().getStack(i));
+		for (int i = 0; i < Inventory.SELECTION_SIZE; i++) {
+			float score = foodScore(mc.player.getInventory().getItem(i));
 			if (score > best) {
 				best = score;
 				slot = i;
@@ -336,7 +337,7 @@ public class LegitPotModule extends Module {
 		boolean offhand = offhandScore > 0 && offhandScore >= best;
 		if (!offhand && slot < 0) return false;
 		if (offhand) slot = -1;
-		eatingItem = (offhand ? mc.player.getOffHandStack() : mc.player.getInventory().getStack(slot)).getItem();
+		eatingItem = (offhand ? mc.player.getOffhandItem() : mc.player.getInventory().getItem(slot)).getItem();
 		remember();
 		eating = false;
 		if (slot >= 0 && slot != previousSlot) {
@@ -352,11 +353,11 @@ public class LegitPotModule extends Module {
 	 * other food ranks by how much hunger and saturation it gives.
 	 */
 	private float foodScore(ItemStack stack) {
-		FoodComponent food = stack.get(DataComponentTypes.FOOD);
-		if (food == null || BAD_FOOD.contains(stack.getItem()) || !mc.player.canConsume(food.canAlwaysEat())) return 0;
-		if (stack.isOf(Items.ENCHANTED_GOLDEN_APPLE) || stack.isOf(Items.GOLDEN_APPLE)) {
-			if (mc.player.hasStatusEffect(StatusEffects.REGENERATION)) return 0;
-			return stack.isOf(Items.ENCHANTED_GOLDEN_APPLE) ? 1000 : 500;
+		FoodProperties food = stack.get(DataComponents.FOOD);
+		if (food == null || BAD_FOOD.contains(stack.getItem()) || !mc.player.canEat(food.canAlwaysEat())) return 0;
+		if (stack.is(Items.ENCHANTED_GOLDEN_APPLE) || stack.is(Items.GOLDEN_APPLE)) {
+			if (mc.player.hasEffect(MobEffects.REGENERATION)) return 0;
+			return stack.is(Items.ENCHANTED_GOLDEN_APPLE) ? 1000 : 500;
 		}
 		return food.nutrition() + food.saturation();
 	}
@@ -367,13 +368,13 @@ public class LegitPotModule extends Module {
 			done();
 			return;
 		}
-		if (mc.player.isUsingItem() && !mc.player.getActiveItem().isOf(eatingItem)) {
+		if (mc.player.isUsingItem() && !mc.player.getUseItem().is(eatingItem)) {
 			// Let go of the shield before eating can start
-			mc.options.useKey.setPressed(false);
+			mc.options.keyUse.setDown(false);
 			if (stepTicks > 20) done();
 			return;
 		}
-		boolean holding = mc.player.getMainHandStack().isOf(eatingItem) || mc.player.getOffHandStack().isOf(eatingItem);
+		boolean holding = mc.player.getMainHandItem().is(eatingItem) || mc.player.getOffhandItem().is(eatingItem);
 		if (mc.player.isUsingItem()) eating = true;
 		else if (eating || !holding) {
 			done();
@@ -383,7 +384,7 @@ public class LegitPotModule extends Module {
 			done();
 			return;
 		}
-		mc.options.useKey.setPressed(true);
+		mc.options.keyUse.setDown(true);
 		pressing = true;
 	}
 
@@ -393,7 +394,7 @@ public class LegitPotModule extends Module {
 	}
 
 	private void stopEating() {
-		if (pressing) KeyUtil.sync(mc.options.useKey);
+		if (pressing) KeyUtil.sync(mc.options.keyUse);
 		pressing = false;
 		eating = false;
 	}
@@ -403,18 +404,18 @@ public class LegitPotModule extends Module {
 	/** About to die with no totem in either hand, and one in the inventory. Leaves it to Legit Totem when that's on. */
 	private boolean needTotem() {
 		if (!totem.get() || mc.player.getHealth() > totemHealth.get() || FemboyWare.isEnabled(LegitTotemModule.class)) return false;
-		if (mc.player.getOffHandStack().isOf(Items.TOTEM_OF_UNDYING) || mc.player.getMainHandStack().isOf(Items.TOTEM_OF_UNDYING)) return false;
-		return InventoryUtil.findInventory(stack -> stack.isOf(Items.TOTEM_OF_UNDYING)) >= 0;
+		if (mc.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING) || mc.player.getMainHandItem().is(Items.TOTEM_OF_UNDYING)) return false;
+		return InventoryUtil.findInventory(stack -> stack.is(Items.TOTEM_OF_UNDYING)) >= 0;
 	}
 
 	/** Healthy again after a totem took some food's place in the offhand, and that food is still around. */
 	private boolean needFoodBack() {
 		if (pushedOut == null) return false;
-		if (!totem.get() || mc.player.getOffHandStack().isOf(pushedOut)) {
+		if (!totem.get() || mc.player.getOffhandItem().is(pushedOut)) {
 			pushedOut = null;
 			return false;
 		}
-		return mc.player.getHealth() > swapBackHealth.get() && InventoryUtil.findInventory(stack -> stack.isOf(pushedOut)) >= 0;
+		return mc.player.getHealth() > swapBackHealth.get() && InventoryUtil.findInventory(stack -> stack.is(pushedOut)) >= 0;
 	}
 
 	// ---------------------------------------------------------------- inventory
@@ -429,26 +430,26 @@ public class LegitPotModule extends Module {
 		switch (job) {
 			case FETCH -> {
 				hover(fetchSlot);
-				InventoryUtil.click(fetchSlot, potSlot, SlotActionType.SWAP);
+				InventoryUtil.click(fetchSlot, potSlot, ClickType.SWAP);
 				next(Step.CLOSE, clickDelay.getInt());
 			}
 			case TOTEM -> {
-				int slot = InventoryUtil.findInventory(stack -> stack.isOf(Items.TOTEM_OF_UNDYING));
+				int slot = InventoryUtil.findInventory(stack -> stack.is(Items.TOTEM_OF_UNDYING));
 				if (slot >= 0) {
-					ItemStack offhand = mc.player.getOffHandStack();
-					if (offhand.contains(DataComponentTypes.FOOD)) pushedOut = offhand.getItem();
+					ItemStack offhand = mc.player.getOffhandItem();
+					if (offhand.has(DataComponents.FOOD)) pushedOut = offhand.getItem();
 					hover(InventoryUtil.screenSlot(slot));
-					InventoryUtil.click(InventoryUtil.screenSlot(slot), OFFHAND_BUTTON, SlotActionType.SWAP);
+					InventoryUtil.click(InventoryUtil.screenSlot(slot), OFFHAND_BUTTON, ClickType.SWAP);
 				}
 				next(Step.CLOSE, clickDelay.getInt());
 			}
 			case FOOD_BACK -> {
 				// The totem goes back where the food was, ready for next time
 				Item food = pushedOut;
-				int slot = food == null ? -1 : InventoryUtil.findInventory(stack -> stack.isOf(food));
+				int slot = food == null ? -1 : InventoryUtil.findInventory(stack -> stack.is(food));
 				if (slot >= 0) {
 					hover(InventoryUtil.screenSlot(slot));
-					InventoryUtil.click(InventoryUtil.screenSlot(slot), OFFHAND_BUTTON, SlotActionType.SWAP);
+					InventoryUtil.click(InventoryUtil.screenSlot(slot), OFFHAND_BUTTON, ClickType.SWAP);
 				}
 				pushedOut = null;
 				next(Step.CLOSE, clickDelay.getInt());
@@ -462,7 +463,7 @@ public class LegitPotModule extends Module {
 					return;
 				}
 				hover(InventoryUtil.screenSlot(stored));
-				InventoryUtil.click(InventoryUtil.screenSlot(stored), free, SlotActionType.SWAP);
+				InventoryUtil.click(InventoryUtil.screenSlot(stored), free, ClickType.SWAP);
 				next(Step.SWAP, clickDelay.getInt());
 			}
 		}
@@ -471,12 +472,12 @@ public class LegitPotModule extends Module {
 	/** Puts the real mouse cursor over {@code slotId}, so you can see what it grabs. */
 	private void hover(int slotId) {
 		if (screen == null) return;
-		Slot slot = mc.player.playerScreenHandler.getSlot(slotId);
+		Slot slot = mc.player.inventoryMenu.getSlot(slotId);
 		HandledScreenAccessor accessor = (HandledScreenAccessor) screen;
-		double scale = mc.getWindow().getScaleFactor();
+		double scale = mc.getWindow().getGuiScale();
 		double x = (accessor.femboyware$getX() + slot.x + 8) * scale;
 		double y = (accessor.femboyware$getY() + slot.y + 8) * scale;
-		GLFW.glfwSetCursorPos(mc.getWindow().getHandle(), x, y);
+		GLFW.glfwSetCursorPos(mc.getWindow().handle(), x, y);
 	}
 
 	// ---------------------------------------------------------------- steps
@@ -484,7 +485,7 @@ public class LegitPotModule extends Module {
 	/** Remembers the slot and where we looked, to go back to afterwards. */
 	private void remember() {
 		previousSlot = mc.player.getInventory().getSelectedSlot();
-		previousPitch = mc.player.getPitch();
+		previousPitch = mc.player.getXRot();
 	}
 
 	private void next(Step following, int ticks) {
@@ -505,13 +506,13 @@ public class LegitPotModule extends Module {
 		long now = System.nanoTime();
 		float seconds = lastFrame == 0 ? 0 : Math.min(0.25f, (now - lastFrame) / 1e9f);
 		lastFrame = now;
-		if (seconds <= 0 || mc.currentScreen != null) return;
+		if (seconds <= 0 || Mc.screen() != null) return;
 		float wanted;
 		if (step == Step.DOWN || step == Step.THROW) wanted = downPitch;
 		else if (step == Step.BACK && lookBack.get()) wanted = previousPitch;
 		else return;
 		float follow = 1 - (float) Math.exp(-flickSpeed.get() * seconds);
 		float wobble = 0.85f + random.nextFloat() * 0.3f;
-		mouse.turn(0, MathHelper.clamp(wanted - mc.player.getPitch(), -180, 180) * follow * wobble);
+		mouse.turn(0, Mth.clamp(wanted - mc.player.getXRot(), -180, 180) * follow * wobble);
 	}
 }

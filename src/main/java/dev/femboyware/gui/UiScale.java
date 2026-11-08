@@ -1,6 +1,6 @@
 package dev.femboyware.gui;
 
-import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.Minecraft;
 
 /**
  * Femboyware's screens lay out on a canvas about 360 units tall and scale it to the window, so
@@ -29,13 +29,13 @@ public final class UiScale {
 	 * number, and never below 2, since the clean font is unreadable drawn at one pixel per pixel.
 	 */
 	public static int canvasDensity() {
-		int pixels = MinecraftClient.getInstance().getWindow().getFramebufferHeight();
+		int pixels = Minecraft.getInstance().getWindow().getHeight();
 		return Math.min(MAX_DENSITY, Math.max(MIN_CLEAN_DENSITY, Math.round(pixels / (float) VIRTUAL_HEIGHT)));
 	}
 
 	/** How much to scale GUI coordinates by to draw on the canvas. */
 	public static float scale() {
-		return canvasDensity() / (float) MinecraftClient.getInstance().getWindow().getScaleFactor();
+		return canvasDensity() / (float) Minecraft.getInstance().getWindow().getGuiScale();
 	}
 
 	/** Marks the start of drawing on our canvas, so text uses the canvas density. */
@@ -65,6 +65,6 @@ public final class UiScale {
 	/** Screen pixels per GUI unit for text being drawn right now: the canvas's, or Minecraft's GUI scale. */
 	public static int density() {
 		if (canvasDensity > 0) return canvasDensity;
-		return Math.max(1, (int) Math.round(MinecraftClient.getInstance().getWindow().getScaleFactor()));
+		return Math.max(1, (int) Math.round(Minecraft.getInstance().getWindow().getGuiScale()));
 	}
 }

@@ -1,10 +1,11 @@
 package dev.femboyware.module.render;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.event.PacketEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.network.packet.s2c.play.WorldTimeUpdateS2CPacket;
+import net.minecraft.network.protocol.game.ClientboundSetTimePacket;
 
 /**
  * Shows the world at a time of day you pick. Client-side only.
@@ -21,34 +22,41 @@ public class TimeChangerModule extends Module {
 		super("Time Changer", "Changes the time of day you see", Category.COSMETIC);
 	}
 
+	//? if >=26.1 {
+	/*// Time comes from the world clock now, which the client world mixin overrides with this
+	public long getTimeOverride() {
+		return isEnabled() ? time.get().longValue() : -1;
+	}
+	*///?} else {
 	@Override
 	protected void onEnable() {
-		if (!nullCheck()) serverTimeOfDay = mc.world.getTimeOfDay();
+		if (!nullCheck()) serverTimeOfDay = Mc.dayTime();
 	}
 
 	@Override
 	protected void onDisable() {
 		if (nullCheck() || serverTimeOfDay < 0) return;
-		mc.world.setTime(mc.world.getTime(), serverTimeOfDay, serverTicksTime);
+		mc.level.setTimeFromServer(mc.level.getGameTime(), serverTimeOfDay, serverTicksTime);
 		serverTimeOfDay = -1;
 	}
 
 	@Override
 	public void onPacketReceive(PacketEvent event) {
-		if (!(event.getPacket() instanceof WorldTimeUpdateS2CPacket packet)) return;
+		if (!(event.getPacket() instanceof ClientboundSetTimePacket packet)) return;
 		event.cancel();
 		// Keep the game clock in sync, but remember the server's time of day instead of showing it
 		mc.execute(() -> {
 			if (nullCheck()) return;
-			serverTimeOfDay = packet.timeOfDay();
+			serverTimeOfDay = packet.dayTime();
 			serverTicksTime = packet.tickDayTime();
-			mc.world.setTime(packet.time(), time.get().longValue(), false);
+			mc.level.setTimeFromServer(packet.gameTime(), time.get().longValue(), false);
 		});
 	}
 
 	@Override
 	public void onTick() {
-		if (serverTimeOfDay < 0) serverTimeOfDay = mc.world.getTimeOfDay();
-		mc.world.setTime(mc.world.getTime(), time.get().longValue(), false);
+		if (serverTimeOfDay < 0) serverTimeOfDay = Mc.dayTime();
+		mc.level.setTimeFromServer(mc.level.getGameTime(), time.get().longValue(), false);
 	}
+	//?}
 }

@@ -4,10 +4,10 @@ import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.client.gui.screen.TitleScreen;
-import net.minecraft.client.gui.screen.multiplayer.ConnectScreen;
-import net.minecraft.client.network.ServerAddress;
-import net.minecraft.client.network.ServerInfo;
+import net.minecraft.client.gui.screens.ConnectScreen;
+import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.client.multiplayer.ServerData;
+import net.minecraft.client.multiplayer.resolver.ServerAddress;
 
 /**
  * Reconnects to the last server after a disconnect. The countdown and buttons live in
@@ -19,14 +19,14 @@ public class AutoReconnectModule extends Module {
 	private final BoolSetting hideButtons = add(new BoolSetting("Hide Buttons", "Don't add the reconnect buttons to the disconnect screen", false));
 
 	private ServerAddress lastAddress;
-	private ServerInfo lastInfo;
+	private ServerData lastInfo;
 
 	public AutoReconnectModule() {
 		super("Auto Reconnect", "Reconnects when you get disconnected", Category.MISC);
 	}
 
 	/** Called from ConnectScreenMixin whenever we start joining a server. */
-	public void onConnect(ServerAddress address, ServerInfo info) {
+	public void onConnect(ServerAddress address, ServerData info) {
 		lastAddress = address;
 		lastInfo = info;
 	}
@@ -45,6 +45,6 @@ public class AutoReconnectModule extends Module {
 
 	public void reconnect() {
 		if (lastAddress == null) return;
-		ConnectScreen.connect(new TitleScreen(), mc, lastAddress, lastInfo, false, null);
+		ConnectScreen.startConnecting(new TitleScreen(), mc, lastAddress, lastInfo, false, null);
 	}
 }

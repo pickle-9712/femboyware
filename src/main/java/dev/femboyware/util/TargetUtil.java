@@ -2,23 +2,23 @@ package dev.femboyware.util;
 
 import dev.femboyware.module.combat.BodyguardModule;
 import dev.femboyware.module.utility.FriendsModule;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
 public final class TargetUtil {
-	private static final MinecraftClient mc = MinecraftClient.getInstance();
+	private static final Minecraft mc = Minecraft.getInstance();
 
 	private TargetUtil() {
 	}
 
 	/** Closest living, non-spectator player other than us within {@code range} blocks, or null. */
-	public static PlayerEntity closestPlayer(double range) {
-		PlayerEntity best = null;
+	public static Player closestPlayer(double range) {
+		Player best = null;
 		double bestDistance = range * range;
-		for (PlayerEntity player : mc.world.getPlayers()) {
+		for (Player player : mc.level.players()) {
 			if (!isValid(player)) continue;
-			double distance = mc.player.squaredDistanceTo(player);
+			double distance = mc.player.distanceToSqr(player);
 			if (distance <= bestDistance) {
 				bestDistance = distance;
 				best = player;
@@ -28,12 +28,12 @@ public final class TargetUtil {
 	}
 
 	/** Closest living player other than us within {@code range} blocks, friend or not, or null. */
-	public static PlayerEntity closestAny(double range) {
-		PlayerEntity best = null;
+	public static Player closestAny(double range) {
+		Player best = null;
 		double bestDistance = range * range;
-		for (PlayerEntity player : mc.world.getPlayers()) {
+		for (Player player : mc.level.players()) {
 			if (player == mc.player || !player.isAlive() || player.isSpectator()) continue;
-			double distance = mc.player.squaredDistanceTo(player);
+			double distance = mc.player.distanceToSqr(player);
 			if (distance <= bestDistance) {
 				bestDistance = distance;
 				best = player;
@@ -46,13 +46,13 @@ public final class TargetUtil {
 	 * Whether {@code player} is looking towards {@code point}: within 90 degrees either side of where
 	 * they look, the same test the game uses for what a raised shield covers.
 	 */
-	public static boolean isFacing(PlayerEntity player, Vec3d point) {
-		Vec3d to = point.subtract(player.getEyePos());
-		Vec3d look = player.getRotationVec(1);
-		return new Vec3d(to.x, 0, to.z).normalize().dotProduct(new Vec3d(look.x, 0, look.z).normalize()) > 0;
+	public static boolean isFacing(Player player, Vec3 point) {
+		Vec3 to = point.subtract(player.getEyePosition());
+		Vec3 look = player.getViewVector(1);
+		return new Vec3(to.x, 0, to.z).normalize().dot(new Vec3(look.x, 0, look.z).normalize()) > 0;
 	}
 
-	public static boolean isValid(PlayerEntity player) {
+	public static boolean isValid(Player player) {
 		return player != mc.player && player.isAlive() && !player.isSpectator() && !player.isRemoved() && !FriendsModule.protects(player)
 			&& !BodyguardModule.protects(player);
 	}

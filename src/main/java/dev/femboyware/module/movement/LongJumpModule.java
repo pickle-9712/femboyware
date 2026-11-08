@@ -7,10 +7,10 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.MoveUtil;
-import net.minecraft.entity.effect.StatusEffectInstance;
-import net.minecraft.entity.effect.StatusEffects;
-import net.minecraft.network.packet.s2c.play.PlayerPositionLookS2CPacket;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.network.protocol.game.ClientboundPlayerPositionPacket;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Jump much further than normal.
@@ -42,7 +42,7 @@ public class LongJumpModule extends Module {
 	private boolean jumped;
 	private int airTicks;
 	private int groundTicks;
-	private Vec3d lastPos;
+	private Vec3 lastPos;
 
 	public LongJumpModule() {
 		super("Long Jump", "Jump further", Category.RAGE);
@@ -55,32 +55,32 @@ public class LongJumpModule extends Module {
 		jumped = false;
 		airTicks = 0;
 		groundTicks = -5;
-		lastPos = nullCheck() ? null : mc.player.getEntityPos();
+		lastPos = nullCheck() ? null : mc.player.position();
 	}
 
 	@Override
 	public void onPacketReceive(PacketEvent event) {
-		if (event.getPacket() instanceof PlayerPositionLookS2CPacket && disableOnRubberband.get()) mc.execute(() -> setEnabled(false));
+		if (event.getPacket() instanceof ClientboundPlayerPositionPacket && disableOnRubberband.get()) mc.execute(() -> setEnabled(false));
 	}
 
 	@Override
 	public void onMovementInput() {
 		if (mode.is(Mode.BURST)) burst();
 		else glide();
-		lastPos = mc.player.getEntityPos();
+		lastPos = mc.player.position();
 	}
 
 	private void burst() {
-		if (stage != 0 && !mc.player.isOnGround() && autoDisable.get()) jumping = true;
+		if (stage != 0 && !mc.player.onGround() && autoDisable.get()) jumping = true;
 		if (jumping && mc.player.getY() - Math.floor(mc.player.getY()) < 0.01) {
 			setEnabled(false);
 			return;
 		}
-		if (onlyOnGround.get() && !mc.player.isOnGround() && stage == 0) return;
-		if (!MoveUtil.isMoving() || (onJump.get() && !mc.options.jumpKey.isPressed()) || mc.player.isInLava() || mc.player.isTouchingWater()) return;
+		if (onlyOnGround.get() && !mc.player.onGround() && stage == 0) return;
+		if (!MoveUtil.isMoving() || (onJump.get() && !mc.options.keyJump.isDown()) || mc.player.isInLava() || mc.player.isInWater()) return;
 
 		double lastDist = lastPos == null ? 0 : Math.hypot(mc.player.getX() - lastPos.x, mc.player.getZ() - lastPos.z);
-		double y = mc.player.getVelocity().y;
+		double y = mc.player.getDeltaMovement().y;
 		switch (stage) {
 			case 0 -> moveSpeed = moveSpeed() * burstInitialSpeed.get();
 			case 1 -> {
@@ -90,29 +90,29 @@ public class LongJumpModule extends Module {
 			case 2 -> moveSpeed = moveSpeed();
 			default -> moveSpeed = lastDist - lastDist / 159;
 		}
-		Vec3d horizontal = MoveUtil.strafe(moveSpeed);
-		mc.player.setVelocity(horizontal.x, y, horizontal.z);
+		Vec3 horizontal = MoveUtil.strafe(moveSpeed);
+		mc.player.setDeltaMovement(horizontal.x, y, horizontal.z);
 		stage++;
 	}
 
 	private void glide() {
 		if (!MoveUtil.isMoving()) return;
-		double yaw = Math.toRadians(mc.player.getYaw() + 90);
-		double forward = Math.signum(mc.player.input.getMovementInput().y);
+		double yaw = Math.toRadians(mc.player.getYRot() + 90);
+		double forward = Math.signum(mc.player.input.getMoveVector().y);
 		double cos = Math.cos(yaw), sin = Math.sin(yaw);
 		double multiplier = glideMultiplier.get();
 
-		if (!mc.player.verticalCollision && !mc.player.isOnGround()) {
+		if (!mc.player.verticalCollision && !mc.player.onGround()) {
 			jumped = true;
 			airTicks++;
 			groundTicks = -5;
-			double y = mc.player.getVelocity().y;
+			double y = mc.player.getDeltaMovement().y;
 			if (airTicks - 6 >= 0 && airTicks - 6 < GLIDE_FALL.length) y = y * GLIDE_FALL[airTicks - 6] * multiplier;
 			if (y < -0.2 && y > -0.24) y *= 0.7 * multiplier;
 			else if (y < -0.25 && y > -0.32) y *= 0.8 * multiplier;
 			else if (y < -0.35 && y > -0.8) y *= 0.98 * multiplier;
 			double speed = airTicks - 1 < GLIDE_MOTION.length ? GLIDE_MOTION[airTicks - 1] * 3 * multiplier : 0;
-			mc.player.setVelocity(forward * speed * cos, y, forward * speed * sin);
+			mc.player.setDeltaMovement(forward * speed * cos, y, forward * speed * sin);
 			return;
 		}
 
@@ -123,12 +123,12 @@ public class LongJumpModule extends Module {
 		airTicks = 0;
 		groundTicks++;
 		// Creep for a couple of ticks to settle, then hop
-		if (groundTicks <= 2) mc.player.setVelocity(forward * 0.01 * cos * multiplier, mc.player.getVelocity().y, forward * 0.01 * sin * multiplier);
-		else mc.player.setVelocity(forward * 0.3 * cos * multiplier, 0.424, forward * 0.3 * sin * multiplier);
+		if (groundTicks <= 2) mc.player.setDeltaMovement(forward * 0.01 * cos * multiplier, mc.player.getDeltaMovement().y, forward * 0.01 * sin * multiplier);
+		else mc.player.setDeltaMovement(forward * 0.3 * cos * multiplier, 0.424, forward * 0.3 * sin * multiplier);
 	}
 
 	private double moveSpeed() {
-		StatusEffectInstance speed = mc.player.getStatusEffect(StatusEffects.SPEED);
+		MobEffectInstance speed = mc.player.getEffect(MobEffects.SPEED);
 		return speed == null ? BASE_SPEED : BASE_SPEED * (1 + 0.2 * (speed.getAmplifier() + 1));
 	}
 }

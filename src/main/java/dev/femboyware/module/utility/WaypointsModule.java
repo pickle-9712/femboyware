@@ -10,10 +10,9 @@ import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.KeySetting;
 import dev.femboyware.util.ChatUtil;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.Locale;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Shows your saved spots in the world: a beam of light and a label with the name and distance,
@@ -46,37 +45,37 @@ public class WaypointsModule extends Module {
 	@Override
 	public void onKey(int key) {
 		if (!addKey.is(key)) return;
-		var waypoint = FemboyWare.getWaypoints().add("Waypoint " + (FemboyWare.getWaypoints().onThisWorld().size() + 1), mc.player.getBlockPos(), false);
+		var waypoint = FemboyWare.getWaypoints().add("Waypoint " + (FemboyWare.getWaypoints().onThisWorld().size() + 1), mc.player.blockPosition(), false);
 		ChatUtil.info("Saved waypoint \"" + waypoint.name() + "\" at " + ChatUtil.coords(waypoint.pos()));
 	}
 
 	@Override
 	public void onTick() {
-		boolean dead = mc.player.isDead();
+		boolean dead = mc.player.isDeadOrDying();
 		if (dead && !wasDead && deaths.get()) {
-			FemboyWare.getWaypoints().add("Death", mc.player.getBlockPos(), true);
-			ChatUtil.info("Saved where you died: " + ChatUtil.coords(mc.player.getBlockPos()));
+			FemboyWare.getWaypoints().add("Death", mc.player.blockPosition(), true);
+			ChatUtil.info("Saved where you died: " + ChatUtil.coords(mc.player.blockPosition()));
 		}
 		wasDead = dead;
 	}
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
-		Vec3d camera = event.camera().pos;
+		Vec3 camera = event.camera().pos;
 		for (WaypointManager.Waypoint waypoint : FemboyWare.getWaypoints().here()) {
 			int tint = waypoint.death() ? deathColor.get() : color.get();
-			Vec3d base = Vec3d.ofBottomCenter(waypoint.pos());
+			Vec3 base = Vec3.atBottomCenterOf(waypoint.pos());
 			if (beam.get()) {
-				int top = mc.world.getTopYInclusive();
-				RenderUtil.drawBox(event, new Box(base.x - 0.12, base.y, base.z - 0.12, base.x + 0.12, top, base.z + 0.12), (tint & 0xFFFFFF) | 0x50000000, 0, 1);
+				int top = mc.level.getMaxY();
+				RenderUtil.drawBox(event, new AABB(base.x - 0.12, base.y, base.z - 0.12, base.x + 0.12, top, base.z + 0.12), (tint & 0xFFFFFF) | 0x50000000, 0, 1);
 			}
 
 			// Labels keep about the same size on screen however far away the waypoint is
-			Vec3d head = base.add(0, 2, 0);
+			Vec3 head = base.add(0, 2, 0);
 			double away = camera.distanceTo(head);
-			Vec3d label = away > LABEL_DISTANCE ? camera.add(head.subtract(camera).normalize().multiply(LABEL_DISTANCE)) : head;
+			Vec3 label = away > LABEL_DISTANCE ? camera.add(head.subtract(camera).normalize().scale(LABEL_DISTANCE)) : head;
 			float scale = (float) Math.max(0.6, camera.distanceTo(label) * 0.045);
-			String text = distance.get() ? String.format(Locale.ROOT, "%s (%.0fm)", waypoint.name(), mc.player.getEntityPos().distanceTo(base)) : waypoint.name();
+			String text = distance.get() ? String.format(Locale.ROOT, "%s (%.0fm)", waypoint.name(), mc.player.position().distanceTo(base)) : waypoint.name();
 			RenderUtil.drawText(event, text, label, tint | 0xFF000000, scale);
 		}
 	}

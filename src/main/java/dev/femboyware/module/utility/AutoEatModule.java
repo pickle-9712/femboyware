@@ -1,5 +1,6 @@
 package dev.femboyware.module.utility;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
@@ -11,19 +12,18 @@ import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.StringSetting;
 import dev.femboyware.util.InventoryUtil;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.FoodComponent;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.Hand;
-import net.minecraft.util.Identifier;
-
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.food.FoodProperties;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 
 /**
  * Eats when your health or hunger drops low.
@@ -90,7 +90,7 @@ public class AutoEatModule extends Module {
 			return;
 		}
 
-		if (shouldEat() && mc.currentScreen == null) {
+		if (shouldEat() && Mc.screen() == null) {
 			previousSlot = mc.player.getInventory().getSelectedSlot();
 			if (!prepareSlot(findSlot())) return;
 			eat();
@@ -106,14 +106,14 @@ public class AutoEatModule extends Module {
 	}
 
 	private void eat() {
-		mc.options.useKey.setPressed(true);
+		mc.options.keyUse.setDown(true);
 		// Use the item directly so looking at a chest or door doesn't open it instead
-		if (!mc.player.isUsingItem()) mc.interactionManager.interactItem(mc.player, slot == OFFHAND ? Hand.OFF_HAND : Hand.MAIN_HAND);
+		if (!mc.player.isUsingItem()) mc.gameMode.useItem(mc.player, slot == OFFHAND ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND);
 		eating = true;
 	}
 
 	private void stopEating() {
-		mc.options.useKey.setPressed(false);
+		mc.options.keyUse.setDown(false);
 		if (slot != OFFHAND && previousSlot != mc.player.getInventory().getSelectedSlot()) InventoryUtil.select(previousSlot);
 		eating = false;
 		for (Module module : pausedAuras) module.setEnabled(true);
@@ -127,7 +127,7 @@ public class AutoEatModule extends Module {
 			slot = OFFHAND;
 			return true;
 		}
-		if (target >= PlayerInventory.HOTBAR_SIZE) {
+		if (target >= Inventory.SELECTION_SIZE) {
 			int empty = InventoryUtil.findHotbar(ItemStack::isEmpty);
 			if (empty == -1) return false;
 			InventoryUtil.swapWithHotbar(target, empty);
@@ -140,7 +140,7 @@ public class AutoEatModule extends Module {
 
 	private boolean shouldEat() {
 		boolean healthLow = mc.player.getHealth() <= healthThreshold.get();
-		boolean hungerLow = mc.player.getHungerManager().getFoodLevel() <= hungerThreshold.get();
+		boolean hungerLow = mc.player.getFoodData().getFoodLevel() <= hungerThreshold.get();
 		boolean wanted = switch (threshold.get()) {
 			case HEALTH -> healthLow;
 			case HUNGER -> hungerLow;
@@ -152,9 +152,9 @@ public class AutoEatModule extends Module {
 
 	/** Offhand first, then the best food in the hotbar, then the rest of the inventory if allowed. */
 	private int findSlot() {
-		if (isEdible(mc.player.getOffHandStack())) return OFFHAND;
-		int best = findBestFood(0, PlayerInventory.HOTBAR_SIZE);
-		if (best == -1 && searchInventory.get()) best = findBestFood(PlayerInventory.HOTBAR_SIZE, PlayerInventory.MAIN_SIZE);
+		if (isEdible(mc.player.getOffhandItem())) return OFFHAND;
+		int best = findBestFood(0, Inventory.SELECTION_SIZE);
+		if (best == -1 && searchInventory.get()) best = findBestFood(Inventory.SELECTION_SIZE, Inventory.INVENTORY_SIZE);
 		return best;
 	}
 
@@ -162,9 +162,9 @@ public class AutoEatModule extends Module {
 		int best = -1;
 		float bestValue = -1;
 		for (int i = start; i < end; i++) {
-			ItemStack stack = mc.player.getInventory().getStack(i);
+			ItemStack stack = mc.player.getInventory().getItem(i);
 			if (!isEdible(stack)) continue;
-			FoodComponent food = stack.get(DataComponentTypes.FOOD);
+			FoodProperties food = stack.get(DataComponents.FOOD);
 			float value = switch (priority.get()) {
 				case COMBINED -> food.nutrition() + food.saturation();
 				case HUNGER -> food.nutrition();
@@ -179,13 +179,13 @@ public class AutoEatModule extends Module {
 	}
 
 	private ItemStack stackIn(int slot) {
-		return slot == OFFHAND ? mc.player.getOffHandStack() : mc.player.getInventory().getStack(slot);
+		return slot == OFFHAND ? mc.player.getOffhandItem() : mc.player.getInventory().getItem(slot);
 	}
 
 	private boolean isEdible(ItemStack stack) {
-		FoodComponent food = stack.get(DataComponentTypes.FOOD);
+		FoodProperties food = stack.get(DataComponents.FOOD);
 		if (food == null || blacklisted.contains(stack.getItem())) return false;
-		return mc.player.getHungerManager().isNotFull() || food.canAlwaysEat();
+		return mc.player.getFoodData().needsFood() || food.canAlwaysEat();
 	}
 
 	private static Set<Item> parseItems(String text) {
@@ -193,7 +193,7 @@ public class AutoEatModule extends Module {
 		for (String part : text.split(",")) {
 			if (part.isBlank()) continue;
 			Identifier id = Identifier.tryParse(part.trim().toLowerCase());
-			if (id != null) Registries.ITEM.getOptionalValue(id).ifPresent(result::add);
+			if (id != null) BuiltInRegistries.ITEM.getOptional(id).ifPresent(result::add);
 		}
 		return result;
 	}

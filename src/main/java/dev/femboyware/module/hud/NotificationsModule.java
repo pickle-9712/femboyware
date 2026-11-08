@@ -6,11 +6,10 @@ import dev.femboyware.gui.Theme;
 import dev.femboyware.module.Module;
 import dev.femboyware.module.client.ClickGuiModule;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.util.math.MathHelper;
-
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.util.Mth;
 
 /** A little glass pop-up whenever a module turns on or off, sliding in and fading away. */
 public class NotificationsModule extends HudElement {
@@ -53,7 +52,7 @@ public class NotificationsModule extends HudElement {
 	}
 
 	@Override
-	protected void draw(DrawContext context, int left, int top, boolean editing) {
+	protected void draw(GuiGraphics context, int left, int top, boolean editing) {
 		long now = System.currentTimeMillis();
 		long life = (long) (duration.get() * 1000);
 		toasts.removeIf(toast -> now - toast.shownAt > life);
@@ -62,8 +61,8 @@ public class NotificationsModule extends HudElement {
 			Toast toast = shown.get(shown.size() - 1 - i);
 			long age = now - toast.shownAt;
 			// Slides in from the nearest side of the screen, and back out at the end
-			float in = MathHelper.clamp(age / (float) SLIDE, 0, 1);
-			float out = MathHelper.clamp((life - age) / (float) SLIDE, 0, 1);
+			float in = Mth.clamp(age / (float) SLIDE, 0, 1);
+			float out = Mth.clamp((life - age) / (float) SLIDE, 0, 1);
 			float shown01 = Math.min(in, out);
 			float eased = shown01 * shown01 * (3 - 2 * shown01);
 			int slide = Math.round((1 - eased) * (WIDTH + 10) * (onRight() ? 1 : -1));
@@ -72,9 +71,9 @@ public class NotificationsModule extends HudElement {
 			Glass.draw(context, x, y, x + WIDTH, y + HEIGHT, 5, backgroundColor(Theme.panel()), true);
 			// A coloured dot: the accent when switched on, grey when off
 			Glass.rounded(context, x + 6, y + 6, x + 12, y + 12, 3, toast.on ? accentColor() : usesCustomColors() ? mutedColor() : 0xFF7A7280);
-			context.drawTextWithShadow(mc.textRenderer, toast.name, x + 17, y + 5, textColor());
+			context.drawString(mc.font, toast.name, x + 17, y + 5, textColor());
 			String state = toast.on ? "on" : "off";
-			context.drawTextWithShadow(mc.textRenderer, state, x + WIDTH - 6 - mc.textRenderer.getWidth(state), y + 5, toast.on ? accentColor() : mutedColor());
+			context.drawString(mc.font, state, x + WIDTH - 6 - mc.font.width(state), y + 5, toast.on ? accentColor() : mutedColor());
 		}
 	}
 }

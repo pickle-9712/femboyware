@@ -1,5 +1,6 @@
 package dev.femboyware.module.utility;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
@@ -8,14 +9,13 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.StringSetting;
 import dev.femboyware.util.InventoryUtil;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.Identifier;
-
 import java.util.HashSet;
 import java.util.Set;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 
 /**
  * Refills hotbar and offhand stacks from your inventory as they run low.
@@ -50,7 +50,7 @@ public class AutoReplenishModule extends Module {
 		if (nullCheck()) return;
 		snapshot();
 		delayLeft = tickDelay.getInt();
-		hadScreen = mc.currentScreen != null;
+		hadScreen = Mc.screen() != null;
 	}
 
 	@Override
@@ -61,13 +61,13 @@ public class AutoReplenishModule extends Module {
 			parsedFrom = excluded.get();
 		}
 		// Whatever changed while a screen was open was the player's doing
-		if (mc.currentScreen == null && hadScreen) snapshot();
-		hadScreen = mc.currentScreen != null;
-		if (mc.currentScreen != null || mc.player.currentScreenHandler != mc.player.playerScreenHandler) return;
+		if (Mc.screen() == null && hadScreen) snapshot();
+		hadScreen = Mc.screen() != null;
+		if (Mc.screen() != null || mc.player.containerMenu != mc.player.inventoryMenu) return;
 		if (delayLeft-- > 0) return;
 
-		for (int i = 0; i < PlayerInventory.HOTBAR_SIZE; i++) check(i, mc.player.getInventory().getStack(i));
-		if (offhand.get() && !FemboyWare.isEnabled(AutoTotemModule.class)) check(OFFHAND, mc.player.getOffHandStack());
+		for (int i = 0; i < Inventory.SELECTION_SIZE; i++) check(i, mc.player.getInventory().getItem(i));
+		if (offhand.get() && !FemboyWare.isEnabled(AutoTotemModule.class)) check(OFFHAND, mc.player.getOffhandItem());
 		delayLeft = tickDelay.getInt();
 	}
 
@@ -90,7 +90,7 @@ public class AutoReplenishModule extends Module {
 		}
 		if (from == -1 || from == mc.player.getInventory().getSelectedSlot()) return;
 		// Don't shuffle stacks back and forth between hotbar slots
-		if (from < PlayerInventory.HOTBAR_SIZE && from < slot && slot != mc.player.getInventory().getSelectedSlot() && slot != OFFHAND) return;
+		if (from < Inventory.SELECTION_SIZE && from < slot && slot != mc.player.getInventory().getSelectedSlot() && slot != OFFHAND) return;
 
 		int target = slot == OFFHAND ? OFFHAND_SCREEN_SLOT : InventoryUtil.screenSlot(slot);
 		InventoryUtil.swapSlots(InventoryUtil.screenSlot(from), target);
@@ -100,12 +100,12 @@ public class AutoReplenishModule extends Module {
 	private int find(ItemStack lookFor, int excludedSlot, int enough, boolean mustCombine) {
 		int best = -1;
 		int count = 0;
-		int last = searchHotbar.get() ? 0 : PlayerInventory.HOTBAR_SIZE;
-		for (int i = PlayerInventory.MAIN_SIZE - 1; i >= last; i--) {
+		int last = searchHotbar.get() ? 0 : Inventory.SELECTION_SIZE;
+		for (int i = Inventory.INVENTORY_SIZE - 1; i >= last; i--) {
 			if (i == excludedSlot) continue;
-			ItemStack stack = mc.player.getInventory().getStack(i);
+			ItemStack stack = mc.player.getInventory().getItem(i);
 			if (stack.getItem() != lookFor.getItem()) continue;
-			if (mustCombine && !ItemStack.areItemsAndComponentsEqual(lookFor, stack)) continue;
+			if (mustCombine && !ItemStack.isSameItemSameComponents(lookFor, stack)) continue;
 			if (sameEnchants.get() && !stack.getEnchantments().equals(lookFor.getEnchantments())) continue;
 			if (stack.getCount() > count) {
 				best = i;
@@ -117,8 +117,8 @@ public class AutoReplenishModule extends Module {
 	}
 
 	private void snapshot() {
-		for (int i = 0; i < PlayerInventory.HOTBAR_SIZE; i++) lastItems[i] = mc.player.getInventory().getStack(i).copy();
-		lastItems[OFFHAND] = mc.player.getOffHandStack().copy();
+		for (int i = 0; i < Inventory.SELECTION_SIZE; i++) lastItems[i] = mc.player.getInventory().getItem(i).copy();
+		lastItems[OFFHAND] = mc.player.getOffhandItem().copy();
 	}
 
 	private static Set<Item> parseItems(String text) {
@@ -126,7 +126,7 @@ public class AutoReplenishModule extends Module {
 		for (String part : text.split(",")) {
 			if (part.isBlank()) continue;
 			Identifier id = Identifier.tryParse(part.trim().toLowerCase());
-			if (id != null) Registries.ITEM.getOptionalValue(id).ifPresent(result::add);
+			if (id != null) BuiltInRegistries.ITEM.getOptional(id).ifPresent(result::add);
 		}
 		return result;
 	}

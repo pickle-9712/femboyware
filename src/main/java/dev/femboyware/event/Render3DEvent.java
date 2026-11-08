@@ -1,8 +1,7 @@
 package dev.femboyware.event;
 
-import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.render.state.CameraRenderState;
-import net.minecraft.client.util.math.MatrixStack;
+import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.renderer.state.CameraRenderState;
 
-public record Render3DEvent(MatrixStack matrices, VertexConsumerProvider consumers, CameraRenderState camera) {
+public record Render3DEvent(PoseStack matrices, WorldBuffers consumers, CameraRenderState camera) {
 }

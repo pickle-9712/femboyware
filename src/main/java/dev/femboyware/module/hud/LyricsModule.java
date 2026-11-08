@@ -1,20 +1,14 @@
 package dev.femboyware.module.hud;
 
+import dev.femboyware.util.Mc;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.math.Axis;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.gui.Theme;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.render.LightmapTextureManager;
-import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.text.Text;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.RotationAxis;
-import net.minecraft.util.math.Vec3d;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -23,6 +17,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * The lyrics of whatever's playing, in time with the song, as real 3D text in the world. Each line
@@ -79,7 +78,7 @@ public class LyricsModule extends HudElement {
 	private record Burst(double start, double gone, String[] words, double[] times, int row, long seed) {}
 
 	/** Where a line appeared and which way it faces, and where the camera was then, to tell how far you've moved since. */
-	private record Anchor(Vec3d pos, Quaternionf facing, Vec3d cameraThen) {}
+	private record Anchor(Vec3 pos, Quaternionf facing, Vec3 cameraThen) {}
 
 	/** Lines for {@link #builtFor}, rebuilt if the song or the settings they depend on change. */
 	private List<Burst> bursts = List.of();
@@ -113,12 +112,12 @@ public class LyricsModule extends HudElement {
 	@Override
 	public int width(boolean editing) {
 		if (!editing && !showing()) return 0;
-		return Math.max(1, Math.round(mc.getWindow().getScaledWidth() * areaWidth.getFloat() / 100));
+		return Math.max(1, Math.round(mc.getWindow().getGuiScaledWidth() * areaWidth.getFloat() / 100));
 	}
 
 	@Override
 	public int height(boolean editing) {
-		return Math.max(1, Math.round(mc.getWindow().getScaledHeight() * areaHeight.getFloat() / 100));
+		return Math.max(1, Math.round(mc.getWindow().getGuiScaledHeight() * areaHeight.getFloat() / 100));
 	}
 
 	@Override
@@ -128,13 +127,13 @@ public class LyricsModule extends HudElement {
 
 	@Override
 	public void resizeTo(int width, int height, int screenWidth, int screenHeight) {
-		areaWidth.set(Math.round(MathHelper.clamp(width * 100.0 / screenWidth, MIN_WIDTH, 100) * 2) / 2.0);
-		areaHeight.set(Math.round(MathHelper.clamp(height * 100.0 / screenHeight, MIN_HEIGHT, 100) * 2) / 2.0);
+		areaWidth.set(Math.round(Mth.clamp(width * 100.0 / screenWidth, MIN_WIDTH, 100) * 2) / 2.0);
+		areaHeight.set(Math.round(Mth.clamp(height * 100.0 / screenHeight, MIN_HEIGHT, 100) * 2) / 2.0);
 	}
 
 	/** The lyrics themselves are in the world; the HUD only has words for the editor and status messages. */
 	@Override
-	protected void draw(DrawContext context, int left, int top, boolean editing) {
+	protected void draw(GuiGraphics context, int left, int top, boolean editing) {
 		WindowsMedia.Track track = showing() ? MediaSource.track() : null;
 		String message = null;
 		if (track != null) {
@@ -155,14 +154,14 @@ public class LyricsModule extends HudElement {
 		if (System.currentTimeMillis() - statusSince > STATUS_TIME) message = null;
 		if (message == null && editing) message = "Lyrics appear in this box";
 		if (message == null) return;
-		Text text = font.get().text(message, 1, false);
-		context.drawText(mc.textRenderer, text, left + (width(true) - mc.textRenderer.getWidth(text)) / 2, top + (height(true) - 8) / 2, statusColor.get(), false);
+		Component text = font.get().text(message, 1, false);
+		context.drawString(mc.font, text, left + (width(true) - mc.font.width(text)) / 2, top + (height(true) - 8) / 2, statusColor.get(), false);
 	}
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
 		Lyrics.extraSources = extraSources.get();
-		if (mc.options.hudHidden) return;
+		if (Mc.hudHidden()) return;
 		WindowsMedia.Track track = showing() ? MediaSource.track() : null;
 		if (track == null) return;
 		Lyrics.Song song = Lyrics.get(track);
@@ -207,26 +206,26 @@ public class LyricsModule extends HudElement {
 
 	private void drawLines(Render3DEvent event, List<Lyrics.Line> rows, double time) {
 		build(rows);
-		int screenW = mc.getWindow().getScaledWidth(), screenH = mc.getWindow().getScaledHeight();
+		int screenW = mc.getWindow().getGuiScaledWidth(), screenH = mc.getWindow().getGuiScaledHeight();
 		int left = left(screenW, false), top = top(screenH, false);
 		int areaW = width(true);
 		float rowHeight = height(true) / (float) ROWS.length;
 		// How big a GUI unit looks at this distance, so the box on screen matches the lines in the world
-		double unit = 2 * distance.get() * Math.tan(Math.toRadians(mc.options.getFov().getValue()) / 2) / screenH;
+		double unit = 2 * distance.get() * Math.tan(Math.toRadians(mc.options.fov().get()) / 2) / screenH;
 		float speed = animation.getFloat();
 		Quaternionf camera = event.camera().orientation;
-		Vec3d cameraPos = event.camera().pos;
-		MatrixStack matrices = event.matrices();
+		Vec3 cameraPos = event.camera().pos;
+		PoseStack matrices = event.matrices();
 		for (Burst burst : bursts) {
 			if (time < burst.start) break;
 			if (time >= burst.gone) {
 				anchors.remove(burst.seed);
 				continue;
 			}
-			float out = MathHelper.clamp((float) (burst.gone - time) / FADE, 0, 1);
+			float out = Mth.clamp((float) (burst.gone - time) / FADE, 0, 1);
 
 			// Measured at a typical size; font copies differ by a hair at most
-			int lineWidth = Math.max(1, mc.textRenderer.getWidth(font.get().text(String.join(" ", burst.words), 2, false)));
+			int lineWidth = Math.max(1, mc.font.width(font.get().text(String.join(" ", burst.words), 2, false)));
 			// As big as its row allows, times Text Size, shrinking only if the line is too wide for the box
 			float scale = Math.max(0.5f, Math.min((rowHeight - 2) / 11 * textSize.getFloat(), (areaW - 12f) / lineWidth));
 			// Long lines roll less, so their ends don't swing into the rows above and below
@@ -245,36 +244,36 @@ public class LyricsModule extends HudElement {
 				anchors.put(burst.seed, anchor);
 			}
 
-			matrices.push();
-			Vec3d pos = anchor.pos.add(cameraPos.subtract(anchor.cameraThen).multiply(follow.get() / 100));
+			matrices.pushPose();
+			Vec3 pos = anchor.pos.add(cameraPos.subtract(anchor.cameraThen).scale(follow.get() / 100));
 			matrices.translate((float) (pos.x - cameraPos.x), (float) (pos.y - cameraPos.y), (float) (pos.z - cameraPos.z));
-			matrices.multiply(anchor.facing);
+			matrices.mulPose(anchor.facing);
 			matrices.scale((float) unit * scale, -(float) unit * scale, (float) unit * scale);
 			float wordX = -lineWidth / 2f;
 			int color = active((int) burst.seed);
 			for (int w = 0; w < burst.words.length; w++) {
 				String piece = w < burst.words.length - 1 ? burst.words[w] + " " : burst.words[w];
 				// A little sharper than it looks from here, for walking up to it
-				Text word = font.get().text(piece, scale * 1.5f, false);
-				int wordWidth = mc.textRenderer.getWidth(word);
+				Component word = font.get().text(piece, scale * 1.5f, false);
+				int wordWidth = mc.font.width(word);
 				float age = (float) (time - burst.times[w]);
 				if (age >= 0) {
-					float pop = MathHelper.clamp(age * speed / 0.26f, 0, 1);
+					float pop = Mth.clamp(age * speed / 0.26f, 0, 1);
 					float alpha = Math.min(1, pop * 4) * out;
 					// Overshoots its final size and settles, harder with more Bounce, tipping upright as it lands
 					float overshoot = 1.70158f * bounce.getFloat();
 					float back = 1 + (overshoot + 1) * cube(pop - 1) + overshoot * (pop - 1) * (pop - 1);
 					float grow = Math.max(0.05f, 0.5f + 0.5f * back);
-					matrices.push();
+					matrices.pushPose();
 					matrices.translate(wordX + wordWidth / 2f, -(1 - pop) * 5 * bounce.getFloat(), (1 - pop) * 8 * bounce.getFloat());
 					matrices.scale(grow, grow, grow);
-					matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees((1 - pop) * 55 * Math.min(1, bounce.getFloat())));
+					matrices.mulPose(Axis.XP.rotationDegrees((1 - pop) * 55 * Math.min(1, bounce.getFloat())));
 					paint(event, word, -wordWidth / 2f, -4.5f, LyricFont.fade(color, alpha), alpha);
-					matrices.pop();
+					matrices.popPose();
 				}
 				wordX += wordWidth;
 			}
-			matrices.pop();
+			matrices.popPose();
 		}
 	}
 
@@ -283,7 +282,7 @@ public class LyricsModule extends HudElement {
 	 * behind those. Each set is finished before the next starts, so they stack the right way round
 	 * even when drawn through blocks, where nothing sorts them by distance.
 	 */
-	private void paint(Render3DEvent event, Text text, float x, float y, int color, float strength) {
+	private void paint(Render3DEvent event, Component text, float x, float y, int color, float strength) {
 		int layers = depth.getInt();
 		if (glow.get() && strength > 0.02f) {
 			int soft = LyricFont.fade(glowColor.get() | 0xFF000000, strength * glowStrength.getFloat() * 0.22f);
@@ -302,17 +301,17 @@ public class LyricsModule extends HudElement {
 		finishLayer(event);
 	}
 
-	private void layer(Render3DEvent event, Text text, float x, float y, float z, int color) {
-		MatrixStack matrices = event.matrices();
-		matrices.push();
+	private void layer(Render3DEvent event, Component text, float x, float y, float z, int color) {
+		PoseStack matrices = event.matrices();
+		matrices.pushPose();
 		matrices.translate(0, 0, z);
-		mc.textRenderer.draw(text, x, y, color, false, matrices.peek().getPositionMatrix(), event.consumers(),
-			throughBlocks.get() ? TextRenderer.TextLayerType.SEE_THROUGH : TextRenderer.TextLayerType.NORMAL, 0, LightmapTextureManager.MAX_LIGHT_COORDINATE);
-		matrices.pop();
+		event.consumers().drawText(mc.font, text, x, y, color, false, matrices.last().pose(),
+			throughBlocks.get() ? Font.DisplayMode.SEE_THROUGH : Font.DisplayMode.NORMAL, 0, 0xF000F0);
+		matrices.popPose();
 	}
 
 	private static void finishLayer(Render3DEvent event) {
-		if (event.consumers() instanceof VertexConsumerProvider.Immediate immediate) immediate.draw();
+		event.consumers().endBatch();
 	}
 
 	private static float cube(float value) {

@@ -9,9 +9,9 @@ import dev.femboyware.util.InventoryUtil;
 import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.PlaceUtil;
 import dev.femboyware.util.Timer;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 
 /**
  * Keeps an elytra flight going indefinitely: fires rockets whenever you slow down and swaps in a
@@ -33,23 +33,23 @@ public class InfiniteElytraModule extends Module {
 
 	@Override
 	public void onTick() {
-		if (replace.get() && mc.player.currentScreenHandler == mc.player.playerScreenHandler) replaceElytra();
-		if (!mc.player.isGliding()) return;
+		if (replace.get() && mc.player.containerMenu == mc.player.inventoryMenu) replaceElytra();
+		if (!mc.player.isFallFlying()) return;
 
-		if (rockets.get() && mc.player.getVelocity().length() < minSpeed.get() && rocketTimer.passed(rocketDelay.get())) {
-			if (PlaceUtil.useItem(stack -> stack.isOf(Items.FIREWORK_ROCKET), switchMode.get())) rocketTimer.reset();
+		if (rockets.get() && mc.player.getDeltaMovement().length() < minSpeed.get() && rocketTimer.passed(rocketDelay.get())) {
+			if (PlaceUtil.useItem(stack -> stack.is(Items.FIREWORK_ROCKET), switchMode.get())) rocketTimer.reset();
 		}
 	}
 
 	private void replaceElytra() {
-		ItemStack worn = mc.player.getEquippedStack(EquipmentSlot.CHEST);
-		if (!worn.isOf(Items.ELYTRA) || remaining(worn) > durability.getInt()) return;
-		int spare = InventoryUtil.findInventory(stack -> stack.isOf(Items.ELYTRA) && remaining(stack) > durability.getInt());
+		ItemStack worn = mc.player.getItemBySlot(EquipmentSlot.CHEST);
+		if (!worn.is(Items.ELYTRA) || remaining(worn) > durability.getInt()) return;
+		int spare = InventoryUtil.findInventory(stack -> stack.is(Items.ELYTRA) && remaining(stack) > durability.getInt());
 		if (spare < 0) return;
 		InventoryUtil.swapSlots(InventoryUtil.screenSlot(spare), InventoryUtil.armorScreenSlot(EquipmentSlot.CHEST));
 	}
 
 	private static int remaining(ItemStack stack) {
-		return stack.getMaxDamage() - stack.getDamage();
+		return stack.getMaxDamage() - stack.getDamageValue();
 	}
 }

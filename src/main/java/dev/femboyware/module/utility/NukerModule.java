@@ -9,12 +9,12 @@ import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.PlaceUtil;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.block.BlockState;
-import net.minecraft.util.Hand;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 /** Mines every block around you, closest first. */
 public class NukerModule extends Module {
@@ -40,7 +40,7 @@ public class NukerModule extends Module {
 
 	@Override
 	protected void onDisable() {
-		if (current != null && !nullCheck()) mc.interactionManager.cancelBlockBreaking();
+		if (current != null && !nullCheck()) mc.gameMode.stopDestroyBlock();
 		current = null;
 	}
 
@@ -50,21 +50,21 @@ public class NukerModule extends Module {
 		BlockPos best = null;
 		double bestDistance = Double.MAX_VALUE;
 		int r = (int) Math.ceil(range.get());
-		BlockPos feet = mc.player.getBlockPos();
-		Vec3d eyes = mc.player.getEyePos();
-		for (BlockPos pos : BlockPos.iterate(feet.add(-r, mode.is(Mode.FLATTEN) ? 0 : -r, -r), feet.add(r, r, r))) {
-			double distance = eyes.squaredDistanceTo(Vec3d.ofCenter(pos));
+		BlockPos feet = mc.player.blockPosition();
+		Vec3 eyes = mc.player.getEyePosition();
+		for (BlockPos pos : BlockPos.betweenClosed(feet.offset(-r, mode.is(Mode.FLATTEN) ? 0 : -r, -r), feet.offset(r, r, r))) {
+			double distance = eyes.distanceToSqr(Vec3.atCenterOf(pos));
 			if (distance > range.get() * range.get() || !isMineable(pos)) continue;
-			BlockState state = mc.world.getBlockState(pos);
+			BlockState state = mc.level.getBlockState(pos);
 			// Blocks that break in one hit can be cleared several per tick
-			if (state.calcBlockBreakingDelta(mc.player, mc.world, pos) >= 1f && instant < instantPerTick.getInt()) {
-				mine(pos.toImmutable(), true);
+			if (state.getDestroyProgress(mc.player, mc.level, pos) >= 1f && instant < instantPerTick.getInt()) {
+				mine(pos.immutable(), true);
 				instant++;
 				continue;
 			}
 			if (distance < bestDistance) {
 				bestDistance = distance;
-				best = pos.toImmutable();
+				best = pos.immutable();
 			}
 		}
 		if (instant > 0) return;
@@ -74,20 +74,20 @@ public class NukerModule extends Module {
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
-		if (render.get() && current != null) RenderUtil.drawBox(event, new Box(current), color.get(), color.withAlpha(255), 1.5f);
+		if (render.get() && current != null) RenderUtil.drawBox(event, new AABB(current), color.get(), color.withAlpha(255), 1.5f);
 	}
 
 	private void mine(BlockPos pos, boolean instant) {
-		if (rotate.get()) PlaceUtil.lookAt(Vec3d.ofCenter(pos));
+		if (rotate.get()) PlaceUtil.lookAt(Vec3.atCenterOf(pos));
 		// Starting a break finishes instant blocks immediately; slower blocks need progress every tick
-		if (instant) mc.interactionManager.attackBlock(pos, Direction.UP);
-		else mc.interactionManager.updateBlockBreakingProgress(pos, Direction.UP);
-		mc.player.swingHand(Hand.MAIN_HAND);
+		if (instant) mc.gameMode.startDestroyBlock(pos, Direction.UP);
+		else mc.gameMode.continueDestroyBlock(pos, Direction.UP);
+		mc.player.swing(InteractionHand.MAIN_HAND);
 	}
 
 	private boolean isMineable(BlockPos pos) {
-		BlockState state = mc.world.getBlockState(pos);
-		if (state.isAir() || !state.getFluidState().isEmpty() && state.isReplaceable()) return false;
-		return state.getHardness(mc.world, pos) >= 0;
+		BlockState state = mc.level.getBlockState(pos);
+		if (state.isAir() || !state.getFluidState().isEmpty() && state.canBeReplaced()) return false;
+		return state.getDestroySpeed(mc.level, pos) >= 0;
 	}
 }

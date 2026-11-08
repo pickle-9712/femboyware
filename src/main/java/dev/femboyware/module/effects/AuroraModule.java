@@ -1,11 +1,11 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
 import org.joml.Vector3f;
 
 /** Curtains of light rippling across the sky, brightest along their lower edge, shimmering as they fold. */
@@ -33,7 +33,7 @@ public class AuroraModule extends SkyFxModule {
 		if (visible <= 0.01f) return;
 		float distance = skyDistance();
 		double time = time() * speed.get();
-		MatrixStack.Entry pose = event.matrices().peek();
+		PoseStack.Pose pose = event.matrices().last();
 		VertexConsumer light = FxRender.quads(event, true, false);
 
 		int count = bands.getInt();
@@ -76,7 +76,7 @@ public class AuroraModule extends SkyFxModule {
 		}
 	}
 
-	private static void quad(VertexConsumer consumer, MatrixStack.Entry pose, Vector3f a, Vector3f b, Vector3f c, Vector3f d, int ca, int cb, int cc, int cd) {
+	private static void quad(VertexConsumer consumer, PoseStack.Pose pose, Vector3f a, Vector3f b, Vector3f c, Vector3f d, int ca, int cb, int cc, int cd) {
 		FxRender.quad(consumer, pose, a.x, a.y, a.z, ca, b.x, b.y, b.z, cb, c.x, c.y, c.z, cc, d.x, d.y, d.z, cd);
 	}
 }

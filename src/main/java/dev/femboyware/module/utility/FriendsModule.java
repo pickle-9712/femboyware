@@ -1,14 +1,15 @@
 package dev.femboyware.module.utility;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.util.ChatUtil;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.hit.EntityHitResult;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.EntityHitResult;
 
 /**
  * Keeps your friends safe and easy to spot: combat modules never target them, and ESP and Tracers
@@ -46,7 +47,7 @@ public class FriendsModule extends Module {
 	 * it did, so the click isn't used for anything else.
 	 */
 	public boolean onMiddleClick() {
-		if (!isEnabled() || !middleClick.get() || !(mc.crosshairTarget instanceof EntityHitResult hit) || !(hit.getEntity() instanceof PlayerEntity player)) return false;
+		if (!isEnabled() || !middleClick.get() || !(mc.hitResult instanceof EntityHitResult hit) || !(hit.getEntity() instanceof Player player)) return false;
 		String name = player.getGameProfile().name();
 		ChatUtil.info(FemboyWare.getFriends().toggle(name) ? name + " is now your friend <3" : name + " is no longer your friend");
 		return true;
@@ -55,10 +56,10 @@ public class FriendsModule extends Module {
 	@Override
 	public void onTick() {
 		// Middle Click Extra handles middle clicks itself when it's on; otherwise catch the ones aimed at players here
-		if (FemboyWare.isEnabled(MiddleClickExtraModule.class) || mc.currentScreen != null) return;
-		if (mc.crosshairTarget instanceof EntityHitResult hit && hit.getEntity() instanceof PlayerEntity && middleClick.get()) {
+		if (FemboyWare.isEnabled(MiddleClickExtraModule.class) || Mc.screen() != null) return;
+		if (mc.hitResult instanceof EntityHitResult hit && hit.getEntity() instanceof Player && middleClick.get()) {
 			boolean clicked = false;
-			while (mc.options.pickItemKey.wasPressed()) clicked = true;
+			while (mc.options.keyPickItem.consumeClick()) clicked = true;
 			if (clicked) onMiddleClick();
 		}
 	}

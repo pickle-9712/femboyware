@@ -1,12 +1,12 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
 import org.joml.Vector3f;
 
 import java.awt.Color;
@@ -34,7 +34,7 @@ public class RainbowModule extends SkyFxModule {
 	@Override
 	public void onRender3D(Render3DEvent event) {
 		if (!hasSky()) return;
-		float visible = opacity.getFloat() * (rainOnly.get() ? mc.world.getRainGradient(tickDelta()) : 1) * (1 - night() * 0.7f);
+		float visible = opacity.getFloat() * (rainOnly.get() ? mc.level.getRainLevel(tickDelta()) : 1) * (1 - night() * 0.7f);
 		if (visible <= 0.01f) return;
 		// The bow is a circle round a point a little below the horizon
 		Vector3f c = direction(azimuth.get(), -6);
@@ -47,7 +47,7 @@ public class RainbowModule extends SkyFxModule {
 	}
 
 	private void bow(Render3DEvent event, VertexConsumer consumer, Vector3f c, Vector3f u, Vector3f w, double radius, double bowWidth, float alpha, boolean reversed) {
-		MatrixStack.Entry pose = event.matrices().peek();
+		PoseStack.Pose pose = event.matrices().last();
 		float distance = skyDistance();
 		for (int band = 0; band < BANDS; band++) {
 			float t1 = (float) band / BANDS, t2 = (float) (band + 1) / BANDS;

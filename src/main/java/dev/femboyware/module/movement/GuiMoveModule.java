@@ -1,20 +1,21 @@
 package dev.femboyware.module.movement;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.mixin.CreativeInventoryScreenAccessor;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.KeyUtil;
-import net.minecraft.client.gui.screen.ChatScreen;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.screen.ingame.AbstractSignEditScreen;
-import net.minecraft.client.gui.screen.ingame.AnvilScreen;
-import net.minecraft.client.gui.screen.ingame.BookEditScreen;
-import net.minecraft.client.gui.screen.ingame.CreativeInventoryScreen;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.item.ItemGroup;
-import net.minecraft.util.math.MathHelper;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.gui.screens.ChatScreen;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.inventory.AbstractSignEditScreen;
+import net.minecraft.client.gui.screens.inventory.AnvilScreen;
+import net.minecraft.client.gui.screens.inventory.BookEditScreen;
+import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
+import net.minecraft.util.Mth;
+import net.minecraft.world.item.CreativeModeTab;
 import org.lwjgl.glfw.GLFW;
 
 /** Lets you keep walking while inventories and menus are open. */
@@ -37,38 +38,38 @@ public class GuiMoveModule extends Module {
 
 	@Override
 	public void onTick() {
-		Screen screen = mc.currentScreen;
+		Screen screen = Mc.screen();
 		if (screen == null || !allows(screen)) {
 			wasActive = false;
 			return;
 		}
 		wasActive = true;
-		for (KeyBinding binding : movementKeys()) KeyUtil.sync(binding);
-		if (sneak.get()) KeyUtil.sync(mc.options.sneakKey);
+		for (KeyMapping binding : movementKeys()) KeyUtil.sync(binding);
+		if (sneak.get()) KeyUtil.sync(mc.options.keyShift);
 
 		if (arrowLook.get()) {
-			long handle = mc.getWindow().getHandle();
+			long handle = mc.getWindow().handle();
 			float speed = lookSpeed.getFloat();
-			if (GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT) == GLFW.GLFW_PRESS) mc.player.setYaw(mc.player.getYaw() - speed);
-			if (GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_RIGHT) == GLFW.GLFW_PRESS) mc.player.setYaw(mc.player.getYaw() + speed);
-			if (GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_UP) == GLFW.GLFW_PRESS) mc.player.setPitch(MathHelper.clamp(mc.player.getPitch() - speed, -90f, 90f));
-			if (GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_DOWN) == GLFW.GLFW_PRESS) mc.player.setPitch(MathHelper.clamp(mc.player.getPitch() + speed, -90f, 90f));
+			if (GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT) == GLFW.GLFW_PRESS) mc.player.setYRot(mc.player.getYRot() - speed);
+			if (GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_RIGHT) == GLFW.GLFW_PRESS) mc.player.setYRot(mc.player.getYRot() + speed);
+			if (GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_UP) == GLFW.GLFW_PRESS) mc.player.setXRot(Mth.clamp(mc.player.getXRot() - speed, -90f, 90f));
+			if (GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_DOWN) == GLFW.GLFW_PRESS) mc.player.setXRot(Mth.clamp(mc.player.getXRot() + speed, -90f, 90f));
 		}
 	}
 
 	private void release() {
-		for (KeyBinding binding : movementKeys()) binding.setPressed(false);
-		mc.options.sneakKey.setPressed(false);
+		for (KeyMapping binding : movementKeys()) binding.setDown(false);
+		mc.options.keyShift.setDown(false);
 	}
 
-	private KeyBinding[] movementKeys() {
-		return new KeyBinding[]{mc.options.forwardKey, mc.options.backKey, mc.options.leftKey, mc.options.rightKey, mc.options.jumpKey, mc.options.sprintKey};
+	private KeyMapping[] movementKeys() {
+		return new KeyMapping[]{mc.options.keyUp, mc.options.keyDown, mc.options.keyLeft, mc.options.keyRight, mc.options.keyJump, mc.options.keySprint};
 	}
 
 	/** Screens with text input would type and walk at the same time, so they are left alone. */
 	private static boolean allows(Screen screen) {
 		if (screen instanceof ChatScreen || screen instanceof AbstractSignEditScreen || screen instanceof AnvilScreen || screen instanceof BookEditScreen) return false;
 		// The creative search tab has a text box
-		return !(screen instanceof CreativeInventoryScreen) || CreativeInventoryScreenAccessor.femboyware$getSelectedTab().getType() != ItemGroup.Type.SEARCH;
+		return !(screen instanceof CreativeModeInventoryScreen) || CreativeInventoryScreenAccessor.femboyware$getSelectedTab().getType() != CreativeModeTab.Type.SEARCH;
 	}
 }

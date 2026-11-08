@@ -1,11 +1,11 @@
 package dev.femboyware.module.render;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.math.Axis;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.util.Arm;
-import net.minecraft.util.math.RotationAxis;
+import net.minecraft.world.entity.HumanoidArm;
 
 /** Moves, scales and rotates your first person hands. Applied by the held item renderer mixin. */
 public class ViewModelModule extends Module {
@@ -21,12 +21,12 @@ public class ViewModelModule extends Module {
 		super("View Model", "Customise your hand position", Category.COSMETIC);
 	}
 
-	public void apply(MatrixStack matrices, Arm arm) {
-		int side = arm == Arm.RIGHT ? 1 : -1;
+	public void apply(PoseStack matrices, HumanoidArm arm) {
+		int side = arm == HumanoidArm.RIGHT ? 1 : -1;
 		matrices.translate(x.getFloat() * side, y.getFloat(), -z.getFloat());
-		matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(rotateX.getFloat()));
-		matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(rotateY.getFloat() * side));
-		matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(rotateZ.getFloat() * side));
+		matrices.mulPose(Axis.XP.rotationDegrees(rotateX.getFloat()));
+		matrices.mulPose(Axis.YP.rotationDegrees(rotateY.getFloat() * side));
+		matrices.mulPose(Axis.ZP.rotationDegrees(rotateZ.getFloat() * side));
 		float s = scale.getFloat();
 		matrices.scale(s, s, s);
 	}

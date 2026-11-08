@@ -1,15 +1,14 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.Map;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.phys.Vec3;
 
 /** A glowing ring that glides up and down your target, trailing a fading skirt of light behind it. */
 public class TargetRingModule extends TargetFxModule {
@@ -40,24 +39,24 @@ public class TargetRingModule extends TargetFxModule {
 	private void draw(Render3DEvent event, Map<LivingEntity, Float> targets, boolean skirtPass) {
 		float tickDelta = tickDelta();
 		double phase = time() * speed.get() * 2;
-		Vec3d cam = event.camera().pos;
-		MatrixStack matrices = event.matrices();
+		Vec3 cam = event.camera().pos;
+		PoseStack matrices = event.matrices();
 		VertexConsumer consumer = FxRender.quads(event, !skirtPass && glow.get(), throughWalls.get());
 
 		for (Map.Entry<LivingEntity, Float> entry : targets.entrySet()) {
 			LivingEntity target = entry.getKey();
 			float fade = ease(entry.getValue());
-			Vec3d feet = target.getLerpedPos(tickDelta);
-			float height = target.getHeight();
-			float r = (target.getWidth() * 0.5f + 0.2f) * radius.getFloat();
+			Vec3 feet = target.getPosition(tickDelta);
+			float height = target.getBbHeight();
+			float r = (target.getBbWidth() * 0.5f + 0.2f) * radius.getFloat();
 			// Eased up and down; the skirt trails the way it came, longest mid-travel
 			float y = height * (0.5f - 0.5f * (float) Math.cos(phase)) + 0.02f;
 			float velocity = (float) Math.sin(phase);
 			float trail = -Math.signum(velocity) * trailHeight.getFloat() * (float) Math.pow(Math.abs(velocity), 0.7);
 
-			matrices.push();
+			matrices.pushPose();
 			matrices.translate((float) (feet.x - cam.x), (float) (feet.y - cam.y), (float) (feet.z - cam.z));
-			MatrixStack.Entry pose = matrices.peek();
+			PoseStack.Pose pose = matrices.last();
 			float alpha = fade * opacity.getFloat();
 			float half = thickness.getFloat() / 2;
 			for (int i = 0; i < SEGMENTS; i++) {
@@ -77,7 +76,7 @@ public class TargetRingModule extends TargetFxModule {
 					x1, y - half, z1, FxRender.fade(c1, fade), x2, y - half, z2, FxRender.fade(c2, fade),
 					x2, y + half, z2, FxRender.fade(c2, fade), x1, y + half, z1, FxRender.fade(c1, fade));
 			}
-			matrices.pop();
+			matrices.popPose();
 		}
 	}
 }

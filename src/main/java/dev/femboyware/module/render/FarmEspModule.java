@@ -1,5 +1,6 @@
 package dev.femboyware.module.render;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
@@ -11,19 +12,6 @@ import dev.femboyware.util.BlockMatcher;
 import dev.femboyware.util.ChatUtil;
 import dev.femboyware.util.ChunkScanner;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.passive.AnimalEntity;
-import net.minecraft.entity.passive.IronGolemEntity;
-import net.minecraft.entity.passive.VillagerEntity;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.chunk.WorldChunk;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -33,6 +21,18 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.entity.animal.golem.IronGolem;
+import net.minecraft.world.entity.npc.villager.Villager;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Finds farms: redstone farms by blocks worldgen never places, crop farms by farmland and crops,
@@ -48,18 +48,18 @@ public class FarmEspModule extends Module {
 	private static final int ENTITY_INTERVAL = 20;
 	private static final int STRONG_WEIGHT = 3;
 
-	private record FarmBlocks(Box bounds, int strong, int weak, boolean bell, Map<Block, Integer> counts) {}
+	private record FarmBlocks(AABB bounds, int strong, int weak, boolean bell, Map<Block, Integer> counts) {}
 
 	/** Mobs counted in one chunk. */
 	private static final class Mobs {
 		private int animals;
 		private int villagers;
 		private int golems;
-		private Box bounds;
+		private AABB bounds;
 
 		private void add(Entity entity) {
-			Box box = entity.getBoundingBox();
-			bounds = bounds == null ? box : bounds.union(box);
+			AABB box = entity.getBoundingBox();
+			bounds = bounds == null ? box : bounds.minmax(box);
 		}
 	}
 
@@ -120,25 +120,25 @@ public class FarmEspModule extends Module {
 		if (!notify.get()) return;
 		for (ChunkPos pos : flaggedChunks()) {
 			if (!notified.add(pos)) continue;
-			Box bounds = bounds(pos);
-			if (bounds != null) ChatUtil.info("Farm at " + ChatUtil.coords(BlockPos.ofFloored(bounds.getCenter())) + " (" + summary(pos) + ")");
+			AABB bounds = bounds(pos);
+			if (bounds != null) ChatUtil.info("Farm at " + ChatUtil.coords(BlockPos.containing(bounds.getCenter())) + " (" + summary(pos) + ")");
 		}
 	}
 
-	private FarmBlocks scan(WorldChunk chunk) {
+	private FarmBlocks scan(LevelChunk chunk) {
 		int[] counts = new int[2];
 		boolean[] bell = {false};
 		Map<Block, Integer> blocks = new HashMap<>();
-		Box[] bounds = new Box[1];
-		ChunkScanner.forEachBlock(chunk, state -> state.isOf(Blocks.BELL) || strong.test(state) || weak.test(state), (pos, state) -> {
-			if (state.isOf(Blocks.BELL)) {
+		AABB[] bounds = new AABB[1];
+		ChunkScanner.forEachBlock(chunk, state -> state.is(Blocks.BELL) || strong.test(state) || weak.test(state), (pos, state) -> {
+			if (state.is(Blocks.BELL)) {
 				bell[0] = true;
 				return;
 			}
 			if (strong.test(state)) counts[0]++;
 			else counts[1]++;
 			blocks.merge(state.getBlock(), 1, Integer::sum);
-			bounds[0] = bounds[0] == null ? new Box(pos) : bounds[0].union(new Box(pos));
+			bounds[0] = bounds[0] == null ? new AABB(pos) : bounds[0].minmax(new AABB(pos));
 		});
 		if (bounds[0] == null && !bell[0]) return null;
 		return new FarmBlocks(bounds[0], counts[0], counts[1], bell[0], blocks);
@@ -146,14 +146,14 @@ public class FarmEspModule extends Module {
 
 	private Map<ChunkPos, Mobs> countMobs() {
 		Map<ChunkPos, Mobs> counted = new HashMap<>();
-		ChunkPos center = mc.player.getChunkPos();
-		for (Entity entity : mc.world.getEntities()) {
-			boolean animal = entity instanceof AnimalEntity;
-			boolean villager = entity instanceof VillagerEntity;
-			boolean golem = entity instanceof IronGolemEntity;
+		ChunkPos center = mc.player.chunkPosition();
+		for (Entity entity : mc.level.entitiesForRendering()) {
+			boolean animal = entity instanceof Animal;
+			boolean villager = entity instanceof Villager;
+			boolean golem = entity instanceof IronGolem;
 			if (!animal && !villager && !golem) continue;
-			ChunkPos pos = entity.getChunkPos();
-			if (pos.getChebyshevDistance(center) > range.getInt()) continue;
+			ChunkPos pos = entity.chunkPosition();
+			if (pos.getChessboardDistance(center) > range.getInt()) continue;
 			Mobs chunk = counted.computeIfAbsent(pos, key -> new Mobs());
 			if (animal) chunk.animals++;
 			if (villager) chunk.villagers++;
@@ -167,7 +167,7 @@ public class FarmEspModule extends Module {
 		if (!ignoreVillages.get()) return false;
 		for (int x = -1; x <= 1; x++) {
 			for (int z = -1; z <= 1; z++) {
-				FarmBlocks neighbour = scanner.results().get(new ChunkPos(center.x + x, center.z + z));
+				FarmBlocks neighbour = scanner.results().get(new ChunkPos(Mc.chunkX(center) + x, Mc.chunkZ(center) + z));
 				if (neighbour != null && neighbour.bell) return true;
 			}
 		}
@@ -203,11 +203,11 @@ public class FarmEspModule extends Module {
 		return flaggedChunks().size();
 	}
 
-	private Box bounds(ChunkPos pos) {
+	private AABB bounds(ChunkPos pos) {
 		FarmBlocks blocks = scanner.results().get(pos);
 		Mobs chunk = mobs.get(pos);
-		Box bounds = blocks == null ? null : blocks.bounds;
-		if (chunk != null && chunk.bounds != null) bounds = bounds == null ? chunk.bounds : bounds.union(chunk.bounds);
+		AABB bounds = blocks == null ? null : blocks.bounds;
+		if (chunk != null && chunk.bounds != null) bounds = bounds == null ? chunk.bounds : bounds.minmax(chunk.bounds);
 		return bounds;
 	}
 
@@ -232,15 +232,15 @@ public class FarmEspModule extends Module {
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
-		Vec3d tracerStart = RenderUtil.tracerOrigin(event);
+		Vec3 tracerStart = RenderUtil.tracerOrigin(event);
 		int fill = (color.get() & 0x00FFFFFF) | 0x20000000;
 		for (ChunkPos pos : flaggedChunks()) {
-			Box bounds = bounds(pos);
+			AABB bounds = bounds(pos);
 			if (bounds == null) continue;
 			RenderUtil.drawBox(event, bounds, fill, color.get(), 1.5f, throughWalls.get());
-			Vec3d center = bounds.getCenter();
+			Vec3 center = bounds.getCenter();
 			if (tracers.get()) RenderUtil.drawLine(event, tracerStart, center, color.get(), 1.5f, throughWalls.get());
-			RenderUtil.drawText(event, "Farm: " + summary(pos), new Vec3d(center.x, bounds.maxY + 1, center.z), color.get() | 0xFF000000, 0.5f);
+			RenderUtil.drawText(event, "Farm: " + summary(pos), new Vec3(center.x, bounds.maxY + 1, center.z), color.get() | 0xFF000000, 0.5f);
 		}
 	}
 }

@@ -1,5 +1,6 @@
 package dev.femboyware.module.hud;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.gui.ClickGuiScreen;
 import dev.femboyware.gui.Theme;
 import dev.femboyware.module.Category;
@@ -7,8 +8,8 @@ import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.util.math.MathHelper;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.util.Mth;
 
 /**
  * Something drawn on the HUD, in the HUD panel. Its place is a share of the screen, so it stays
@@ -77,19 +78,19 @@ public abstract class HudElement extends Module {
 	public abstract int height(boolean editing);
 
 	/** Draws the element with its top left at {@code left, top}. */
-	protected abstract void draw(DrawContext context, int left, int top, boolean editing);
+	protected abstract void draw(GuiGraphics context, int left, int top, boolean editing);
 
 	@Override
-	public void onRender2D(DrawContext context, float tickDelta) {
+	public void onRender2D(GuiGraphics context, float tickDelta) {
 		// In the ClickGUI the editor draws every element itself, with outlines, over the blur
-		if (mc.options.hudHidden || mc.getDebugHud().shouldShowDebugHud() || mc.currentScreen instanceof ClickGuiScreen) return;
+		if (Mc.hudHidden() || mc.getDebugOverlay().showDebugScreen() || Mc.screen() instanceof ClickGuiScreen) return;
 		if (width(false) <= 0) return;
-		draw(context, left(context.getScaledWindowWidth(), false), top(context.getScaledWindowHeight(), false), false);
+		draw(context, left(context.guiWidth(), false), top(context.guiHeight(), false), false);
 	}
 
 	/** Draws it for the ClickGUI's HUD editor. */
-	public void drawForEditor(DrawContext context) {
-		draw(context, left(context.getScaledWindowWidth(), true), top(context.getScaledWindowHeight(), true), true);
+	public void drawForEditor(GuiGraphics context) {
+		draw(context, left(context.guiWidth(), true), top(context.guiHeight(), true), true);
 	}
 
 	public int left(int screenWidth, boolean editing) {
@@ -104,8 +105,8 @@ public abstract class HudElement extends Module {
 	public void moveTo(int left, int top, int screenWidth, int screenHeight) {
 		int spareX = Math.max(1, screenWidth - width(true));
 		int spareY = Math.max(1, screenHeight - height(true));
-		x.set(Math.round(MathHelper.clamp(left / (double) spareX, 0, 1) * 200) / 2.0);
-		y.set(Math.round(MathHelper.clamp(top / (double) spareY, 0, 1) * 200) / 2.0);
+		x.set(Math.round(Mth.clamp(left / (double) spareX, 0, 1) * 200) / 2.0);
+		y.set(Math.round(Mth.clamp(top / (double) spareY, 0, 1) * 200) / 2.0);
 	}
 
 	/** Whether it sits on the right half of the screen, so lists line up against the right edge. */

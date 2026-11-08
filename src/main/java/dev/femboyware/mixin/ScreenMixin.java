@@ -3,11 +3,11 @@ package dev.femboyware.mixin;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.gui.SwirlBackground;
 import dev.femboyware.module.render.MainMenuModule;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.MessageScreen;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.screen.world.LevelLoadingScreen;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.GenericMessageScreen;
+import net.minecraft.client.gui.screens.LevelLoadingScreen;
+import net.minecraft.client.gui.screens.Screen;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -21,20 +21,26 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin(Screen.class)
 public class ScreenMixin {
+	//? if >=26.1 {
+	/*private static final String PANORAMA = "extractPanorama", MENU_BACKGROUND = "extractMenuBackground(Lnet/minecraft/client/gui/GuiGraphicsExtractor;IIII)V";
+	*///?} else {
+	private static final String PANORAMA = "renderPanorama", MENU_BACKGROUND = "renderMenuBackground(Lnet/minecraft/client/gui/GuiGraphics;IIII)V";
+	//?}
+
 	/** Light enough to keep the pink, dark enough to read text on. */
 	@Unique
 	private static final int TINT = 0x48200A1C;
 
-	@Inject(method = "renderPanoramaBackground", at = @At("HEAD"), cancellable = true)
-	private void femboyware$pinkBackground(DrawContext context, float deltaTicks, CallbackInfo ci) {
+	@Inject(method = PANORAMA, at = @At("HEAD"), cancellable = true)
+	private void femboyware$pinkBackground(GuiGraphics context, float deltaTicks, CallbackInfo ci) {
 		if (!femboyware$themed()) return;
 		Screen screen = (Screen) (Object) this;
 		SwirlBackground.draw(context, screen.width, screen.height);
 		ci.cancel();
 	}
 
-	@Inject(method = "renderDarkening(Lnet/minecraft/client/gui/DrawContext;IIII)V", at = @At("HEAD"), cancellable = true)
-	private void femboyware$pinkDarkening(DrawContext context, int x, int y, int width, int height, CallbackInfo ci) {
+	@Inject(method = MENU_BACKGROUND, at = @At("HEAD"), cancellable = true)
+	private void femboyware$pinkDarkening(GuiGraphics context, int x, int y, int width, int height, CallbackInfo ci) {
 		if (!femboyware$themed()) return;
 		context.fill(x, y, x + width, y + height, TINT);
 		ci.cancel();
@@ -45,6 +51,6 @@ public class ScreenMixin {
 	private boolean femboyware$themed() {
 		if (FemboyWare.getModules() == null || !FemboyWare.getModules().get(MainMenuModule.class).isEnabled()) return false;
 		Object screen = this;
-		return MinecraftClient.getInstance().world == null || screen instanceof LevelLoadingScreen || screen instanceof MessageScreen;
+		return Minecraft.getInstance().level == null || screen instanceof LevelLoadingScreen || screen instanceof GenericMessageScreen;
 	}
 }

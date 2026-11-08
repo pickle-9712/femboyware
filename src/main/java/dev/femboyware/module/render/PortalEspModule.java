@@ -9,17 +9,16 @@ import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.ChatUtil;
 import dev.femboyware.util.ChunkScanner;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.chunk.WorldChunk;
-
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Finds lit portals, which only players make: ruined portals always generate unlit, and worldgen
@@ -29,7 +28,7 @@ public class PortalEspModule extends Module {
 	private static final int CHUNKS_PER_TICK = 4;
 	private static final long RESCAN_MILLIS = 5_000;
 
-	private record Portals(Box bounds, boolean end) {}
+	private record Portals(AABB bounds, boolean end) {}
 
 	private final NumberSetting range = add(new NumberSetting("Range", "Scan radius in chunks", 8, 1, 16, 1));
 	private final BoolSetting nether = add(new BoolSetting("Nether Portals", "Show lit nether portals", true));
@@ -64,22 +63,22 @@ public class PortalEspModule extends Module {
 		if (!notify.get()) return;
 		for (Map.Entry<ChunkPos, Portals> entry : scanner.results().entrySet()) {
 			if (!shown(entry.getValue()) || !notified.add(entry.getKey())) continue;
-			ChatUtil.info((entry.getValue().end ? "End portal" : "Nether portal") + " at " + ChatUtil.coords(BlockPos.ofFloored(entry.getValue().bounds.getCenter())));
+			ChatUtil.info((entry.getValue().end ? "End portal" : "Nether portal") + " at " + ChatUtil.coords(BlockPos.containing(entry.getValue().bounds.getCenter())));
 		}
 	}
 
-	private Portals scan(WorldChunk chunk) {
-		Box[] bounds = new Box[1];
+	private Portals scan(LevelChunk chunk) {
+		AABB[] bounds = new AABB[1];
 		boolean[] isEnd = {false};
 		ChunkScanner.forEachBlock(chunk, PortalEspModule::isPortal, (pos, state) -> {
-			if (state.isOf(Blocks.END_PORTAL)) isEnd[0] = true;
-			bounds[0] = bounds[0] == null ? new Box(pos) : bounds[0].union(new Box(pos));
+			if (state.is(Blocks.END_PORTAL)) isEnd[0] = true;
+			bounds[0] = bounds[0] == null ? new AABB(pos) : bounds[0].minmax(new AABB(pos));
 		});
 		return bounds[0] == null ? null : new Portals(bounds[0], isEnd[0]);
 	}
 
 	private static boolean isPortal(BlockState state) {
-		return state.isOf(Blocks.NETHER_PORTAL) || state.isOf(Blocks.END_PORTAL);
+		return state.is(Blocks.NETHER_PORTAL) || state.is(Blocks.END_PORTAL);
 	}
 
 	private boolean shown(Portals portals) {
@@ -97,12 +96,12 @@ public class PortalEspModule extends Module {
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
-		Vec3d tracerStart = RenderUtil.tracerOrigin(event);
+		Vec3 tracerStart = RenderUtil.tracerOrigin(event);
 		for (Portals portals : scanner.results().values()) {
 			if (!shown(portals)) continue;
 			int color = portals.end ? endColor.get() : netherColor.get();
 			RenderUtil.drawBox(event, portals.bounds, (color & 0x00FFFFFF) | 0x30000000, color, 1.5f, throughWalls.get());
-			Vec3d center = portals.bounds.getCenter();
+			Vec3 center = portals.bounds.getCenter();
 			if (tracers.get()) RenderUtil.drawLine(event, tracerStart, center, color, 1.5f, throughWalls.get());
 		}
 	}

@@ -1,19 +1,18 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
 /** Rings of light ripple out across the ground where you jump and land. */
 public class JumpCirclesModule extends PlayerFxModule {
@@ -31,7 +30,7 @@ public class JumpCirclesModule extends PlayerFxModule {
 	private final Palette palette = palette(0xFFFF77C8, 0xFF8AB8FF);
 	private final EnumSetting<ShowOn> showOn = showOnSetting();
 
-	private record Circle(Vec3d pos, long start) {}
+	private record Circle(Vec3 pos, long start) {}
 
 	private final List<Circle> circles = new ArrayList<>();
 	private final Map<Integer, Boolean> grounded = new HashMap<>();
@@ -49,13 +48,13 @@ public class JumpCirclesModule extends PlayerFxModule {
 	@Override
 	public void onTick() {
 		Map<Integer, Boolean> seen = new HashMap<>();
-		for (PlayerEntity player : wearers(true)) {
-			boolean onGround = player.isOnGround();
+		for (Player player : wearers(true)) {
+			boolean onGround = player.onGround();
 			Boolean before = grounded.get(player.getId());
 			if (before != null && before != onGround) {
-				boolean jumped = !onGround && player.getVelocity().y > 0.1;
+				boolean jumped = !onGround && player.getDeltaMovement().y > 0.1;
 				if (jumped && onJump.get() || onGround && onLand.get()) {
-					circles.add(new Circle(player.getEntityPos().add(0, 0.02, 0), System.nanoTime()));
+					circles.add(new Circle(player.position().add(0, 0.02, 0), System.nanoTime()));
 					if (circles.size() > MAX_CIRCLES) circles.remove(0);
 				}
 			}
@@ -72,21 +71,21 @@ public class JumpCirclesModule extends PlayerFxModule {
 		circles.removeIf(circle -> (now - circle.start) / 1e9 > life);
 		if (circles.isEmpty()) return;
 
-		Vec3d cam = event.camera().pos;
-		MatrixStack matrices = event.matrices();
+		Vec3 cam = event.camera().pos;
+		PoseStack matrices = event.matrices();
 		VertexConsumer light = FxRender.quads(event, true, false);
 		for (Circle circle : circles) {
 			double age = (now - circle.start) / 1e9;
-			matrices.push();
+			matrices.pushPose();
 			matrices.translate((float) (circle.pos.x - cam.x), (float) (circle.pos.y - cam.y), (float) (circle.pos.z - cam.z));
-			ripple(light, matrices.peek(), (float) (age / duration.get()));
-			if (style.is(Style.DOUBLE)) ripple(light, matrices.peek(), (float) ((age - duration.get() * 0.3) / duration.get()));
-			matrices.pop();
+			ripple(light, matrices.last(), (float) (age / duration.get()));
+			if (style.is(Style.DOUBLE)) ripple(light, matrices.last(), (float) ((age - duration.get() * 0.3) / duration.get()));
+			matrices.popPose();
 		}
 	}
 
 	/** One ripple {@code progress} of the way through: eased outwards, fading as it goes. */
-	private void ripple(VertexConsumer consumer, MatrixStack.Entry pose, float progress) {
+	private void ripple(VertexConsumer consumer, PoseStack.Pose pose, float progress) {
 		if (progress <= 0 || progress >= 1) return;
 		float eased = 1 - (float) Math.pow(1 - progress, 3);
 		float outer = radius.getFloat() * eased;

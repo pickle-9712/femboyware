@@ -1,24 +1,24 @@
 package dev.femboyware.module.movement;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.FireworksComponent;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.projectile.FireworkRocketEntity;
-import net.minecraft.item.FireworkRocketItem;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.sound.SoundEvents;
-import net.minecraft.util.Hand;
-
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.projectile.FireworkRocketEntity;
+import net.minecraft.world.item.FireworkRocketItem;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.Fireworks;
 
 /**
  * Boosts your elytra with a client-side firework, so using a rocket while flying doesn't use it up.
@@ -47,23 +47,23 @@ public class ElytraBoostModule extends Module {
 	}
 
 	/** Called from the interaction manager mixin. Returns true when the rocket use was replaced by a boost. */
-	public boolean onUseItem(Hand hand) {
+	public boolean onUseItem(InteractionHand hand) {
 		if (!isEnabled() || !dontConsume.get()) return false;
-		if (!(mc.player.getStackInHand(hand).getItem() instanceof FireworkRocketItem)) return false;
-		if (!mc.player.isGliding() || mc.currentScreen != null) return false;
+		if (!(mc.player.getItemInHand(hand).getItem() instanceof FireworkRocketItem)) return false;
+		if (!mc.player.isFallFlying() || Mc.screen() != null) return false;
 		boost();
 		return true;
 	}
 
 	private void boost() {
-		ItemStack stack = Items.FIREWORK_ROCKET.getDefaultStack();
-		stack.set(DataComponentTypes.FIREWORKS, new FireworksComponent(fireworkLevel.getInt(), List.of()));
-		FireworkRocketEntity firework = new FireworkRocketEntity(mc.world, stack, mc.player);
+		ItemStack stack = Items.FIREWORK_ROCKET.getDefaultInstance();
+		stack.set(DataComponents.FIREWORKS, new Fireworks(fireworkLevel.getInt(), List.of()));
+		FireworkRocketEntity firework = new FireworkRocketEntity(mc.level, stack, mc.player);
 		fireworks.add(firework);
 		if (playSound.get()) {
-			mc.world.playSoundClient(mc.player.getX(), mc.player.getY(), mc.player.getZ(), SoundEvents.ENTITY_FIREWORK_ROCKET_LAUNCH, SoundCategory.AMBIENT, 3f, 1f, false);
+			mc.level.playLocalSound(mc.player.getX(), mc.player.getY(), mc.player.getZ(), SoundEvents.FIREWORK_ROCKET_LAUNCH, SoundSource.AMBIENT, 3f, 1f, false);
 		}
-		mc.world.addEntity(firework);
+		mc.level.addEntity(firework);
 	}
 
 	public boolean isOurFirework(FireworkRocketEntity firework) {

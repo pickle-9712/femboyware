@@ -6,7 +6,7 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.MoveUtil;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.phys.Vec3;
 
 /** Better elytra flight. Applied to vanilla's gliding velocity by the gliding mixin. */
 public class ElytraPlusModule extends Module {
@@ -35,17 +35,17 @@ public class ElytraPlusModule extends Module {
 	}
 
 	/** Called with vanilla's gliding velocity for the local player. */
-	public Vec3d modifyGliding(Vec3d velocity) {
-		if (!isEnabled() || stopInWater.get() && mc.player.isTouchingWater()) return velocity;
+	public Vec3 modifyGliding(Vec3 velocity) {
+		if (!isEnabled() || stopInWater.get() && mc.player.isInWater()) return velocity;
 		return switch (mode.get()) {
 			case CONTROL -> {
-				Vec3d horizontal = MoveUtil.strafe(speed.get());
+				Vec3 horizontal = MoveUtil.strafe(speed.get());
 				double y = MoveUtil.vertical(verticalSpeed.get());
-				yield new Vec3d(horizontal.x, y == 0 ? -fall.get() : y, horizontal.z);
+				yield new Vec3(horizontal.x, y == 0 ? -fall.get() : y, horizontal.z);
 			}
 			case BOOST -> {
-				if (!mc.options.forwardKey.isPressed() || velocity.length() >= maxSpeed.get()) yield velocity;
-				yield velocity.add(mc.player.getRotationVector().multiply(acceleration.get()));
+				if (!mc.options.keyUp.isDown() || velocity.length() >= maxSpeed.get()) yield velocity;
+				yield velocity.add(mc.player.getLookAngle().scale(acceleration.get()));
 			}
 		};
 	}

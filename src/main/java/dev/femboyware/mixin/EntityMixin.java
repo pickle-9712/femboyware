@@ -3,16 +3,17 @@ package dev.femboyware.mixin;
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import com.llamalad7.mixinextras.injector.ModifyReturnValue;
 import dev.femboyware.FemboyWare;
+import dev.femboyware.module.client.FakePlayerModule;
 import dev.femboyware.module.movement.AntiWebModule;
 import dev.femboyware.module.movement.NoPushModule;
 import dev.femboyware.module.movement.NoSlowModule;
 import dev.femboyware.module.render.FreeLookModule;
 import dev.femboyware.module.render.PopChamsModule;
 import dev.femboyware.module.utility.FreeCamModule;
-import net.minecraft.block.BlockState;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.entity.Entity;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -21,34 +22,35 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(Entity.class)
 public class EntityMixin {
 	/** Turns movement input into velocity using the server yaw while a silent rotation is active. */
-	@ModifyExpressionValue(method = "updateVelocity", at = @At(value = "INVOKE", target = "Lnet/minecraft/entity/Entity;getYaw()F"))
+	@ModifyExpressionValue(method = "moveRelative", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;getYRot()F"))
 	private float femboyware$moveFixYaw(float yaw) {
-		if ((Object) this != MinecraftClient.getInstance().player || FemboyWare.getRotations() == null) return yaw;
+		if ((Object) this != Minecraft.getInstance().player || FemboyWare.getRotations() == null) return yaw;
 		return FemboyWare.getRotations().isMoveFixActive() ? FemboyWare.getRotations().getServerYaw() : yaw;
 	}
 
-	@Inject(method = "pushAwayFrom", at = @At("HEAD"), cancellable = true)
+	@Inject(method = "push(Lnet/minecraft/world/entity/Entity;)V", at = @At("HEAD"), cancellable = true)
 	private void femboyware$noEntityPush(Entity entity, CallbackInfo ci) {
 		if (isLocalPlayer() && FemboyWare.getModules().get(NoPushModule.class).entities()) ci.cancel();
+		else if (FemboyWare.getModules() != null && FemboyWare.getModules().get(FakePlayerModule.class).ignoresPush((Entity) (Object) this, entity)) ci.cancel();
 	}
 
-	@ModifyReturnValue(method = "isPushedByFluids", at = @At("RETURN"))
+	@ModifyReturnValue(method = "isPushedByFluid", at = @At("RETURN"))
 	private boolean femboyware$noFluidPush(boolean pushed) {
 		return pushed && !(isLocalPlayer() && FemboyWare.getModules().get(NoPushModule.class).liquids());
 	}
 
-	@Inject(method = "slowMovement", at = @At("HEAD"), cancellable = true)
-	private void femboyware$antiWeb(BlockState state, Vec3d multiplier, CallbackInfo ci) {
+	@Inject(method = "makeStuckInBlock", at = @At("HEAD"), cancellable = true)
+	private void femboyware$antiWeb(BlockState state, Vec3 multiplier, CallbackInfo ci) {
 		if (isLocalPlayer() && FemboyWare.getModules().get(AntiWebModule.class).ignores(state)) ci.cancel();
 	}
 
-	@ModifyReturnValue(method = "getVelocityMultiplier", at = @At("RETURN"))
+	@ModifyReturnValue(method = "getBlockSpeedFactor", at = @At("RETURN"))
 	private float femboyware$noBlockSlow(float multiplier) {
 		return isLocalPlayer() && FemboyWare.getModules().get(NoSlowModule.class).blocks() ? Math.max(multiplier, 1f) : multiplier;
 	}
 
 	/** Free Look and Free Cam take the mouse instead of the player. */
-	@Inject(method = "changeLookDirection", at = @At("HEAD"), cancellable = true)
+	@Inject(method = "turn", at = @At("HEAD"), cancellable = true)
 	private void femboyware$freeLook(double cursorDeltaX, double cursorDeltaY, CallbackInfo ci) {
 		if (!isLocalPlayer()) return;
 		FreeCamModule freeCam = FemboyWare.getModules().get(FreeCamModule.class);
@@ -64,7 +66,7 @@ public class EntityMixin {
 		}
 	}
 
-	@ModifyReturnValue(method = "getTeamColorValue", at = @At("RETURN"))
+	@ModifyReturnValue(method = "getTeamColor", at = @At("RETURN"))
 	private int femboyware$popChamsColor(int color) {
 		if (!FemboyWare.isEnabled(PopChamsModule.class)) return color;
 		PopChamsModule popChams = FemboyWare.getModules().get(PopChamsModule.class);
@@ -72,6 +74,6 @@ public class EntityMixin {
 	}
 
 	private boolean isLocalPlayer() {
-		return FemboyWare.getModules() != null && (Object) this == MinecraftClient.getInstance().player;
+		return FemboyWare.getModules() != null && (Object) this == Minecraft.getInstance().player;
 	}
 }

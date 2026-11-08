@@ -7,9 +7,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 import dev.femboyware.FemboyWare;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.player.PlayerEntity;
-
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,7 +30,7 @@ public class FriendManager {
 	}
 
 	public boolean isFriend(Entity entity) {
-		return entity instanceof PlayerEntity player && isFriend(player.getGameProfile().name());
+		return entity instanceof Player player && isFriend(player.getGameProfile().name());
 	}
 
 	/** Adds {@code name}; false if they were already a friend. */

@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.manager.GuardLink;
 import dev.femboyware.mixin.InputAccessor;
@@ -20,21 +21,20 @@ import dev.femboyware.util.Rotation;
 import dev.femboyware.util.TargetUtil;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.damage.DamageSource;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.Hand;
-import net.minecraft.util.PlayerInput;
-import net.minecraft.util.StringHelper;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.Vec2f;
-import net.minecraft.util.math.Vec3d;
-
+import net.minecraft.ChatFormatting;
+import net.minecraft.core.BlockPos;
+import net.minecraft.util.Mth;
+import net.minecraft.util.StringUtil;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Input;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.Vec2;
+import net.minecraft.world.phys.Vec3;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -52,7 +52,7 @@ import java.util.regex.Pattern;
  * computer. Fighting is Legit Aura's and staying alive is Legit Pot's; this module decides who to
  * fight, keeps everyone in formation around the principal when there's nothing to fight, and takes
  * orders the principal types in chat ({@code !formation circle}, {@code !pause} and so on), or sends
- * privately over {@link GuardLink} with {@code .g pause} when the Link settings are filled in.
+ * privately over {@link GuardLink} with {@code .g pause} when its Link Key matches Guard Command's.
  *
  * <p>Bodyguards never talk to each other. Every one of them hears the same orders in chat and sees
  * the same players in the world, and they all run the same rules on that: the guards present are
@@ -73,7 +73,7 @@ public class BodyguardModule extends Module {
 	public enum Greet { OFF, PLAYERS, GUARDS, EVERYONE }
 
 	/** Something fun to do instead of guarding. */
-	private enum Activity { NONE, MIRROR, CROWD, FFA }
+	private enum Activity { NONE, MIRROR, CROWD, FFA, ARENA }
 
 	/** How long someone who hit the principal or a guard stays an enemy, in milliseconds. */
 	private static final long GRUDGE = 30_000;
@@ -103,6 +103,8 @@ public class BodyguardModule extends Module {
 	private static final double LOOKED_AT_RANGE = 16;
 	/** In a free-for-all, stop running at someone this close. */
 	private static final double FFA_CLOSE = 2.8;
+	/** Arena line-up: close enough to our spot, how far each team's line is from the middle as a share of the radius, and the gap between teammates. */
+	private static final double ARENA_SPOT_REACHED = 0.7, ARENA_LINE = 0.6, ARENA_GAP = 1.5;
 	/** How many steps along a path the camera looks, so it sweeps round corners instead of snapping at each block. */
 	private static final int PATH_LOOK_AHEAD = 4;
 	/** The fastest the camera turns while walking somewhere, in degrees per second. */
@@ -130,8 +132,7 @@ public class BodyguardModule extends Module {
 	private final NumberSetting crowdChatEvery = add(new NumberSetting("Crowd Chat Every", "About how many seconds between each guard's messages", 120, 30, 600, 10)).visibleWhen(crowdChat::get);
 	private final BoolSetting rallyPearl = add(new BoolSetting("Rally Pearl", "When called to a far-off place, throw an ender pearl from the hotbar to get there faster", true));
 	private final StringSetting prefix = add(new StringSetting("Prefix", "What orders start with", "!"));
-	private final StringSetting linkAddress = add(new StringSetting("Link Address", "Private orders: the principal's computer, as address:port. 127.0.0.1 if it's this PC", "127.0.0.1:" + GuardLink.DEFAULT_PORT));
-	private final StringSetting linkKey = add(new StringSetting("Link Key", "Private orders: the same password as the principal's Guard Command module. Leave empty to only take orders from chat", ""));
+	private final StringSetting linkKey = add(new StringSetting("Link Key", "Private orders: the same password as the principal's Guard Command module, from any computer or network. Leave empty to only take orders from chat", ""));
 	private final BoolSetting lowPower = add(new BoolSetting("Low Power", "Don't draw the world (just the HUD on black), cap the frame rate and shorten the render distance, so many guards can run on one PC", true));
 	private final NumberSetting lowPowerFps = add(new NumberSetting("Low Power FPS", "Frame rate cap in low power; aiming gets choppier below about 15", 15, 5, 60, 1)).visibleWhen(lowPower::get);
 	private final NumberSetting viewDistance = add(new NumberSetting("View Distance", "Render distance in low power, in chunks; players further than this many chunks away can't be seen", 4, 2, 12, 1)).visibleWhen(lowPower::get);
@@ -143,16 +144,16 @@ public class BodyguardModule extends Module {
 	private final Map<UUID, Long> attackedMe = new HashMap<>();
 	/** Set by !stop: no fighting at all, not even back, until a new order lifts it. */
 	private boolean ceasefire;
-	private PlayerEntity target;
+	private Player target;
 	/** Name of a player the principal ordered us to attack, or null. */
 	private String ordered;
 	private boolean paused;
 	/** Where to hold formation after {@code !stay}; null while following the principal. */
-	private Vec3d anchor;
+	private Vec3 anchor;
 	private float anchorYaw;
 	private long lastReply;
 	/** Where a rally is taking us, ahead of everything but staying alive; null when not rallying. */
-	private Vec3d rally;
+	private Vec3 rally;
 	private long rallyEnds;
 	/** Whether to hold that spot on arrival, instead of going back to following the principal. */
 	private boolean rallyHolds;
@@ -162,19 +163,19 @@ public class BodyguardModule extends Module {
 	private Activity activity = Activity.NONE;
 	private final Random random = new Random();
 	/** The way round whatever we got stuck on, the next place along it, and where it was heading. */
-	private List<Vec3d> path;
+	private List<Vec3> path;
 	private int pathIndex;
-	private Vec3d pathGoal;
+	private Vec3 pathGoal;
 	private int pathCooldown;
 	private boolean wasBossSwinging;
 	/** Crowd mode: the middle, where we're strolling to, ticks before strolling again, and idle fidgets. */
-	private Vec3d crowdCenter;
-	private Vec3d wanderTo;
+	private Vec3 crowdCenter;
+	private Vec3 wanderTo;
 	private int crowdWait;
 	private int crowdSneakTicks;
 	private boolean crowdJump;
 	/** Who we're on our way to greet, or greeting; how much longer that goes on; and when each person can next be greeted. */
-	private PlayerEntity greeting;
+	private Player greeting;
 	private int greetTicks;
 	private int greetWalkTicks;
 	private boolean greeted;
@@ -183,16 +184,20 @@ public class BodyguardModule extends Module {
 	/** Free-for-all: the other guards, in lower case, and ticks spent dead before respawning. */
 	private final Set<String> ffaEnemies = new HashSet<>();
 	private int respawnTimer;
+	/** Arena: our place in the team's line, whether the round has started, and whether we've died this round. The other team is in {@link #ffaEnemies}. */
+	private Vec3 arenaSpot;
+	private boolean arenaFighting;
+	private boolean arenaOut;
 	private GuardLink.Client link;
 	private String linkSettings = "";
 	/** Whether the order being carried out came over the link, so its reply goes back that way too. */
 	private boolean linkOrder;
 	/** Which way we're walking after steering round people; null when not walking. The camera turns this way. */
-	private Vec3d heading;
+	private Vec3 heading;
 	/** Ticks we've barely moved while trying to walk, and ticks left of sidestepping to get unstuck. */
 	private int stuckTicks;
 	private int unstickTicks;
-	private Vec3d lastPos;
+	private Vec3 lastPos;
 	private long lastFrame;
 	/** Settings we changed, to put back: the render distance (-1 if untouched) and pausing when the window loses focus. */
 	private int savedViewDistance = -1;
@@ -208,11 +213,11 @@ public class BodyguardModule extends Module {
 		super("Bodyguard", "Guards a player with Legit Aura and Legit Pot, in formation with other bodyguards, taking orders from chat", Category.LEGIT);
 		ClientReceiveMessageEvents.CHAT.register((message, signed, sender, params, timestamp) -> {
 			if (sender == null || !isEnabled() || mc.player == null) return;
-			if (sender.name().equalsIgnoreCase(principal.get())) order(signed != null ? signed.getSignedContent() : message.getString());
+			if (sender.name().equalsIgnoreCase(principal.get())) order(signed != null ? signed.signedContent() : message.getString());
 		});
 		ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
 			if (overlay || !isEnabled() || !pluginChat.get() || mc.player == null || principal.get().isBlank()) return;
-			String text = Formatting.strip(message.getString());
+			String text = ChatFormatting.stripFormatting(message.getString());
 			if (text == null) return;
 			String name = Pattern.quote(principal.get());
 			// "[Rank] Name: msg", "<Name> msg", "Name » msg", or a plugin whisper "[Name -> you] msg". Anchored to the
@@ -250,15 +255,15 @@ public class BodyguardModule extends Module {
 		}
 		int wanted = viewDistance.getInt();
 		if (lowPower.get()) {
-			if (savedViewDistance < 0) savedViewDistance = mc.options.getViewDistance().getValue();
-			if (mc.options.getViewDistance().getValue() != wanted) {
-				mc.options.getViewDistance().setValue(wanted);
-				mc.options.sendClientSettings();
+			if (savedViewDistance < 0) savedViewDistance = mc.options.renderDistance().get();
+			if (mc.options.renderDistance().get() != wanted) {
+				mc.options.renderDistance().set(wanted);
+				mc.options.broadcastOptions();
 			}
 		} else if (savedViewDistance >= 0) {
-			mc.options.getViewDistance().setValue(savedViewDistance);
+			mc.options.renderDistance().set(savedViewDistance);
 			savedViewDistance = -1;
-			mc.options.sendClientSettings();
+			mc.options.broadcastOptions();
 		}
 	}
 
@@ -266,8 +271,8 @@ public class BodyguardModule extends Module {
 		if (changedPause) mc.options.pauseOnLostFocus = savedPauseOnLostFocus;
 		changedPause = false;
 		if (savedViewDistance >= 0) {
-			mc.options.getViewDistance().setValue(savedViewDistance);
-			if (mc.getNetworkHandler() != null) mc.options.sendClientSettings();
+			mc.options.renderDistance().set(savedViewDistance);
+			if (mc.getConnection() != null) mc.options.broadcastOptions();
 		}
 		savedViewDistance = -1;
 	}
@@ -282,19 +287,19 @@ public class BodyguardModule extends Module {
 	}
 
 	/** Who the guards should be fighting right now, or null; Legit Aura fights exactly this while Bodyguard is on. */
-	public PlayerEntity getTarget() {
+	public Player getTarget() {
 		return isEnabled() ? target : null;
 	}
 
 	/** Whether {@code entity} is the principal or one of the guards, whom nothing should attack. */
 	public static boolean protects(Entity entity) {
-		if (FemboyWare.getModules() == null || !(entity instanceof PlayerEntity player)) return false;
+		if (FemboyWare.getModules() == null || !(entity instanceof Player player)) return false;
 		BodyguardModule module = FemboyWare.getModules().get(BodyguardModule.class);
 		return module.isEnabled() && module.isFriendly(player.getGameProfile().name());
 	}
 
 	private boolean isFriendly(String name) {
-		if (activity == Activity.FFA && ffaEnemies.contains(name.toLowerCase(Locale.ROOT))) return false;
+		if ((activity == Activity.FFA || activity == Activity.ARENA) && ffaEnemies.contains(name.toLowerCase(Locale.ROOT))) return false;
 		if (name.equalsIgnoreCase(principal.get())) return true;
 		for (String guard : roster()) {
 			if (guard.equalsIgnoreCase(name)) return true;
@@ -337,12 +342,12 @@ public class BodyguardModule extends Module {
 
 	/** Connects the private order link, or reconnects if its settings changed. */
 	private void syncLink() {
-		String wanted = linkAddress.get() + "|" + linkKey.get();
+		String wanted = linkKey.get();
 		if (wanted.equals(linkSettings)) return;
 		stopLink();
-		if (linkKey.get().isBlank() || linkAddress.get().isBlank()) return;
+		if (linkKey.get().isBlank()) return;
 		linkSettings = wanted;
-		link = new GuardLink.Client(linkAddress.get(), linkKey.get(), mc.getSession().getUsername(),
+		link = new GuardLink.Client(linkKey.get(), mc.getUser().getName(),
 			text -> mc.execute(() -> linkOrder(text)), event -> mc.execute(() -> ChatUtil.info(event)));
 	}
 
@@ -354,7 +359,7 @@ public class BodyguardModule extends Module {
 
 	/** Carries out an order from the link; a leading prefix is fine but not needed. */
 	private void linkOrder(String text) {
-		if (!isEnabled() || mc.player == null || mc.world == null) return;
+		if (!isEnabled() || mc.player == null || mc.level == null) return;
 		String body = text.trim();
 		if (!prefix.get().isEmpty() && body.startsWith(prefix.get())) body = body.substring(prefix.get().length()).trim();
 		linkOrder = true;
@@ -376,11 +381,11 @@ public class BodyguardModule extends Module {
 
 	/** Called for every entity the client sees take damage; remembers who hit the principal, a guard, or us. Nothing is remembered during a ceasefire. */
 	public void onDamaged(LivingEntity victim, DamageSource source) {
-		if (!isEnabled() || ceasefire || !(victim instanceof PlayerEntity player) || (player != mc.player && !isFriendly(player.getGameProfile().name()))) return;
-		if (source.getAttacker() instanceof PlayerEntity attacker && TargetUtil.isValid(attacker)) {
+		if (!isEnabled() || ceasefire || !(victim instanceof Player player) || (player != mc.player && !isFriendly(player.getGameProfile().name()))) return;
+		if (source.getEntity() instanceof Player attacker && TargetUtil.isValid(attacker)) {
 			long until = System.currentTimeMillis() + GRUDGE;
-			enemies.put(attacker.getUuid(), until);
-			if (player == mc.player) attackedMe.put(attacker.getUuid(), until);
+			enemies.put(attacker.getUUID(), until);
+			if (player == mc.player) attackedMe.put(attacker.getUUID(), until);
 		}
 	}
 
@@ -388,13 +393,14 @@ public class BodyguardModule extends Module {
 	public void onTick() {
 		applyOptions();
 		syncLink();
-		PlayerEntity boss = principal();
+		Player boss = principal();
 		long now = System.currentTimeMillis();
 		enemies.values().removeIf(until -> until < now);
 		attackedMe.values().removeIf(until -> until < now);
 		updateRally();
 		updateActivity(boss);
 		if (activity == Activity.FFA) target = ffaTarget();
+		else if (activity == Activity.ARENA) target = arenaFighting && !arenaOut ? ffaTarget() : null;
 		else target = paused || ceasefire || boss == null || rally != null || activity == Activity.MIRROR ? null : pickTarget(boss);
 		reportStatus();
 	}
@@ -406,28 +412,29 @@ public class BodyguardModule extends Module {
 		String state = paused ? "Paused" : rally != null ? "Rally"
 			: activity != Activity.NONE ? activityName() : ceasefire ? "Ceasefire" : EnumSetting.prettify(mode.get().name());
 		link.reply(GuardLink.STATUS + String.format(Locale.ROOT, "%.1f\t%.1f\t%.1f\t%d\t%d\t%s\t%s\t%.1f\t%.1f\t%.1f",
-			mc.player.getHealth(), mc.player.getMaxHealth(), mc.player.getAbsorptionAmount(), InventoryUtil.count(stack -> stack.isOf(Items.TOTEM_OF_UNDYING)), LegitPotModule.healingPots(),
+			mc.player.getHealth(), mc.player.getMaxHealth(), mc.player.getAbsorptionAmount(), InventoryUtil.count(stack -> stack.is(Items.TOTEM_OF_UNDYING)), LegitPotModule.healingPots(),
 			state, target != null ? target.getGameProfile().name() : "", mc.player.getX(), mc.player.getY(), mc.player.getZ()));
 	}
 
 	// ---------------------------------------------------------------- mirror, crowd and free-for-all
 
-	private void updateActivity(PlayerEntity boss) {
+	private void updateActivity(Player boss) {
 		switch (activity) {
 			case MIRROR -> {
 				if (boss == null) return;
-				if (boss.handSwinging && !wasBossSwinging) mc.player.swingHand(Hand.MAIN_HAND);
-				wasBossSwinging = boss.handSwinging;
+				if (boss.swinging && !wasBossSwinging) mc.player.swing(InteractionHand.MAIN_HAND);
+				wasBossSwinging = boss.swinging;
 			}
 			case CROWD -> updateCrowd();
-			case FFA -> {
-				// Back in the fight straight after dying
-				if (mc.player.isDead()) {
+			case FFA, ARENA -> {
+				// Back in the fight straight after dying; in the arena, sitting out the rest of the round
+				if (mc.player.isDeadOrDying()) {
 					rally = null;
+					if (activity == Activity.ARENA && arenaFighting) arenaOut = true;
 					if (++respawnTimer >= RESPAWN_TICKS) {
 						respawnTimer = 0;
-						mc.player.requestRespawn();
-						mc.setScreen(null);
+						mc.player.respawn();
+						Mc.setScreen(null);
 					}
 				}
 			}
@@ -472,10 +479,11 @@ public class BodyguardModule extends Module {
 		int fidget = random.nextInt(400);
 		if (fidget == 0) crowdJump = true;
 		else if (fidget == 1) crowdSneakTicks = 8 + random.nextInt(12);
-		else if (fidget == 2) mc.player.swingHand(Hand.MAIN_HAND);
+		else if (fidget == 2) mc.player.swing(InteractionHand.MAIN_HAND);
 	}
 
 	private String activityName() {
+		if (activity == Activity.ARENA) return arenaOut ? "Out" : arenaFighting ? "Arena" : "Lining Up";
 		return activity == Activity.FFA ? "FFA" : EnumSetting.prettify(activity.name());
 	}
 
@@ -485,9 +493,9 @@ public class BodyguardModule extends Module {
 		long now = System.currentTimeMillis();
 		greetAgain.values().removeIf(when -> when < now);
 		List<String> team = roster();
-		List<PlayerEntity> choices = new ArrayList<>();
-		for (PlayerEntity player : mc.world.getPlayers()) {
-			if (player == mc.player || !player.isAlive() || player.isSpectator() || mc.player.distanceTo(player) > greetRange.get() || greetAgain.containsKey(player.getUuid())) continue;
+		List<Player> choices = new ArrayList<>();
+		for (Player player : mc.level.players()) {
+			if (player == mc.player || !player.isAlive() || player.isSpectator() || mc.player.distanceTo(player) > greetRange.get() || greetAgain.containsKey(player.getUUID())) continue;
 			boolean guard = indexOf(team, player.getGameProfile().name()) >= 0;
 			if (crowdGreet.is(Greet.EVERYONE) || crowdGreet.is(guard ? Greet.GUARDS : Greet.PLAYERS)) choices.add(player);
 		}
@@ -519,23 +527,23 @@ public class BodyguardModule extends Module {
 		}
 		crowdSneakTicks = greetTicks % 6 < 3 ? 1 : 0;
 		if (random.nextInt(14) == 0) crowdJump = true;
-		if (random.nextInt(7) == 0) mc.player.swingHand(Hand.MAIN_HAND);
+		if (random.nextInt(7) == 0) mc.player.swing(InteractionHand.MAIN_HAND);
 	}
 
 	private void finishGreeting() {
-		if (greeting != null) greetAgain.put(greeting.getUuid(), System.currentTimeMillis() + (long) (greetCooldown.get() * 1000));
+		if (greeting != null) greetAgain.put(greeting.getUUID(), System.currentTimeMillis() + (long) (greetCooldown.get() * 1000));
 		greeting = null;
 		crowdWait = 40 + random.nextInt(120);
 	}
 
 	/** The player we're facing, or null. */
-	private PlayerEntity lookingAt() {
-		PlayerEntity best = null;
+	private Player lookingAt() {
+		Player best = null;
 		double bestAngle = LOOKED_AT_ANGLE;
-		Vec3d look = mc.player.getRotationVec(1);
-		for (PlayerEntity player : mc.world.getPlayers()) {
+		Vec3 look = mc.player.getViewVector(1);
+		for (Player player : mc.level.players()) {
 			if (player == mc.player || !player.isAlive() || player.isSpectator() || mc.player.distanceTo(player) > LOOKED_AT_RANGE) continue;
-			double angle = Math.toDegrees(Math.acos(MathHelper.clamp(look.dotProduct(player.getEyePos().subtract(mc.player.getEyePos()).normalize()), -1, 1)));
+			double angle = Math.toDegrees(Math.acos(Mth.clamp(look.dot(player.getEyePosition().subtract(mc.player.getEyePosition()).normalize()), -1, 1)));
 			if (angle < bestAngle) {
 				bestAngle = angle;
 				best = player;
@@ -549,7 +557,7 @@ public class BodyguardModule extends Module {
 	}
 
 	/** Says a random line from a ;-separated list. Lines with {player} name {@code who}, and are left out if there's nobody to name. */
-	private void sayLine(String list, PlayerEntity who) {
+	private void sayLine(String list, Player who) {
 		List<String> lines = new ArrayList<>();
 		for (String line : list.split(";")) {
 			if (!line.isBlank() && (who != null || !line.contains("{player}"))) lines.add(line.trim());
@@ -560,13 +568,13 @@ public class BodyguardModule extends Module {
 	}
 
 	/** Who to fight in a free-for-all: the nearest other guard. */
-	private PlayerEntity ffaTarget() {
-		if (paused || rally != null || mc.player.isDead()) return null;
-		PlayerEntity best = null;
+	private Player ffaTarget() {
+		if (paused || rally != null || mc.player.isDeadOrDying()) return null;
+		Player best = null;
 		double bestDistance = Double.MAX_VALUE;
-		for (PlayerEntity player : mc.world.getPlayers()) {
+		for (Player player : mc.level.players()) {
 			if (!ffaEnemies.contains(player.getGameProfile().name().toLowerCase(Locale.ROOT)) || !TargetUtil.isValid(player)) continue;
-			double distance = mc.player.squaredDistanceTo(player);
+			double distance = mc.player.distanceToSqr(player);
 			if (distance < bestDistance) {
 				bestDistance = distance;
 				best = player;
@@ -598,6 +606,9 @@ public class BodyguardModule extends Module {
 		enabledMeow = false;
 		activity = Activity.NONE;
 		ffaEnemies.clear();
+		arenaSpot = null;
+		arenaFighting = false;
+		arenaOut = false;
 		wanderTo = null;
 		greeting = null;
 		greetAgain.clear();
@@ -610,11 +621,11 @@ public class BodyguardModule extends Module {
 
 	/** Whether to be heading for the rally point right now, rather than busy staying alive or typing. */
 	private boolean rallying() {
-		return rally != null && !paused && mc.currentScreen == null && !FemboyWare.getModules().get(LegitPotModule.class).isBusy();
+		return rally != null && !paused && Mc.screen() == null && !FemboyWare.getModules().get(LegitPotModule.class).isBusy();
 	}
 
 	/** Drops everything to go to {@code where}; with {@code holds}, stays there afterwards. */
-	private void startRally(Vec3d where, boolean holds) {
+	private void startRally(Vec3 where, boolean holds) {
 		rally = where;
 		rallyHolds = holds;
 		rallyEnds = System.currentTimeMillis() + RALLY_TIMEOUT;
@@ -627,12 +638,12 @@ public class BodyguardModule extends Module {
 	private void updateRally() {
 		pearlAim = null;
 		if (rally == null) return;
-		Vec3d to = new Vec3d(rally.x - mc.player.getX(), 0, rally.z - mc.player.getZ());
+		Vec3 to = new Vec3(rally.x - mc.player.getX(), 0, rally.z - mc.player.getZ());
 		boolean arrived = to.length() < RALLY_ARRIVED;
 		if (arrived || System.currentTimeMillis() > rallyEnds) {
 			if (arrived && rallyHolds) {
 				anchor = rally;
-				anchorYaw = mc.player.getYaw();
+				anchorYaw = mc.player.getYRot();
 			}
 			rally = null;
 			return;
@@ -642,9 +653,9 @@ public class BodyguardModule extends Module {
 
 	/** Number key first, throw on a later tick once the camera is on the arc, as a player would. */
 	private void throwRallyPearl(double distance) {
-		int slot = InventoryUtil.findHotbar(stack -> stack.isOf(Items.ENDER_PEARL));
-		if (slot < 0 || mc.player.getItemCooldownManager().isCoolingDown(mc.player.getInventory().getStack(slot))) return;
-		Vec3d from = mc.player.getEyePos().subtract(0, 0.1, 0);
+		int slot = InventoryUtil.findHotbar(stack -> stack.is(Items.ENDER_PEARL));
+		if (slot < 0 || mc.player.getCooldowns().isOnCooldown(mc.player.getInventory().getItem(slot))) return;
+		Vec3 from = mc.player.getEyePosition().subtract(0, 0.1, 0);
 		double[] shot = LegitAuraModule.solve(distance, rally.y - from.y, 1.5, 0.03, true);
 		if (shot == null) return;
 		pearlAim = new Rotation(Rotation.between(from, rally).yaw(), (float) shot[0]);
@@ -652,7 +663,7 @@ public class BodyguardModule extends Module {
 			mc.player.getInventory().setSelectedSlot(slot);
 			return;
 		}
-		if (Math.abs(MathHelper.wrapDegrees(pearlAim.yaw() - mc.player.getYaw())) < 1.5f && Math.abs(pearlAim.pitch() - mc.player.getPitch()) < 1.5f) {
+		if (Math.abs(Mth.wrapDegrees(pearlAim.yaw() - mc.player.getYRot())) < 1.5f && Math.abs(pearlAim.pitch() - mc.player.getXRot()) < 1.5f) {
 			((MinecraftClientAccessor) mc).femboyware$rightClick();
 		}
 	}
@@ -661,15 +672,15 @@ public class BodyguardModule extends Module {
 	 * An ordered target first, then whoever attacked us (just this guard in Neutral, anyone of us
 	 * otherwise), then in Aggressive mode anyone close; nearest the principal wins.
 	 */
-	private PlayerEntity pickTarget(PlayerEntity boss) {
-		PlayerEntity best = null;
+	private Player pickTarget(Player boss) {
+		Player best = null;
 		double bestDistance = Double.MAX_VALUE;
-		for (PlayerEntity player : mc.world.getPlayers()) {
+		for (Player player : mc.level.players()) {
 			if (!TargetUtil.isValid(player)) continue;
 			double distance = player.distanceTo(boss);
 			if (distance > leash.get()) continue;
 			if (ordered != null && player.getGameProfile().name().equalsIgnoreCase(ordered)) return player;
-			UUID id = player.getUuid();
+			UUID id = player.getUUID();
 			boolean enemy = attackedMe.containsKey(id) || (!mode.is(Mode.NEUTRAL) && enemies.containsKey(id))
 				|| (mode.is(Mode.AGGRESSIVE) && distance <= guardRange.get());
 			if (enemy && distance < bestDistance) {
@@ -683,9 +694,9 @@ public class BodyguardModule extends Module {
 	// ---------------------------------------------------------------- formation
 
 	/** The principal, if they're in view. */
-	private PlayerEntity principal() {
+	private Player principal() {
 		if (principal.get().isBlank()) return null;
-		for (PlayerEntity player : mc.world.getPlayers()) {
+		for (Player player : mc.level.players()) {
 			if (player.getGameProfile().name().equalsIgnoreCase(principal.get()) && player.isAlive()) return player;
 		}
 		return null;
@@ -710,7 +721,7 @@ public class BodyguardModule extends Module {
 	private List<String> present() {
 		List<String> here = new ArrayList<>();
 		for (String name : roster()) {
-			for (PlayerEntity player : mc.world.getPlayers()) {
+			for (Player player : mc.level.players()) {
 				if (player.isAlive() && player.getGameProfile().name().equalsIgnoreCase(name)) {
 					here.add(player.getGameProfile().name());
 					break;
@@ -722,12 +733,12 @@ public class BodyguardModule extends Module {
 	}
 
 	/** Where we should stand: our slot in the formation, turned to face wherever the principal faces. */
-	private Vec3d slot(PlayerEntity boss) {
+	private Vec3 slot(Player boss) {
 		List<String> here = present();
 		int count = Math.max(1, here.size());
 		int index = Math.max(0, indexOf(here, mc.player.getGameProfile().name()));
-		Vec3d center = anchor != null ? anchor : boss.getEntityPos();
-		float yaw = anchor != null ? anchorYaw : boss.getBodyYaw();
+		Vec3 center = anchor != null ? anchor : boss.position();
+		float yaw = anchor != null ? anchorYaw : boss.getVisualRotationYInDegrees();
 		double r = radius.get();
 		double spacing = Math.max(1.2, r / 2);
 		double side;
@@ -764,8 +775,8 @@ public class BodyguardModule extends Module {
 				double[] from = corners[edge / 2 % 4];
 				double[] to = corners[(edge / 2 + 1) % 4];
 				double f = (edge % 2 + t) / 2;
-				side = MathHelper.lerp(f, from[0], to[0]) * r;
-				ahead = MathHelper.lerp(f, from[1], to[1]) * r;
+				side = Mth.lerp(f, from[0], to[0]) * r;
+				ahead = Mth.lerp(f, from[1], to[1]) * r;
 			}
 			default -> {
 				double angle = Math.PI * 2 * index / count + Math.PI;
@@ -774,9 +785,9 @@ public class BodyguardModule extends Module {
 			}
 		}
 		double radians = Math.toRadians(yaw);
-		Vec3d forward = new Vec3d(-Math.sin(radians), 0, Math.cos(radians));
-		Vec3d right = new Vec3d(-Math.cos(radians), 0, -Math.sin(radians));
-		return center.add(right.multiply(side)).add(forward.multiply(ahead));
+		Vec3 forward = new Vec3(-Math.sin(radians), 0, Math.cos(radians));
+		Vec3 right = new Vec3(-Math.cos(radians), 0, -Math.sin(radians));
+		return center.add(right.scale(side)).add(forward.scale(ahead));
 	}
 
 	private static int indexOf(List<String> names, String name) {
@@ -788,9 +799,9 @@ public class BodyguardModule extends Module {
 
 	/** Whether to walk to our slot now: nothing to fight, not paused, and you aren't steering yourself. */
 	private boolean holdingFormation() {
-		if (activity != Activity.NONE || paused || target != null || mc.currentScreen != null || FemboyWare.getModules().get(LegitPotModule.class).isBusy()) return false;
+		if (activity != Activity.NONE || paused || target != null || Mc.screen() != null || FemboyWare.getModules().get(LegitPotModule.class).isBusy()) return false;
 		if (FemboyWare.getModules().get(LegitAuraModule.class).getTarget() != null) return false;
-		PlayerInput keys = mc.player.input.playerInput;
+		Input keys = mc.player.input.keyPresses;
 		return !(keys.forward() || keys.backward() || keys.left() || keys.right());
 	}
 
@@ -798,28 +809,28 @@ public class BodyguardModule extends Module {
 	@Override
 	public void onInput() {
 		heading = null;
-		PlayerEntity boss = principal();
-		Vec3d goal = walkingTo(boss);
+		Player boss = principal();
+		Vec3 goal = walkingTo(boss);
 		if (goal == null) {
 			stuckTicks = unstickTicks = 0;
 			path = null;
 			if (activity == Activity.CROWD && (crowdJump || crowdSneakTicks > 0)) {
-				mc.player.input.playerInput = new PlayerInput(false, false, false, false, crowdJump && mc.player.isOnGround(), crowdSneakTicks > 0, false);
+				mc.player.input.keyPresses = new Input(false, false, false, false, crowdJump && mc.player.onGround(), crowdSneakTicks > 0, false);
 			}
 			return;
 		}
 		boolean mirroring = activity == Activity.MIRROR;
-		Vec3d pos = mc.player.getEntityPos();
-		Vec3d to = goal.subtract(pos);
-		to = new Vec3d(to.x, 0, to.z);
+		Vec3 pos = mc.player.position();
+		Vec3 to = goal.subtract(pos);
+		to = new Vec3(to.x, 0, to.z);
 		double distance = to.length();
 		if (distance < (mirroring ? 0.25 : 0.6)) {
 			stuckTicks = unstickTicks = 0;
 			path = null;
 			if (!mirroring) return;
 		}
-		Vec3d walk = updatePath(pos, goal, to);
-		Vec3d dir = steer(pos, walk, boss);
+		Vec3 walk = updatePath(pos, goal, to);
+		Vec3 dir = steer(pos, walk, boss);
 		heading = dir;
 		boolean forward;
 		boolean back = false;
@@ -828,53 +839,59 @@ public class BodyguardModule extends Module {
 		boolean sprint = false;
 		if (distance > 3 && path == null && !mirroring) {
 			// Only run forwards once the camera has come round to where we're going
-			float off = Math.abs(MathHelper.wrapDegrees(yawOf(dir) - mc.player.getYaw()));
+			float off = Math.abs(Mth.wrapDegrees(yawOf(dir) - mc.player.getYRot()));
 			forward = off < 60;
 			sprint = forward && distance > 5 && off < 25;
 		} else {
 			// Which of the eight key directions points closest to where we're going, relative to where we look
-			float diff = MathHelper.wrapDegrees(yawOf(dir) - mc.player.getYaw());
+			float diff = Mth.wrapDegrees(yawOf(dir) - mc.player.getYRot());
 			forward = Math.abs(diff) < 67.5f;
 			back = Math.abs(diff) > 112.5f;
 			right = diff > 22.5f && diff < 157.5f;
 			left = diff < -22.5f && diff > -157.5f;
 		}
-		boolean jump = (mc.player.horizontalCollision && mc.player.isOnGround()) || mc.player.isTouchingWater() || unstickTicks > 0 && mc.player.isOnGround();
+		boolean jump = (mc.player.horizontalCollision && mc.player.onGround()) || mc.player.isInWater() || unstickTicks > 0 && mc.player.onGround();
 		boolean sneak = false;
-		if (path != null && pathIndex < path.size() && mc.player.isOnGround() && path.get(pathIndex).y > pos.y + 0.4) jump = true;
+		if (path != null && pathIndex < path.size() && mc.player.onGround() && path.get(pathIndex).y > pos.y + 0.4) jump = true;
 		// Walks a path instead of running it; it's all short turns
 		if (path != null) sprint = false;
 		if (mirroring) {
-			sneak = boss.isSneaking();
+			sneak = boss.isShiftKeyDown();
 			sprint = !sneak && (boss.isSprinting() || distance > 2);
-			if (mc.player.isOnGround() && boss.getY() - boss.lastY > 0.05) jump = true;
+			if (mc.player.onGround() && boss.getY() - boss.yo > 0.05) jump = true;
 			if (distance < 0.25) forward = back = left = right = false;
 		}
-		mc.player.input.playerInput = new PlayerInput(forward, back, left, right, jump, sneak, sprint);
+		mc.player.input.keyPresses = new Input(forward, back, left, right, jump, sneak, sprint);
 		int forwardAxis = (forward ? 1 : 0) - (back ? 1 : 0);
 		int strafeAxis = (left ? 1 : 0) - (right ? 1 : 0);
-		Vec2f movement = new Vec2f(strafeAxis, forwardAxis);
-		((InputAccessor) mc.player.input).femboyware$setMovementVector(movement.lengthSquared() > 0 ? movement.normalize() : Vec2f.ZERO);
+		Vec2 movement = new Vec2(strafeAxis, forwardAxis);
+		((InputAccessor) mc.player.input).femboyware$setMovementVector(movement.lengthSquared() > 0 ? movement.normalized() : Vec2.ZERO);
 	}
 
 	/** Where to walk this tick, or null to stand still. A rally comes first, then whatever we're doing. */
-	private Vec3d walkingTo(PlayerEntity boss) {
+	private Vec3 walkingTo(Player boss) {
 		if (rally != null) return rallying() ? rally : null;
 		switch (activity) {
 			case MIRROR -> {
-				if (boss == null || paused || mc.currentScreen != null || FemboyWare.getModules().get(LegitPotModule.class).isBusy()) return null;
+				if (boss == null || paused || Mc.screen() != null || FemboyWare.getModules().get(LegitPotModule.class).isBusy()) return null;
 				// A step ahead of them, so we keep up rather than trail behind
-				return slot(boss).add((boss.getX() - boss.lastX) * 2, 0, (boss.getZ() - boss.lastZ) * 2);
+				return slot(boss).add((boss.getX() - boss.xo) * 2, 0, (boss.getZ() - boss.zo) * 2);
 			}
 			case CROWD -> {
-				if (paused || target != null || mc.currentScreen != null || FemboyWare.getModules().get(LegitPotModule.class).isBusy()) return null;
-				if (greeting != null) return !greeted && mc.player.distanceTo(greeting) > GREET_DISTANCE ? greeting.getEntityPos() : null;
+				if (paused || target != null || Mc.screen() != null || FemboyWare.getModules().get(LegitPotModule.class).isBusy()) return null;
+				if (greeting != null) return !greeted && mc.player.distanceTo(greeting) > GREET_DISTANCE ? greeting.position() : null;
 				return wanderTo;
 			}
 			case FFA -> {
 				// Run up to them; once close, Legit Aura does the fighting
-				if (target == null || paused || mc.currentScreen != null || FemboyWare.getModules().get(LegitPotModule.class).isBusy()) return null;
-				return mc.player.distanceTo(target) > FFA_CLOSE ? target.getEntityPos() : null;
+				if (target == null || paused || Mc.screen() != null || FemboyWare.getModules().get(LegitPotModule.class).isBusy()) return null;
+				return mc.player.distanceTo(target) > FFA_CLOSE ? target.position() : null;
+			}
+			case ARENA -> {
+				// Out of the round: stay out of the way where we respawned
+				if (arenaOut || paused || Mc.screen() != null || FemboyWare.getModules().get(LegitPotModule.class).isBusy()) return null;
+				if (!arenaFighting) return mc.player.position().distanceTo(arenaSpot) > ARENA_SPOT_REACHED ? arenaSpot : null;
+				return target != null && mc.player.distanceTo(target) > FFA_CLOSE ? target.position() : null;
 			}
 			default -> {
 				return boss != null && holdingFormation() ? slot(boss) : null;
@@ -887,11 +904,11 @@ public class BodyguardModule extends Module {
 	 * along a path round it, one block at a time, until the path runs out and straight is fine again.
 	 * Returns a flat direction, like {@code straight}.
 	 */
-	private Vec3d updatePath(Vec3d pos, Vec3d goal, Vec3d straight) {
+	private Vec3 updatePath(Vec3 pos, Vec3 goal, Vec3 straight) {
 		if (pathCooldown > 0) pathCooldown--;
 		boolean stale = path != null && pathGoal.distanceTo(goal) > PATH_STALE;
 		if (pathCooldown == 0 && (stuckTicks >= PATH_AFTER || stale)) {
-			path = Pathfinder.find(mc.world, BlockPos.ofFloored(pos.add(0, 0.2, 0)), BlockPos.ofFloored(goal), PATH_NODES);
+			path = Pathfinder.find(mc.level, BlockPos.containing(pos.add(0, 0.2, 0)), BlockPos.containing(goal), PATH_NODES);
 			pathIndex = 0;
 			pathGoal = goal;
 			pathCooldown = PATH_COOLDOWN;
@@ -899,7 +916,7 @@ public class BodyguardModule extends Module {
 		}
 		if (path == null) return straight;
 		while (pathIndex < path.size()) {
-			Vec3d next = path.get(pathIndex);
+			Vec3 next = path.get(pathIndex);
 			if (Math.hypot(next.x - pos.x, next.z - pos.z) < 0.55 && Math.abs(next.y - pos.y) < 1.5) pathIndex++;
 			else break;
 		}
@@ -907,9 +924,9 @@ public class BodyguardModule extends Module {
 			path = null;
 			return straight;
 		}
-		Vec3d next = path.get(pathIndex);
-		Vec3d toward = new Vec3d(next.x - pos.x, 0, next.z - pos.z);
-		return toward.lengthSquared() < 1e-4 ? straight : toward;
+		Vec3 next = path.get(pathIndex);
+		Vec3 toward = new Vec3(next.x - pos.x, 0, next.z - pos.z);
+		return toward.lengthSqr() < 1e-4 ? straight : toward;
 	}
 
 	/**
@@ -923,31 +940,31 @@ public class BodyguardModule extends Module {
 	 * <li>If we've hardly moved for a second and a half anyway, we sidestep and hop for a moment.</li>
 	 * </ul>
 	 */
-	private Vec3d steer(Vec3d pos, Vec3d to, PlayerEntity boss) {
+	private Vec3 steer(Vec3 pos, Vec3 to, Player boss) {
 		double distance = to.length();
-		Vec3d dir = to.normalize();
+		Vec3 dir = to.normalize();
 		// On a rally the principal might be nowhere near, or not in view at all
 		if (boss != null) {
-			Vec3d toBoss = new Vec3d(boss.getX() - pos.x, 0, boss.getZ() - pos.z);
-			double along = MathHelper.clamp(toBoss.dotProduct(dir), 0, distance);
-			Vec3d closest = dir.multiply(along);
+			Vec3 toBoss = new Vec3(boss.getX() - pos.x, 0, boss.getZ() - pos.z);
+			double along = Mth.clamp(toBoss.dot(dir), 0, distance);
+			Vec3 closest = dir.scale(along);
 			double miss = closest.distanceTo(toBoss);
 			if (miss < PRINCIPAL_SPACE && along > 0.3 && along < distance - 0.3) {
-				Vec3d out = closest.subtract(toBoss);
+				Vec3 out = closest.subtract(toBoss);
 				// Dead centre: pick a side from the direction we're going, so every guard decides the same way
-				if (out.lengthSquared() < 1e-4) out = new Vec3d(-dir.z, 0, dir.x);
-				dir = dir.add(out.normalize().multiply((PRINCIPAL_SPACE - miss) * 2));
+				if (out.lengthSqr() < 1e-4) out = new Vec3(-dir.z, 0, dir.x);
+				dir = dir.add(out.normalize().scale((PRINCIPAL_SPACE - miss) * 2));
 			}
 		}
-		for (PlayerEntity player : mc.world.getPlayers()) {
+		for (Player player : mc.level.players()) {
 			if (player == mc.player || player == boss || !player.isAlive()) continue;
-			Vec3d away = new Vec3d(pos.x - player.getX(), 0, pos.z - player.getZ());
+			Vec3 away = new Vec3(pos.x - player.getX(), 0, pos.z - player.getZ());
 			double gap = away.length();
 			if (gap >= PERSONAL_SPACE || gap < 1e-4) continue;
 			double push = (PERSONAL_SPACE - gap) / PERSONAL_SPACE;
-			dir = dir.add(away.normalize().multiply(push * 1.5));
+			dir = dir.add(away.normalize().scale(push * 1.5));
 			// They're in front of us: keep right
-			if (away.normalize().dotProduct(to.normalize()) < -0.3) dir = dir.add(new Vec3d(-to.z, 0, to.x).normalize().multiply(push * 1.5));
+			if (away.normalize().dot(to.normalize()) < -0.3) dir = dir.add(new Vec3(-to.z, 0, to.x).normalize().scale(push * 1.5));
 		}
 
 		// Stuck against someone or something: sidestep for half a second, always to the same side
@@ -961,13 +978,13 @@ public class BodyguardModule extends Module {
 		}
 		if (unstickTicks > 0) {
 			unstickTicks--;
-			dir = dir.add(new Vec3d(-to.z, 0, to.x).normalize().multiply(1.5));
+			dir = dir.add(new Vec3(-to.z, 0, to.x).normalize().scale(1.5));
 		}
-		return dir.lengthSquared() < 1e-4 ? to.normalize() : dir.normalize();
+		return dir.lengthSqr() < 1e-4 ? to.normalize() : dir.normalize();
 	}
 
 	/** The camera yaw that faces along {@code dir}. */
-	private static float yawOf(Vec3d dir) {
+	private static float yawOf(Vec3 dir) {
 		return (float) Math.toDegrees(Math.atan2(dir.z, dir.x)) - 90;
 	}
 
@@ -985,63 +1002,67 @@ public class BodyguardModule extends Module {
 			if (seconds > 0 && rallying()) {
 				if (pearlAim != null) {
 					float turn = 1 - (float) Math.exp(-12 * seconds);
-					mouse.turn(MathHelper.wrapDegrees(pearlAim.yaw() - mc.player.getYaw()) * turn, (pearlAim.pitch() - mc.player.getPitch()) * turn);
+					mouse.turn(Mth.wrapDegrees(pearlAim.yaw() - mc.player.getYRot()) * turn, (pearlAim.pitch() - mc.player.getXRot()) * turn);
 				} else walkCamera(seconds);
 			}
 			return;
 		}
-		PlayerEntity boss = principal();
+		Player boss = principal();
 		if (seconds <= 0 || boss == null || !holdingFormation()) return;
-		Vec3d slot = slot(boss);
-		double distance = Math.sqrt(mc.player.getEntityPos().squaredDistanceTo(slot.x, mc.player.getY(), slot.z));
+		Vec3 slot = slot(boss);
+		double distance = Math.sqrt(mc.player.position().distanceToSqr(slot.x, mc.player.getY(), slot.z));
 		Rotation wanted;
 		if (heading != null && (distance > 3 || path != null)) {
 			walkCamera(seconds);
 			return;
 		}
-		else if (distance < 1.5) wanted = new Rotation(Rotation.between(boss.getEntityPos(), mc.player.getEntityPos()).yaw(), 0);
+		else if (distance < 1.5) wanted = new Rotation(Rotation.between(boss.position(), mc.player.position()).yaw(), 0);
 		else return;
 		float follow = 1 - (float) Math.exp(-6 * seconds);
-		mouse.turn(MathHelper.wrapDegrees(wanted.yaw() - mc.player.getYaw()) * follow, (wanted.pitch() - mc.player.getPitch()) * follow);
+		mouse.turn(Mth.wrapDegrees(wanted.yaw() - mc.player.getYRot()) * follow, (wanted.pitch() - mc.player.getXRot()) * follow);
 	}
 
 	/** Looks the way we're walking, turning smoothly and no faster than a person would. */
 	private void walkCamera(float seconds) {
 		if (heading == null) return;
-		Vec3d look = heading;
+		Vec3 look = heading;
 		if (path != null && pathIndex < path.size()) {
-			Vec3d ahead = path.get(Math.min(pathIndex + PATH_LOOK_AHEAD, path.size() - 1));
-			Vec3d toAhead = new Vec3d(ahead.x - mc.player.getX(), 0, ahead.z - mc.player.getZ());
-			if (toAhead.lengthSquared() > 0.25) look = toAhead.normalize();
+			Vec3 ahead = path.get(Math.min(pathIndex + PATH_LOOK_AHEAD, path.size() - 1));
+			Vec3 toAhead = new Vec3(ahead.x - mc.player.getX(), 0, ahead.z - mc.player.getZ());
+			if (toAhead.lengthSqr() > 0.25) look = toAhead.normalize();
 		}
 		float most = WALK_TURN_SPEED * seconds;
 		float follow = 1 - (float) Math.exp(-3 * seconds);
-		float yaw = MathHelper.clamp(MathHelper.wrapDegrees(yawOf(look) - mc.player.getYaw()) * follow, -most, most);
-		float pitch = MathHelper.clamp((5 - mc.player.getPitch()) * follow, -most, most);
+		float yaw = Mth.clamp(Mth.wrapDegrees(yawOf(look) - mc.player.getYRot()) * follow, -most, most);
+		float pitch = Mth.clamp((5 - mc.player.getXRot()) * follow, -most, most);
 		mouse.turn(yaw, pitch);
 	}
 
 	/** Mirror copies where the principal looks; crowd looks where it's going or at whoever's near. A free-for-all leaves it to Legit Aura. */
 	private void activityCamera(float seconds) {
-		if (seconds <= 0 || paused || target != null || mc.currentScreen != null) return;
+		if (seconds <= 0 || paused || target != null || Mc.screen() != null) return;
 		Rotation aim = null;
 		float speed = 4;
 		if (activity == Activity.MIRROR) {
-			PlayerEntity boss = principal();
-			if (boss != null) aim = new Rotation(boss.getYaw(), boss.getPitch());
+			Player boss = principal();
+			if (boss != null) aim = new Rotation(boss.getYRot(), boss.getXRot());
 			speed = 16;
+		} else if (activity == Activity.ARENA) {
+			// Walking to the line looks ahead; the fighting is Legit Aura's
+			if (heading != null) walkCamera(seconds);
+			return;
 		} else if (activity == Activity.CROWD) {
 			if (heading != null) {
 				walkCamera(seconds);
 				return;
 			} else {
-				PlayerEntity near = greeting != null ? greeting : TargetUtil.closestAny(12);
-				if (near != null) aim = Rotation.between(mc.player.getEyePos(), near.getEyePos());
+				Player near = greeting != null ? greeting : TargetUtil.closestAny(12);
+				if (near != null) aim = Rotation.between(mc.player.getEyePosition(), near.getEyePosition());
 			}
 		}
 		if (aim == null) return;
 		float turn = 1 - (float) Math.exp(-speed * seconds);
-		mouse.turn(MathHelper.wrapDegrees(aim.yaw() - mc.player.getYaw()) * turn, (aim.pitch() - mc.player.getPitch()) * turn);
+		mouse.turn(Mth.wrapDegrees(aim.yaw() - mc.player.getYRot()) * turn, (aim.pitch() - mc.player.getXRot()) * turn);
 	}
 
 	// ---------------------------------------------------------------- orders
@@ -1076,7 +1097,7 @@ public class BodyguardModule extends Module {
 			case "radius", "spread" -> {
 				if (words.length < 2) return;
 				try {
-					radius.set(MathHelper.clamp(Double.parseDouble(words[1]), 1.5, 10));
+					radius.set(Mth.clamp(Double.parseDouble(words[1]), 1.5, 10));
 					confirm("Radius: " + radius.get());
 				} catch (NumberFormatException ignored) {
 				}
@@ -1119,23 +1140,23 @@ public class BodyguardModule extends Module {
 				setMode(wanted.startsWith("a") ? Mode.AGGRESSIVE : wanted.startsWith("n") ? Mode.NEUTRAL : Mode.DEFEND);
 			}
 			case "stay" -> {
-				PlayerEntity boss = principal();
+				Player boss = principal();
 				if (boss == null) return;
-				anchor = boss.getEntityPos();
-				anchorYaw = boss.getBodyYaw();
+				anchor = boss.position();
+				anchorYaw = boss.getVisualRotationYInDegrees();
 				confirm("Holding here");
 			}
 			case "rally", "r" -> {
 				// Over the link it says where; in chat, the principal has to be in view
-				PlayerEntity boss = principal();
-				Vec3d where = parsePlace(words);
-				if (where == null && boss != null) where = boss.getEntityPos();
+				Player boss = principal();
+				Vec3 where = parsePlace(words);
+				if (where == null && boss != null) where = boss.position();
 				if (where == null) return;
 				startRally(where, false);
 				confirm("Rallying");
 			}
 			case "goto" -> {
-				Vec3d where = parsePlace(words);
+				Vec3 where = parsePlace(words);
 				if (where == null) return;
 				startRally(where, true);
 				confirm("On the way");
@@ -1154,9 +1175,9 @@ public class BodyguardModule extends Module {
 				boolean off = words.length > 1 && words[1].equalsIgnoreCase("off");
 				endActivity();
 				if (!off) {
-					Vec3d middle = parsePlace(words);
-					PlayerEntity boss = principal();
-					if (middle == null) middle = boss != null ? boss.getEntityPos() : mc.player.getEntityPos();
+					Vec3 middle = parsePlace(words);
+					Player boss = principal();
+					if (middle == null) middle = boss != null ? boss.position() : mc.player.position();
 					crowdCenter = middle;
 					crowdWait = random.nextInt(40);
 					nextCrowdChat = 0;
@@ -1173,6 +1194,7 @@ public class BodyguardModule extends Module {
 					confirm("FFA over");
 				} else startFfa(words.length > 1 ? List.of(words[1].split(",")) : roster());
 			}
+			case "arena" -> arenaOrder(words);
 			case "follow" -> {
 				endActivity();
 				anchor = null;
@@ -1191,11 +1213,66 @@ public class BodyguardModule extends Module {
 		}
 	}
 
+	/**
+	 * The arena, run by the principal's Guard Command: {@code arena setup x y z radius pink,names blue,names} lines the teams
+	 * up on opposite sides of the middle, {@code arena fight} starts the round, {@code arena out name} drops someone who died
+	 * from the round, and {@code arena end} finishes.
+	 */
+	private void arenaOrder(String[] words) {
+		String step = words.length > 1 ? words[1].toLowerCase(Locale.ROOT) : "";
+		switch (step) {
+			case "setup" -> {
+				if (words.length < 8) return;
+				Vec3 middle;
+				double radius;
+				try {
+					middle = new Vec3(Double.parseDouble(words[2]), Double.parseDouble(words[3]), Double.parseDouble(words[4]));
+					radius = Double.parseDouble(words[5]);
+				} catch (NumberFormatException e) {
+					return;
+				}
+				List<String> pink = List.of(words[6].split(",")), blue = List.of(words[7].split(","));
+				String me = mc.player.getGameProfile().name();
+				int index = indexOf(pink, me);
+				boolean onPink = index >= 0;
+				if (!onPink) index = indexOf(blue, me);
+				// Not playing: carry on as before
+				if (index < 0) return;
+				List<String> team = onPink ? pink : blue;
+				endActivity();
+				for (String name : onPink ? blue : pink) ffaEnemies.add(name.toLowerCase(Locale.ROOT));
+				double side = (onPink ? -1 : 1) * radius * ARENA_LINE, along = (index - (team.size() - 1) / 2.0) * ARENA_GAP;
+				arenaSpot = middle.add(side, 0, along);
+				activity = Activity.ARENA;
+				respawnTimer = 0;
+				paused = false;
+				ceasefire = false;
+				ordered = null;
+				anchor = null;
+				rally = null;
+				confirm("Lining up");
+			}
+			case "fight" -> {
+				if (activity == Activity.ARENA) arenaFighting = true;
+			}
+			case "out" -> {
+				if (activity == Activity.ARENA && words.length > 2) ffaEnemies.remove(words[2].toLowerCase(Locale.ROOT));
+			}
+			case "end" -> {
+				if (activity != Activity.ARENA) return;
+				endActivity();
+				confirm("Arena over");
+			}
+			default -> {
+			}
+		}
+	}
+
 	/** The x, y and z after an order's name, or null if they aren't there. */
-	private static Vec3d parsePlace(String[] words) {
+	private static Vec3 parsePlace(String[] words) {
 		if (words.length < 4) return null;
 		try {
-			return new Vec3d(Double.parseDouble(words[1]), Double.parseDouble(words[2]), Double.parseDouble(words[3]));
+			return new Vec3(Double.parseDouble(words[1]), Double.parseDouble(words[2]), Double.parseDouble(words[3]));
 		} catch (NumberFormatException e) {
 			return null;
 		}
@@ -1203,11 +1280,11 @@ public class BodyguardModule extends Module {
 
 	/** Types {@code message} in chat exactly as written, or runs it as a command if it starts with a slash. Every guard does it, even while paused. */
 	private void say(String message) {
-		String clean = StringHelper.truncateChat(StringHelper.stripInvalidChars(message));
-		if (clean.isEmpty() || mc.getNetworkHandler() == null) return;
+		String clean = StringUtil.trimChatMessage(StringUtil.filterText(message));
+		if (clean.isEmpty() || mc.getConnection() == null) return;
 		if (clean.startsWith("/")) {
-			if (clean.length() > 1) mc.getNetworkHandler().sendChatCommand(clean.substring(1));
-		} else mc.getNetworkHandler().sendChatMessage(clean);
+			if (clean.length() > 1) mc.getConnection().sendCommand(clean.substring(1));
+		} else mc.getConnection().sendChat(clean);
 	}
 
 	/** Switches mode and lifts any ceasefire. Neutral also forgets who attacked the others, so guards drop those fights now. */
@@ -1223,13 +1300,13 @@ public class BodyguardModule extends Module {
 	 * which every guard works out the same way, so the principal gets one reply, not one per guard.
 	 */
 	private void confirm(String text) {
-		if (!reply.get() || mc.getNetworkHandler() == null) return;
+		if (!reply.get() || mc.getConnection() == null) return;
 		List<String> here = present();
 		if (!here.isEmpty() && !here.get(0).equalsIgnoreCase(mc.player.getGameProfile().name())) return;
 		long now = System.currentTimeMillis();
 		if (now - lastReply < 1000) return;
 		lastReply = now;
 		if (linkOrder && link != null) link.reply(text);
-		else mc.getNetworkHandler().sendChatCommand("msg " + principal.get() + " " + text);
+		else mc.getConnection().sendCommand("msg " + principal.get() + " " + text);
 	}
 }

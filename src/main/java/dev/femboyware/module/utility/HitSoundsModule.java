@@ -1,5 +1,6 @@
 package dev.femboyware.module.utility;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
@@ -9,13 +10,13 @@ import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.ChatUtil;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.sound.PositionedSoundInstance;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.sound.SoundEvent;
-import net.minecraft.sound.SoundEvents;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Util;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 import org.lwjgl.stb.STBVorbis;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.libc.LibCStdlib;
@@ -53,15 +54,15 @@ import java.util.stream.Stream;
 public class HitSoundsModule extends Module {
 	/** Minecraft's own sounds, for when you have no files of your own. */
 	public enum BuiltIn {
-		CAT_MEOW(() -> SoundEvents.ENTITY_CAT_AMBIENT),
-		CAT_PURREOW(() -> SoundEvents.ENTITY_CAT_PURREOW),
-		CAT_PURR(() -> SoundEvents.ENTITY_CAT_PURR),
-		FOX(() -> SoundEvents.ENTITY_FOX_AMBIENT),
-		FOX_SCREECH(() -> SoundEvents.ENTITY_FOX_SCREECH),
-		AXOLOTL(() -> SoundEvents.ENTITY_AXOLOTL_IDLE_AIR),
-		ORB(() -> SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP),
-		PLING(() -> SoundEvents.BLOCK_NOTE_BLOCK_PLING.value()),
-		BELL(() -> SoundEvents.BLOCK_NOTE_BLOCK_BELL.value());
+		CAT_MEOW(() -> Mc.catSound(Mc.CatSound.AMBIENT)),
+		CAT_PURREOW(() -> Mc.catSound(Mc.CatSound.PURREOW)),
+		CAT_PURR(() -> Mc.catSound(Mc.CatSound.PURR)),
+		FOX(() -> SoundEvents.FOX_AMBIENT),
+		FOX_SCREECH(() -> SoundEvents.FOX_SCREECH),
+		AXOLOTL(() -> SoundEvents.AXOLOTL_IDLE_AIR),
+		ORB(() -> SoundEvents.EXPERIENCE_ORB_PICKUP),
+		PLING(() -> SoundEvents.NOTE_BLOCK_PLING.value()),
+		BELL(() -> SoundEvents.NOTE_BLOCK_BELL.value());
 
 		private final Supplier<SoundEvent> sound;
 
@@ -117,7 +118,7 @@ public class HitSoundsModule extends Module {
 	/** Noted before the hit lands, so a hit that kills on the spot still counts. */
 	@Override
 	public void onPreAttack(Entity target) {
-		if (target instanceof PlayerEntity player && player != mc.player && !player.isDead()) recentTargets.put(player.getId(), System.currentTimeMillis());
+		if (target instanceof Player player && player != mc.player && !player.isDeadOrDying()) recentTargets.put(player.getId(), System.currentTimeMillis());
 	}
 
 	@Override
@@ -126,7 +127,7 @@ public class HitSoundsModule extends Module {
 			openFolder.set(false);
 			try {
 				Files.createDirectories(FOLDER);
-				Util.getOperatingSystem().open(FOLDER);
+				Util.getPlatform().openPath(FOLDER);
 			} catch (IOException e) {
 				ChatUtil.info("Couldn't open the sounds folder: " + FOLDER);
 			}
@@ -134,17 +135,17 @@ public class HitSoundsModule extends Module {
 
 		// Hurt: hurtTime jumps up the moment a hit lands
 		int hurtTime = mc.player.hurtTime;
-		if (hurt.get() && hurtTime > lastHurtTime && !mc.player.isDead()) play("hurt", hurtSound.get());
+		if (hurt.get() && hurtTime > lastHurtTime && !mc.player.isDeadOrDying()) play("hurt", hurtSound.get());
 		lastHurtTime = hurtTime;
 
 		// Kill: someone you hit, or Auto Crystal's target, dying soon after
 		long now = System.currentTimeMillis();
 		AutoCrystalModule crystal = FemboyWare.getModules().get(AutoCrystalModule.class);
-		if (crystal.isEnabled() && crystal.getTarget() != null && !crystal.getTarget().isDead()) recentTargets.put(crystal.getTarget().getId(), now);
-		celebrated.removeIf(id -> !(mc.world.getEntityById(id) instanceof PlayerEntity player) || !player.isDead());
+		if (crystal.isEnabled() && crystal.getTarget() != null && !crystal.getTarget().isDeadOrDying()) recentTargets.put(crystal.getTarget().getId(), now);
+		celebrated.removeIf(id -> !(mc.level.getEntity(id) instanceof Player player) || !player.isDeadOrDying());
 		recentTargets.entrySet().removeIf(entry -> {
 			if (now - entry.getValue() > KILL_WINDOW_MILLIS) return true;
-			if (!(mc.world.getEntityById(entry.getKey()) instanceof PlayerEntity player) || !player.isDead()) return false;
+			if (!(mc.level.getEntity(entry.getKey()) instanceof Player player) || !player.isDeadOrDying()) return false;
 			if (celebrated.add(entry.getKey()) && kill.get()) play("kill", killSound.get());
 			return true;
 		});
@@ -161,7 +162,7 @@ public class HitSoundsModule extends Module {
 				return;
 			}
 		}
-		mc.getSoundManager().play(PositionedSoundInstance.ui(fallback.sound.get(), chosenPitch, Math.min(1, chosenVolume)));
+		mc.getSoundManager().play(SimpleSoundInstance.forUI(fallback.sound.get(), chosenPitch, Math.min(1, chosenVolume)));
 	}
 
 	/** Sound files for {@code kind}: named "kind..." in the folder, or anything in a "kind" subfolder. */
@@ -187,7 +188,7 @@ public class HitSoundsModule extends Module {
 	private void playFile(Path file, float gain, float speed) {
 		if (playing.get() >= MAX_PLAYING) return;
 		// Follow the game's own master and player volume sliders too
-		float game = mc.options.getSoundVolume(SoundCategory.MASTER) * mc.options.getSoundVolume(SoundCategory.PLAYERS);
+		float game = mc.options.getFinalSoundSourceVolume(SoundSource.MASTER) * mc.options.getFinalSoundSourceVolume(SoundSource.PLAYERS);
 		float loudness = gain * game;
 		if (loudness <= 0) return;
 		playing.incrementAndGet();

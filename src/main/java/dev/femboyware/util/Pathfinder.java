@@ -1,19 +1,18 @@
 package dev.femboyware.util;
 
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.registry.tag.BlockTags;
-import net.minecraft.registry.tag.FluidTags;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.World;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
+import net.minecraft.core.BlockPos;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.FluidTags;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Finds a way to walk between two blocks with A*: flat ground, diagonals that don't clip a corner,
@@ -32,7 +31,7 @@ public final class Pathfinder {
 	}
 
 	/** Places to walk through in order, each at the middle of a block at foot height; null if there's nowhere better to go. */
-	public static List<Vec3d> find(World world, BlockPos start, BlockPos goal, int mostNodes) {
+	public static List<Vec3> find(Level world, BlockPos start, BlockPos goal, int mostNodes) {
 		PriorityQueue<Node> open = new PriorityQueue<>((a, b) -> Double.compare(a.total, b.total));
 		Map<BlockPos, BlockPos> cameFrom = new HashMap<>();
 		Map<BlockPos, Double> costs = new HashMap<>();
@@ -67,24 +66,24 @@ public final class Pathfinder {
 			}
 		}
 		if (closest.equals(start)) return null;
-		List<Vec3d> path = new ArrayList<>();
-		for (BlockPos at = closest; at != null && !at.equals(start); at = cameFrom.get(at)) path.add(Vec3d.ofBottomCenter(at));
+		List<Vec3> path = new ArrayList<>();
+		for (BlockPos at = closest; at != null && !at.equals(start); at = cameFrom.get(at)) path.add(Vec3.atBottomCenterOf(at));
 		Collections.reverse(path);
 		return path;
 	}
 
 	/** Where moving this way from {@code from} ends up: level, a step up or a drop; null if it can't be walked. */
-	private static BlockPos step(World world, BlockPos from, int dx, int dz) {
-		BlockPos ahead = from.add(dx, 0, dz);
+	private static BlockPos step(Level world, BlockPos from, int dx, int dz) {
+		BlockPos ahead = from.offset(dx, 0, dz);
 		boolean diagonal = dx != 0 && dz != 0;
 		// Squeezing past a corner diagonally catches on it
-		if (diagonal && !(clear(world, from.add(dx, 0, 0)) && clear(world, from.add(0, 0, dz)))) return null;
+		if (diagonal && !(clear(world, from.offset(dx, 0, 0)) && clear(world, from.offset(0, 0, dz)))) return null;
 		if (canStand(world, ahead)) return ahead;
-		BlockPos up = ahead.up();
-		if (!diagonal && canStand(world, up) && passable(world, from.up(2))) return up;
+		BlockPos up = ahead.above();
+		if (!diagonal && canStand(world, up) && passable(world, from.above(2))) return up;
 		if (!clear(world, ahead)) return null;
 		for (int drop = 1; drop <= MOST_DROP; drop++) {
-			BlockPos below = ahead.down(drop);
+			BlockPos below = ahead.below(drop);
 			if (canStand(world, below)) return below;
 			if (!passable(world, below)) return null;
 		}
@@ -97,26 +96,26 @@ public final class Pathfinder {
 	}
 
 	/** Room for a player's feet and head here, with ground (or water) to be on. */
-	private static boolean canStand(World world, BlockPos pos) {
+	private static boolean canStand(Level world, BlockPos pos) {
 		if (!clear(world, pos)) return false;
-		BlockPos below = pos.down();
+		BlockPos below = pos.below();
 		BlockState ground = world.getBlockState(below);
 		if (hurts(ground)) return false;
-		return !ground.getCollisionShape(world, below).isEmpty() || world.getFluidState(pos).isIn(FluidTags.WATER);
+		return !ground.getCollisionShape(world, below).isEmpty() || world.getFluidState(pos).is(FluidTags.WATER);
 	}
 
-	private static boolean clear(World world, BlockPos pos) {
-		return passable(world, pos) && passable(world, pos.up());
+	private static boolean clear(Level world, BlockPos pos) {
+		return passable(world, pos) && passable(world, pos.above());
 	}
 
-	private static boolean passable(World world, BlockPos pos) {
-		if (!world.isChunkLoaded(pos.getX() >> 4, pos.getZ() >> 4)) return false;
+	private static boolean passable(Level world, BlockPos pos) {
+		if (!world.hasChunk(pos.getX() >> 4, pos.getZ() >> 4)) return false;
 		BlockState state = world.getBlockState(pos);
 		return !hurts(state) && state.getCollisionShape(world, pos).isEmpty();
 	}
 
 	private static boolean hurts(BlockState state) {
-		return state.isIn(BlockTags.FIRE) || state.getFluidState().isIn(FluidTags.LAVA) || state.isOf(Blocks.CACTUS) || state.isOf(Blocks.MAGMA_BLOCK)
-			|| state.isOf(Blocks.SWEET_BERRY_BUSH) || state.isOf(Blocks.WITHER_ROSE) || state.isOf(Blocks.POWDER_SNOW) || state.isOf(Blocks.COBWEB);
+		return state.is(BlockTags.FIRE) || state.getFluidState().is(FluidTags.LAVA) || state.is(Blocks.CACTUS) || state.is(Blocks.MAGMA_BLOCK)
+			|| state.is(Blocks.SWEET_BERRY_BUSH) || state.is(Blocks.WITHER_ROSE) || state.is(Blocks.POWDER_SNOW) || state.is(Blocks.COBWEB);
 	}
 }

@@ -8,22 +8,25 @@ import dev.femboyware.gui.Theme;
 import dev.femboyware.module.combat.AuraModule;
 import dev.femboyware.module.combat.AutoCrystalModule;
 import dev.femboyware.module.combat.LegitAuraModule;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.PlayerSkinDrawer;
-import net.minecraft.client.network.AbstractClientPlayerEntity;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.EntityStatuses;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.network.packet.s2c.play.EntityStatusS2CPacket;
-import net.minecraft.util.hit.EntityHitResult;
-import net.minecraft.util.math.MathHelper;
-
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import net.minecraft.client.gui.GuiGraphics;
+//? if >=26.1 {
+/*import net.minecraft.client.gui.components.PlayerFaceExtractor;
+*///?} else {
+import net.minecraft.client.gui.components.PlayerFaceRenderer;
+//?}
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.network.protocol.game.ClientboundEntityEventPacket;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityEvent;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.EntityHitResult;
 
 /**
  * A liquid glass card for whoever you're fighting: their face, name, health and absorption, the
@@ -39,7 +42,7 @@ public class TargetHudModule extends HudElement {
 
 	/** Totems popped this life, by entity id; filled from the network thread. */
 	private final Map<Integer, Integer> pops = new ConcurrentHashMap<>();
-	private PlayerEntity lastHit;
+	private Player lastHit;
 	private long lastHitTime;
 	/** Health shown, eased towards the real value so the bar slides instead of jumping. */
 	private float shownHealth = -1;
@@ -55,7 +58,7 @@ public class TargetHudModule extends HudElement {
 
 	@Override
 	public void onPostAttack(Entity target) {
-		if (target instanceof PlayerEntity player) {
+		if (target instanceof Player player) {
 			lastHit = player;
 			lastHitTime = System.currentTimeMillis();
 		}
@@ -63,24 +66,24 @@ public class TargetHudModule extends HudElement {
 
 	@Override
 	public void onPacketReceive(PacketEvent event) {
-		if (!(event.getPacket() instanceof EntityStatusS2CPacket packet) || mc.world == null) return;
-		Entity entity = packet.getEntity(mc.world);
-		if (!(entity instanceof PlayerEntity)) return;
-		if (packet.getStatus() == EntityStatuses.USE_TOTEM_OF_UNDYING) pops.merge(entity.getId(), 1, Integer::sum);
-		else if (packet.getStatus() == EntityStatuses.PLAY_DEATH_SOUND_OR_ADD_PROJECTILE_HIT_PARTICLES) pops.remove(entity.getId());
+		if (!(event.getPacket() instanceof ClientboundEntityEventPacket packet) || mc.level == null) return;
+		Entity entity = packet.getEntity(mc.level);
+		if (!(entity instanceof Player)) return;
+		if (packet.getEventId() == EntityEvent.PROTECTED_FROM_DEATH) pops.merge(entity.getId(), 1, Integer::sum);
+		else if (packet.getEventId() == EntityEvent.DEATH) pops.remove(entity.getId());
 	}
 
 	/** Who the card is about right now, or null to hide it. */
-	private PlayerEntity target() {
+	private Player target() {
 		LivingEntity aura = FemboyWare.getModules().get(AuraModule.class).getTarget();
-		if (aura instanceof PlayerEntity player && player.isAlive()) return player;
-		PlayerEntity legit = FemboyWare.getModules().get(LegitAuraModule.class).getTarget();
+		if (aura instanceof Player player && player.isAlive()) return player;
+		Player legit = FemboyWare.getModules().get(LegitAuraModule.class).getTarget();
 		if (legit != null && legit.isAlive()) return legit;
 		AutoCrystalModule crystal = FemboyWare.getModules().get(AutoCrystalModule.class);
 		if (crystal.isEnabled() && crystal.getTarget() != null && crystal.getTarget().isAlive()) return crystal.getTarget();
 		if (lastHit != null && lastHit.isAlive() && !lastHit.isRemoved() && System.currentTimeMillis() - lastHitTime < HIT_MEMORY
 			&& mc.player.distanceTo(lastHit) < 16) return lastHit;
-		if (mc.crosshairTarget instanceof EntityHitResult hit && hit.getEntity() instanceof PlayerEntity player) return player;
+		if (mc.hitResult instanceof EntityHitResult hit && hit.getEntity() instanceof Player player) return player;
 		return null;
 	}
 
@@ -95,8 +98,8 @@ public class TargetHudModule extends HudElement {
 	}
 
 	@Override
-	protected void draw(DrawContext context, int left, int top, boolean editing) {
-		PlayerEntity target = target();
+	protected void draw(GuiGraphics context, int left, int top, boolean editing) {
+		Player target = target();
 		// In the HUD editor with nobody to fight, show yourself as an example
 		if (target == null && editing) target = mc.player;
 		if (target == null) {
@@ -106,14 +109,18 @@ public class TargetHudModule extends HudElement {
 		Glass.draw(context, left, top, left + WIDTH, top + HEIGHT, Math.min(6, Theme.roundness()), backgroundColor(Theme.panel()), true);
 
 		// Face, with the hat layer
-		if (target instanceof AbstractClientPlayerEntity client) PlayerSkinDrawer.draw(context, client.getSkin(), left + 6, top + 6, 26);
+		//? if >=26.1 {
+		/*if (target instanceof AbstractClientPlayer client) PlayerFaceExtractor.extractRenderState(context, client.getSkin(), left + 6, top + 6, 26);
+		*///?} else {
+		if (target instanceof AbstractClientPlayer client) PlayerFaceRenderer.draw(context, client.getSkin(), left + 6, top + 6, 26);
+		//?}
 
 		int textLeft = left + 38;
-		context.drawTextWithShadow(mc.textRenderer, target.getName().getString(), textLeft, top + 6, textColor());
+		context.drawString(mc.font, target.getName().getString(), textLeft, top + 6, textColor());
 		String info = String.format(Locale.ROOT, "%.1fm", mc.player.distanceTo(target));
 		int popped = pops.getOrDefault(target.getId(), 0);
 		if (popped > 0) info += "  ·  " + popped + (popped == 1 ? " pop" : " pops");
-		context.drawTextWithShadow(mc.textRenderer, info, textLeft, top + 17, mutedColor());
+		context.drawString(mc.font, info, textLeft, top + 17, mutedColor());
 
 		// Health bar: green when full through yellow to red, with absorption in gold beyond it
 		float health = target.getHealth();
@@ -126,7 +133,7 @@ public class TargetHudModule extends HudElement {
 		int barRight = left + WIDTH - 6;
 		int barTop = top + HEIGHT - 10;
 		Glass.rounded(context, barLeft, barTop, barRight, barTop + 4, 2, 0x40000000);
-		float fraction = MathHelper.clamp(shownHealth / (max + absorption), 0, 1);
+		float fraction = Mth.clamp(shownHealth / (max + absorption), 0, 1);
 		int filled = barLeft + Math.round((barRight - barLeft) * fraction);
 		if (filled > barLeft) Glass.rounded(context, barLeft, barTop, filled, barTop + 4, 2, healthColor(health / max));
 		if (absorption > 0) {
@@ -134,19 +141,19 @@ public class TargetHudModule extends HudElement {
 			Glass.rounded(context, filled, barTop, gold, barTop + 4, 2, absorptionColor.get());
 		}
 		String hp = String.format(Locale.ROOT, "%.1f", health + absorption);
-		context.drawTextWithShadow(mc.textRenderer, hp, barRight - mc.textRenderer.getWidth(hp), top + 6, healthColor(health / max));
+		context.drawString(mc.font, hp, barRight - mc.font.width(hp), top + 6, healthColor(health / max));
 
 		// Armour, head to feet, with durability bars
 		int itemLeft = textLeft;
 		for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET, EquipmentSlot.MAINHAND, EquipmentSlot.OFFHAND}) {
-			ItemStack stack = target.getEquippedStack(slot);
+			ItemStack stack = target.getItemBySlot(slot);
 			if (!stack.isEmpty()) {
-				context.getMatrices().pushMatrix();
-				context.getMatrices().translate(itemLeft, top + 26);
-				context.getMatrices().scale(0.7f, 0.7f);
-				context.drawItem(stack, 0, 0);
-				context.drawStackOverlay(mc.textRenderer, stack, 0, 0);
-				context.getMatrices().popMatrix();
+				context.pose().pushMatrix();
+				context.pose().translate(itemLeft, top + 26);
+				context.pose().scale(0.7f, 0.7f);
+				context.renderItem(stack, 0, 0);
+				context.renderItemDecorations(mc.font, stack, 0, 0);
+				context.pose().popMatrix();
 			}
 			itemLeft += 13;
 		}
@@ -154,7 +161,7 @@ public class TargetHudModule extends HudElement {
 
 	/** Green when healthy, through yellow, to red when nearly dead. */
 	private int healthColor(float fraction) {
-		fraction = MathHelper.clamp(fraction, 0, 1);
+		fraction = Mth.clamp(fraction, 0, 1);
 		if (usesCustomColors()) return LyricFont.mix(healthLow.get(), healthFull.get(), fraction);
 		int r = fraction > 0.5f ? (int) (255 * (1 - fraction) * 2) : 255;
 		int g = fraction > 0.5f ? 255 : (int) (255 * fraction * 2);

@@ -1,18 +1,18 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.util.Identifier;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import net.minecraft.resources.Identifier;
 
 /**
  * A field of coloured stars, twinkling and wheeling slowly round the sky, with shooting stars

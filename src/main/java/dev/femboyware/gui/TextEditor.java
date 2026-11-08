@@ -1,11 +1,11 @@
 package dev.femboyware.gui;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import dev.femboyware.setting.StringSetting;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.input.KeyInput;
-import net.minecraft.client.util.InputUtil;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.input.KeyEvent;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -34,12 +34,12 @@ final class TextEditor {
 	// ---------------------------------------------------------------- editing
 
 	/** Handles a key while this box has focus. Returns false for keys it doesn't use. */
-	boolean keyPressed(KeyInput input) {
+	boolean keyPressed(KeyEvent input) {
 		clamp();
 		lastActivity = System.currentTimeMillis();
-		boolean shift = input.hasShift() || isDown(GLFW.GLFW_KEY_LEFT_SHIFT) || isDown(GLFW.GLFW_KEY_RIGHT_SHIFT);
+		boolean shift = input.hasShiftDown() || isDown(GLFW.GLFW_KEY_LEFT_SHIFT) || isDown(GLFW.GLFW_KEY_RIGHT_SHIFT);
 		boolean word = isCtrl(input);
-		boolean shortcut = word && !input.hasAlt();
+		boolean shortcut = word && !input.hasAltDown();
 		int key = input.key();
 		if (shortcut && key == GLFW.GLFW_KEY_A) {
 			anchor = 0;
@@ -52,7 +52,7 @@ final class TextEditor {
 				replaceSelection("");
 			}
 		} else if (shortcut && key == GLFW.GLFW_KEY_V) {
-			replaceSelection(MinecraftClient.getInstance().keyboard.getClipboard().replaceAll("[\\r\\n\\t]+", " "));
+			replaceSelection(Minecraft.getInstance().keyboardHandler.getClipboard().replaceAll("[\\r\\n\\t]+", " "));
 		} else {
 			switch (key) {
 				case GLFW.GLFW_KEY_BACKSPACE -> {
@@ -119,7 +119,7 @@ final class TextEditor {
 	// ---------------------------------------------------------------- mouse
 
 	/** Puts the cursor under {@code mouseX}; with {@code extend} the selection grows to it instead. */
-	void click(TextRenderer font, double mouseX, int left, boolean extend) {
+	void click(Font font, double mouseX, int left, boolean extend) {
 		clamp();
 		lastActivity = System.currentTimeMillis();
 		moveTo(indexAt(font, mouseX, left), extend);
@@ -136,24 +136,24 @@ final class TextEditor {
 		cursor = end;
 	}
 
-	void drag(TextRenderer font, double mouseX, int left) {
+	void drag(Font font, double mouseX, int left) {
 		clamp();
 		lastActivity = System.currentTimeMillis();
 		moveTo(indexAt(font, mouseX, left), true);
 	}
 
 	/** Scrolls by {@code pixels}, positive to the right, without moving the cursor. */
-	void scrollBy(TextRenderer font, int pixels, int innerWidth) {
+	void scrollBy(Font font, int pixels, int innerWidth) {
 		scroll = clampScroll(font, scroll + pixels, innerWidth);
 	}
 
 	/** The character boundary nearest {@code mouseX}. */
-	private int indexAt(TextRenderer font, double mouseX, int left) {
+	private int indexAt(Font font, double mouseX, int left) {
 		String text = text();
 		double x = mouseX - (left + PADDING) + scroll;
 		for (int i = 0; i < text.length(); i++) {
-			int before = font.getWidth(text.substring(0, i));
-			int after = font.getWidth(text.substring(0, i + 1));
+			int before = font.width(text.substring(0, i));
+			int after = font.width(text.substring(0, i + 1));
 			if (x < (before + after) / 2.0) return i;
 		}
 		return text.length();
@@ -161,7 +161,7 @@ final class TextEditor {
 
 	// ---------------------------------------------------------------- drawing
 
-	void render(DrawContext context, TextRenderer font, int left, int top, int right, int bottom, boolean focused, int textColor, int selectionColor, int caretColor) {
+	void render(GuiGraphics context, Font font, int left, int top, int right, int bottom, boolean focused, int textColor, int selectionColor, int caretColor) {
 		clamp();
 		String text = text();
 		int innerWidth = right - left - PADDING * 2;
@@ -172,29 +172,29 @@ final class TextEditor {
 		int textY = top + 2;
 		context.enableScissor(left + 1, top, right - 1, bottom);
 		if (focused && hasSelection()) {
-			int from = textX + font.getWidth(text.substring(0, Math.min(cursor, anchor)));
-			int to = textX + font.getWidth(text.substring(0, Math.max(cursor, anchor)));
+			int from = textX + font.width(text.substring(0, Math.min(cursor, anchor)));
+			int to = textX + font.width(text.substring(0, Math.max(cursor, anchor)));
 			context.fill(from, top + 1, to, bottom - 1, selectionColor);
 		}
-		context.drawTextWithShadow(font, text, textX, textY, textColor);
+		context.drawString(font, text, textX, textY, textColor);
 		// Solid while typing or moving, blinking once idle, like any text box
 		long now = System.currentTimeMillis();
 		if (focused && (now - lastActivity < 500 || (now / 500) % 2 == 0)) {
-			int caret = textX + font.getWidth(text.substring(0, cursor));
+			int caret = textX + font.width(text.substring(0, cursor));
 			context.fill(caret, top + 1, caret + 1, bottom - 1, caretColor);
 		}
 		context.disableScissor();
 	}
 
-	private void keepCursorVisible(TextRenderer font, int innerWidth) {
-		int caret = font.getWidth(text().substring(0, cursor));
+	private void keepCursorVisible(Font font, int innerWidth) {
+		int caret = font.width(text().substring(0, cursor));
 		if (caret - scroll > innerWidth - 1) scroll = caret - innerWidth + 1;
 		if (caret - scroll < 0) scroll = caret;
 		scroll = clampScroll(font, scroll, innerWidth);
 	}
 
-	private int clampScroll(TextRenderer font, int value, int innerWidth) {
-		int max = Math.max(0, font.getWidth(text()) - innerWidth + 1);
+	private int clampScroll(Font font, int value, int innerWidth) {
+		int max = Math.max(0, font.width(text()) - innerWidth + 1);
 		return Math.max(0, Math.min(max, value));
 	}
 
@@ -220,15 +220,15 @@ final class TextEditor {
 	}
 
 	/** Ctrl (Cmd on macOS) held, from the key event or, failing that, the keyboard itself. */
-	private static boolean isCtrl(KeyInput input) {
-		return input.hasCtrlOrCmd() || isDown(GLFW.GLFW_KEY_LEFT_CONTROL) || isDown(GLFW.GLFW_KEY_RIGHT_CONTROL);
+	private static boolean isCtrl(KeyEvent input) {
+		return input.hasControlDownWithQuirk() || isDown(GLFW.GLFW_KEY_LEFT_CONTROL) || isDown(GLFW.GLFW_KEY_RIGHT_CONTROL);
 	}
 
 	private static boolean isDown(int key) {
-		return InputUtil.isKeyPressed(MinecraftClient.getInstance().getWindow(), key);
+		return InputConstants.isKeyDown(Minecraft.getInstance().getWindow(), key);
 	}
 
 	private static void clipboard(String text) {
-		MinecraftClient.getInstance().keyboard.setClipboard(text);
+		Minecraft.getInstance().keyboardHandler.setClipboard(text);
 	}
 }

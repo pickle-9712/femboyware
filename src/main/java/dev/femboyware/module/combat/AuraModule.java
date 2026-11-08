@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
@@ -10,19 +11,18 @@ import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.BlockUtil;
 import dev.femboyware.util.Easing;
 import dev.femboyware.util.Rotation;
-import net.minecraft.client.gui.screen.ingame.HandledScreen;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.mob.Monster;
-import net.minecraft.entity.passive.AnimalEntity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.registry.tag.ItemTags;
-import net.minecraft.util.Hand;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.Random;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.util.Mth;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.entity.monster.Enemy;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Melee aura with a humanised rotation engine: aim point movement, speed distributions, eased
@@ -128,8 +128,8 @@ public class AuraModule extends Module {
 	private float pitchVelocity;
 	private long ticks;
 
-	private Vec3d roamOffset = Vec3d.ZERO;
-	private Vec3d roamGoal = Vec3d.ZERO;
+	private Vec3 roamOffset = Vec3.ZERO;
+	private Vec3 roamGoal = Vec3.ZERO;
 	private double hPhase;
 	private double vPhase;
 	private double yawNoise;
@@ -208,12 +208,12 @@ public class AuraModule extends Module {
 			return;
 		}
 
-		Vec3d eyes = mc.player.getEyePos();
+		Vec3 eyes = mc.player.getEyePosition();
 		Rotation desired = Rotation.between(eyes, computeAimPoint(target, eyes));
 		desired = new Rotation(desired.yaw(), desired.pitch() - headUpOffset);
 		desired = applyOvershoot(desired);
 
-		float yawDelta = MathHelper.wrapDegrees(desired.yaw() - current.yaw());
+		float yawDelta = Mth.wrapDegrees(desired.yaw() - current.yaw());
 		float pitchDelta = desired.pitch() - current.pitch();
 		boolean inSmoothBox = rayHits(current, scaledBox(target.getBoundingBox(), smoothHbScale.get()), range.get() + aimRange.get());
 
@@ -234,36 +234,36 @@ public class AuraModule extends Module {
 		boolean onTarget = rayHits(new Rotation(yaw, pitch), target.getBoundingBox(), range.get());
 		float lower = onTarget ? pitchITMin.getFloat() : pitchMin.getFloat();
 		float upper = onTarget ? pitchITMax.getFloat() : pitchMax.getFloat();
-		pitch = MathHelper.clamp(pitch, Math.min(lower, upper), Math.max(lower, upper));
+		pitch = Mth.clamp(pitch, Math.min(lower, upper), Math.max(lower, upper));
 
-		current = new Rotation(MathHelper.wrapDegrees(yaw), MathHelper.clamp(pitch, -90f, 90f));
+		current = new Rotation(Mth.wrapDegrees(yaw), Mth.clamp(pitch, -90f, 90f));
 		FemboyWare.getRotations().request(current, ROTATION_PRIORITY, 180f, clientLook.get());
 	}
 
 	@Override
 	public void onPostMotion() {
 		if (target == null || !target.isAlive()) return;
-		if (mc.player.getAttackCooldownProgress(0.5f) < cooldown.get()) return;
-		if (weaponOnly.get() && !(mc.player.getMainHandStack().isIn(ItemTags.SWORDS) || mc.player.getMainHandStack().isIn(ItemTags.AXES))) return;
+		if (mc.player.getAttackStrengthScale(0.5f) < cooldown.get()) return;
+		if (weaponOnly.get() && !(mc.player.getMainHandItem().is(ItemTags.SWORDS) || mc.player.getMainHandItem().is(ItemTags.AXES))) return;
 
-		if (noMultiActions.get() && (mc.player.isUsingItem() || mc.currentScreen instanceof HandledScreen<?>)) return;
+		if (noMultiActions.get() && (mc.player.isUsingItem() || Mc.screen() instanceof AbstractContainerScreen<?>)) return;
 		if (ticksSinceSwitch < switchDelay.getInt()) return;
-		if (!throughWalls.get() && !isVisible(target, mc.player.getEyePos())) return;
+		if (!throughWalls.get() && !isVisible(target, mc.player.getEyePosition())) return;
 
-		Box box = target.getBoundingBox();
+		AABB box = target.getBoundingBox();
 		if (!rayHits(FemboyWare.getRotations().getServerRotation(), box, range.get())) {
 			if (!packetRotate.get()) return;
-			Vec3d eyes = mc.player.getEyePos();
+			Vec3 eyes = mc.player.getEyePosition();
 			if (eyes.distanceTo(BlockUtil.closestPoint(box, eyes)) > range.get()) return;
-			FemboyWare.getRotations().sendPacketRotation(Rotation.between(eyes, BlockUtil.closestPoint(box.contract(0.05), eyes)));
+			FemboyWare.getRotations().sendPacketRotation(Rotation.between(eyes, BlockUtil.closestPoint(box.deflate(0.05), eyes)));
 			// Carry on smoothing from where the server now thinks we look
 			current = FemboyWare.getRotations().getServerRotation();
 			if (!rayHits(FemboyWare.getRotations().getServerRotation(), box, range.get())) return;
 		}
 
-		boolean crit = mc.player.fallDistance > 0 && !mc.player.isOnGround();
-		mc.interactionManager.attackEntity(mc.player, target);
-		mc.player.swingHand(Hand.MAIN_HAND);
+		boolean crit = mc.player.fallDistance > 0 && !mc.player.onGround();
+		mc.gameMode.attack(mc.player, target);
+		mc.player.swing(InteractionHand.MAIN_HAND);
 		onAttack(crit);
 	}
 
@@ -280,10 +280,10 @@ public class AuraModule extends Module {
 
 	private LivingEntity findTarget() {
 		double maxRange = range.get() + aimRange.get();
-		Vec3d eyes = mc.player.getEyePos();
+		Vec3 eyes = mc.player.getEyePosition();
 		LivingEntity best = null;
 		double bestDistance = Double.MAX_VALUE;
-		for (Entity entity : mc.world.getEntities()) {
+		for (Entity entity : mc.level.entitiesForRendering()) {
 			if (!(entity instanceof LivingEntity living) || entity == mc.player || !living.isAlive()) continue;
 			if (!isValidType(living) || FriendsModule.protects(living)) continue;
 			double distance = eyes.distanceTo(BlockUtil.closestPoint(living.getBoundingBox(), eyes));
@@ -296,63 +296,63 @@ public class AuraModule extends Module {
 		return best;
 	}
 
-	private static boolean isVisible(LivingEntity entity, Vec3d eyes) {
-		Box box = entity.getBoundingBox();
-		Vec3d center = box.getCenter();
+	private static boolean isVisible(LivingEntity entity, Vec3 eyes) {
+		AABB box = entity.getBoundingBox();
+		Vec3 center = box.getCenter();
 		return BlockUtil.canSee(eyes, center)
-			|| BlockUtil.canSee(eyes, new Vec3d(center.x, entity.getEyeY(), center.z))
-			|| BlockUtil.canSee(eyes, new Vec3d(center.x, box.minY + 0.1, center.z));
+			|| BlockUtil.canSee(eyes, new Vec3(center.x, entity.getEyeY(), center.z))
+			|| BlockUtil.canSee(eyes, new Vec3(center.x, box.minY + 0.1, center.z));
 	}
 
 	private boolean isValidType(LivingEntity entity) {
-		if (entity instanceof PlayerEntity player) return players.get() && !player.isSpectator() && !player.isCreative();
-		if (entity instanceof Monster) return monsters.get();
-		if (entity instanceof AnimalEntity) return animals.get();
+		if (entity instanceof Player player) return players.get() && !player.isSpectator() && !player.isCreative();
+		if (entity instanceof Enemy) return monsters.get();
+		if (entity instanceof Animal) return animals.get();
 		return false;
 	}
 
 	// ---------------------------------------------------------------- aim point
 
-	private Vec3d computeAimPoint(LivingEntity entity, Vec3d eyes) {
-		Box box = entity.getBoundingBox();
-		Vec3d center = box.getCenter();
-		Vec3d base = switch (point.get()) {
+	private Vec3 computeAimPoint(LivingEntity entity, Vec3 eyes) {
+		AABB box = entity.getBoundingBox();
+		Vec3 center = box.getCenter();
+		Vec3 base = switch (point.get()) {
 			case CENTER -> center;
-			case EYES -> new Vec3d(center.x, entity.getEyeY(), center.z);
-			case CLOSEST -> BlockUtil.closestPoint(box.contract(0.05), eyes);
-			case ROAMING -> center.add(roam(box.getLengthX() / 2, box.getLengthY() / 2, 0.08));
+			case EYES -> new Vec3(center.x, entity.getEyeY(), center.z);
+			case CLOSEST -> BlockUtil.closestPoint(box.deflate(0.05), eyes);
+			case ROAMING -> center.add(roam(box.getXsize() / 2, box.getYsize() / 2, 0.08));
 		};
 
 		double h = pointHRange.get();
 		double v = pointVRange.get() / 2;
-		Vec3d offset = switch (pointJitter.get()) {
-			case NONE -> Vec3d.ZERO;
-			case RANDOM -> new Vec3d(randomRange(h), randomRange(v), randomRange(h));
+		Vec3 offset = switch (pointJitter.get()) {
+			case NONE -> Vec3.ZERO;
+			case RANDOM -> new Vec3(randomRange(h), randomRange(v), randomRange(h));
 			case ROAMING -> roam(h, v, 0.25);
 			case SINE -> {
 				hPhase += pointHFreq.get() * 0.02;
 				vPhase += pointVFreq.get() * 0.02;
-				yield new Vec3d(Math.sin(hPhase) * h, Math.sin(vPhase) * v, Math.cos(hPhase) * h);
+				yield new Vec3(Math.sin(hPhase) * h, Math.sin(vPhase) * v, Math.cos(hPhase) * h);
 			}
 			case DRUNK_SINE -> {
 				hPhase += pointHFreq.get() * 0.02 * (0.4 + random.nextDouble() * 1.2);
 				vPhase += pointVFreq.get() * 0.02 * (0.4 + random.nextDouble() * 1.2);
-				yield new Vec3d(Math.sin(hPhase) * h, Math.sin(vPhase) * v + Math.sin(vPhase * 2.3) * v * 0.3, Math.cos(hPhase * 0.7) * h);
+				yield new Vec3(Math.sin(hPhase) * h, Math.sin(vPhase) * v + Math.sin(vPhase * 2.3) * v * 0.3, Math.cos(hPhase * 0.7) * h);
 			}
 		};
-		return BlockUtil.closestPoint(box.contract(0.02), base.add(offset));
+		return BlockUtil.closestPoint(box.deflate(0.02), base.add(offset));
 	}
 
 	/** Smooth random walk of the aim offset within ±h horizontally and ±v vertically. */
-	private Vec3d roam(double h, double v, double speed) {
-		if (roamOffset.squaredDistanceTo(roamGoal) < 0.0025) {
-			roamGoal = new Vec3d(randomRange(h), randomRange(v), randomRange(h));
+	private Vec3 roam(double h, double v, double speed) {
+		if (roamOffset.distanceToSqr(roamGoal) < 0.0025) {
+			roamGoal = new Vec3(randomRange(h), randomRange(v), randomRange(h));
 		}
 		roamOffset = roamOffset.lerp(roamGoal, speed);
-		return new Vec3d(
-			MathHelper.clamp(roamOffset.x, -h, h),
-			MathHelper.clamp(roamOffset.y, -v, v),
-			MathHelper.clamp(roamOffset.z, -h, h));
+		return new Vec3(
+			Mth.clamp(roamOffset.x, -h, h),
+			Mth.clamp(roamOffset.y, -v, v),
+			Mth.clamp(roamOffset.z, -h, h));
 	}
 
 	// ---------------------------------------------------------------- rotation shaping
@@ -376,7 +376,7 @@ public class AuraModule extends Module {
 
 	private Rotation applyOvershoot(Rotation desired) {
 		if (!overShoot.get()) return desired;
-		float yawDelta = MathHelper.wrapDegrees(desired.yaw() - current.yaw());
+		float yawDelta = Mth.wrapDegrees(desired.yaw() - current.yaw());
 		if (overshootTicksLeft > 0) {
 			overshootTicksLeft--;
 			return new Rotation(desired.yaw() + overshootYaw, desired.pitch());
@@ -403,10 +403,10 @@ public class AuraModule extends Module {
 				// Brownian drift pulled back towards zero
 				double step = sample(-amplitude, amplitude, jitterDistribution.get()) * Math.min(1, frequency / 10);
 				if (yawAxis) {
-					yawNoise = MathHelper.clamp(yawNoise * 0.85 + step, -amplitude, amplitude);
+					yawNoise = Mth.clamp(yawNoise * 0.85 + step, -amplitude, amplitude);
 					yield yawNoise;
 				}
-				pitchNoise = MathHelper.clamp(pitchNoise * 0.85 + step, -amplitude, amplitude);
+				pitchNoise = Mth.clamp(pitchNoise * 0.85 + step, -amplitude, amplitude);
 				yield pitchNoise;
 			}
 		};
@@ -432,22 +432,22 @@ public class AuraModule extends Module {
 
 	// ---------------------------------------------------------------- helpers
 
-	private boolean rayHits(Rotation rotation, Box box, double reach) {
-		Vec3d eyes = mc.player.getEyePos();
+	private boolean rayHits(Rotation rotation, AABB box, double reach) {
+		Vec3 eyes = mc.player.getEyePosition();
 		if (box.contains(eyes)) return true;
-		return box.raycast(eyes, eyes.add(rotation.toVector().multiply(reach))).isPresent();
+		return box.clip(eyes, eyes.add(rotation.toVector().scale(reach))).isPresent();
 	}
 
-	private static Box scaledBox(Box box, double scale) {
-		Vec3d center = box.getCenter();
-		double hx = box.getLengthX() * scale / 2, hy = box.getLengthY() * scale / 2, hz = box.getLengthZ() * scale / 2;
-		return new Box(center.x - hx, center.y - hy, center.z - hz, center.x + hx, center.y + hy, center.z + hz);
+	private static AABB scaledBox(AABB box, double scale) {
+		Vec3 center = box.getCenter();
+		double hx = box.getXsize() * scale / 2, hy = box.getYsize() * scale / 2, hz = box.getZsize() * scale / 2;
+		return new AABB(center.x - hx, center.y - hy, center.z - hz, center.x + hx, center.y + hy, center.z + hz);
 	}
 
 	private double sample(double min, double max, Distribution distribution) {
 		double low = Math.min(min, max), high = Math.max(min, max);
 		if (distribution == Distribution.FLAT) return low + random.nextDouble() * (high - low);
-		double gaussian = MathHelper.clamp(random.nextGaussian() / 3.0, -1, 1);
+		double gaussian = Mth.clamp(random.nextGaussian() / 3.0, -1, 1);
 		return (low + high) / 2 + gaussian * (high - low) / 2;
 	}
 

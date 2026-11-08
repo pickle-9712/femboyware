@@ -1,9 +1,9 @@
 package dev.femboyware.util;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.ChatFormatting;
+import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
 
 /** Client-side chat messages from the client itself. Nothing is sent to the server. */
 public final class ChatUtil {
@@ -11,10 +11,10 @@ public final class ChatUtil {
 	}
 
 	public static void info(String message) {
-		MinecraftClient mc = MinecraftClient.getInstance();
-		if (mc.inGameHud == null) return;
-		mc.inGameHud.getChatHud().addMessage(Text.literal("[femboyware] ").formatted(Formatting.LIGHT_PURPLE)
-			.append(Text.literal(message).formatted(Formatting.WHITE)));
+		Minecraft mc = Minecraft.getInstance();
+		if (mc.gui == null) return;
+		Mc.addChat(Component.literal("[femboyware] ").withStyle(ChatFormatting.LIGHT_PURPLE)
+			.append(Component.literal(message).withStyle(ChatFormatting.WHITE)));
 	}
 
 	public static String coords(BlockPos pos) {

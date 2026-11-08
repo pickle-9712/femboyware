@@ -6,13 +6,12 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.StringSetting;
 import dev.femboyware.util.ChatUtil;
-import net.minecraft.util.Identifier;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import net.minecraft.resources.Identifier;
 
 /**
  * Stops chosen sounds from playing. Sounds are named like {@code entity.generic.explode}; use * as

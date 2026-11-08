@@ -1,5 +1,6 @@
 package dev.femboyware.module.movement;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
@@ -22,24 +23,24 @@ public class AirJumpModule extends Module {
 	@Override
 	protected void onEnable() {
 		if (nullCheck()) return;
-		level = mc.player.getBlockPos().getY();
+		level = mc.player.blockPosition().getY();
 		// Drop presses made while we were off
-		while (mc.options.jumpKey.wasPressed()) ;
-		while (mc.options.sneakKey.wasPressed()) ;
+		while (mc.options.keyJump.consumeClick()) ;
+		while (mc.options.keyShift.consumeClick()) ;
 	}
 
 	@Override
 	public void onTick() {
-		boolean blocked = FemboyWare.isEnabled(FreeCamModule.class) || mc.currentScreen != null || mc.player.isOnGround();
-		while (mc.options.jumpKey.wasPressed()) {
+		boolean blocked = FemboyWare.isEnabled(FreeCamModule.class) || Mc.screen() != null || mc.player.onGround();
+		while (mc.options.keyJump.consumeClick()) {
 			if (blocked) continue;
-			level = mc.player.getBlockPos().getY();
-			mc.player.jump();
+			level = mc.player.blockPosition().getY();
+			mc.player.jumpFromGround();
 		}
-		while (mc.options.sneakKey.wasPressed()) {
+		while (mc.options.keyShift.consumeClick()) {
 			if (!blocked) level--;
 		}
 		if (blocked) return;
-		if (maintainLevel.get() && mc.player.getBlockPos().getY() == level && mc.options.jumpKey.isPressed()) mc.player.jump();
+		if (maintainLevel.get() && mc.player.blockPosition().getY() == level && mc.options.keyJump.isDown()) mc.player.jumpFromGround();
 	}
 }

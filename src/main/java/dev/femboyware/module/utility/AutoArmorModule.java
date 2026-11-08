@@ -8,22 +8,21 @@ import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.StringSetting;
 import dev.femboyware.util.InventoryUtil;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.AttributeModifiersComponent;
-import net.minecraft.component.type.EquippableComponent;
-import net.minecraft.enchantment.Enchantment;
-import net.minecraft.enchantment.Enchantments;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.entity.attribute.EntityAttributes;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.registry.tag.ItemTags;
-import net.minecraft.util.Identifier;
-
 import java.util.HashSet;
 import java.util.Set;
+import net.minecraft.core.Holder;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.ItemAttributeModifiers;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.world.item.equipment.Equippable;
 
 /**
  * Equips the best armour in your inventory.
@@ -40,9 +39,9 @@ public class AutoArmorModule extends Module {
 		FIRE_PROTECTION(Enchantments.FIRE_PROTECTION),
 		PROJECTILE_PROTECTION(Enchantments.PROJECTILE_PROTECTION);
 
-		private final RegistryKey<Enchantment> enchantment;
+		private final ResourceKey<Enchantment> enchantment;
 
-		Protection(RegistryKey<Enchantment> enchantment) {
+		Protection(ResourceKey<Enchantment> enchantment) {
 			this.enchantment = enchantment;
 		}
 	}
@@ -74,15 +73,15 @@ public class AutoArmorModule extends Module {
 			return;
 		}
 		// Clicks go to the player inventory, which would desync any other open container
-		if (mc.player.currentScreenHandler != mc.player.playerScreenHandler) return;
+		if (mc.player.containerMenu != mc.player.inventoryMenu) return;
 		if (!avoidedEnchantments.get().equals(parsedFrom)) {
 			avoided = parseIds(avoidedEnchantments.get());
 			parsedFrom = avoidedEnchantments.get();
 		}
 
 		for (EquipmentSlot slot : SLOTS) {
-			ItemStack current = mc.player.getEquippedStack(slot);
-			if (ignoreElytra.get() && current.contains(DataComponentTypes.GLIDER)) continue;
+			ItemStack current = mc.player.getItemBySlot(slot);
+			if (ignoreElytra.get() && current.has(DataComponents.GLIDER)) continue;
 			if (hasEnchantment(current, Enchantments.BINDING_CURSE)) continue;
 
 			int currentScore = current.isEmpty() ? -1 : score(current, slot) - 2 * avoidedLevels(current);
@@ -90,8 +89,8 @@ public class AutoArmorModule extends Module {
 
 			int bestSlot = -1;
 			int bestScore = currentScore;
-			for (int i = 0; i < PlayerInventory.MAIN_SIZE; i++) {
-				ItemStack stack = mc.player.getInventory().getStack(i);
+			for (int i = 0; i < Inventory.INVENTORY_SIZE; i++) {
+				ItemStack stack = mc.player.getInventory().getItem(i);
 				if (slotOf(stack) != slot || aboutToBreak(stack) || avoidedLevels(stack) > 0) continue;
 				int score = score(stack, slot);
 				if (score > bestScore) {
@@ -117,15 +116,15 @@ public class AutoArmorModule extends Module {
 
 	private static EquipmentSlot slotOf(ItemStack stack) {
 		if (stack.isEmpty()) return null;
-		if (stack.contains(DataComponentTypes.GLIDER)) return EquipmentSlot.CHEST;
-		if (!stack.isIn(ItemTags.HEAD_ARMOR) && !stack.isIn(ItemTags.CHEST_ARMOR) && !stack.isIn(ItemTags.LEG_ARMOR) && !stack.isIn(ItemTags.FOOT_ARMOR)) return null;
-		EquippableComponent equippable = stack.get(DataComponentTypes.EQUIPPABLE);
+		if (stack.has(DataComponents.GLIDER)) return EquipmentSlot.CHEST;
+		if (!stack.is(ItemTags.HEAD_ARMOR) && !stack.is(ItemTags.CHEST_ARMOR) && !stack.is(ItemTags.LEG_ARMOR) && !stack.is(ItemTags.FOOT_ARMOR)) return null;
+		Equippable equippable = stack.get(DataComponents.EQUIPPABLE);
 		return equippable == null ? null : equippable.slot();
 	}
 
 	/** Enchantments, protection and toughness, weighted towards the preferred protection. */
 	private int score(ItemStack stack, EquipmentSlot slot) {
-		RegistryKey<Enchantment> preferred = blastLeggings.get() && slot == EquipmentSlot.LEGS ? Enchantments.BLAST_PROTECTION : preferredProtection.get().enchantment;
+		ResourceKey<Enchantment> preferred = blastLeggings.get() && slot == EquipmentSlot.LEGS ? Enchantments.BLAST_PROTECTION : preferredProtection.get().enchantment;
 		int score = 3 * InventoryUtil.getEnchantmentLevel(stack, preferred);
 		score += InventoryUtil.getEnchantmentLevel(stack, Enchantments.PROTECTION);
 		score += InventoryUtil.getEnchantmentLevel(stack, Enchantments.BLAST_PROTECTION);
@@ -134,11 +133,11 @@ public class AutoArmorModule extends Module {
 		score += InventoryUtil.getEnchantmentLevel(stack, Enchantments.UNBREAKING);
 		score += 2 * InventoryUtil.getEnchantmentLevel(stack, Enchantments.MENDING);
 
-		AttributeModifiersComponent modifiers = stack.get(DataComponentTypes.ATTRIBUTE_MODIFIERS);
+		ItemAttributeModifiers modifiers = stack.get(DataComponents.ATTRIBUTE_MODIFIERS);
 		if (modifiers == null) return score;
-		for (AttributeModifiersComponent.Entry entry : modifiers.modifiers()) {
-			if (!entry.attribute().equals(EntityAttributes.ARMOR) && !entry.attribute().equals(EntityAttributes.ARMOR_TOUGHNESS)) continue;
-			double value = entry.modifier().value();
+		for (ItemAttributeModifiers.Entry entry : modifiers.modifiers()) {
+			if (!entry.attribute().equals(Attributes.ARMOR) && !entry.attribute().equals(Attributes.ARMOR_TOUGHNESS)) continue;
+			double value = entry.modifier().amount();
 			score += (int) switch (entry.modifier().operation()) {
 				case ADD_VALUE -> value;
 				case ADD_MULTIPLIED_BASE -> value * mc.player.getAttributeBaseValue(entry.attribute());
@@ -149,20 +148,20 @@ public class AutoArmorModule extends Module {
 	}
 
 	private boolean aboutToBreak(ItemStack stack) {
-		return antiBreak.get() && stack.isDamageable() && stack.getMaxDamage() - stack.getDamage() <= BREAK_DURABILITY;
+		return antiBreak.get() && stack.isDamageableItem() && stack.getMaxDamage() - stack.getDamageValue() <= BREAK_DURABILITY;
 	}
 
 	private int avoidedLevels(ItemStack stack) {
 		int total = 0;
-		for (Object2IntMap.Entry<RegistryEntry<Enchantment>> entry : stack.getEnchantments().getEnchantmentEntries()) {
+		for (Object2IntMap.Entry<Holder<Enchantment>> entry : stack.getEnchantments().entrySet()) {
 			for (Identifier id : avoided) {
-				if (entry.getKey().matchesId(id)) total += entry.getIntValue();
+				if (entry.getKey().is(id)) total += entry.getIntValue();
 			}
 		}
 		return total;
 	}
 
-	private static boolean hasEnchantment(ItemStack stack, RegistryKey<Enchantment> enchantment) {
+	private static boolean hasEnchantment(ItemStack stack, ResourceKey<Enchantment> enchantment) {
 		return InventoryUtil.getEnchantmentLevel(stack, enchantment) > 0;
 	}
 

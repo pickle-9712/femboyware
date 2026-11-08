@@ -3,10 +3,9 @@ package dev.femboyware.module.hud;
 import dev.femboyware.gui.Glass;
 import dev.femboyware.gui.Theme;
 import dev.femboyware.setting.KeySetting;
-import net.minecraft.client.gl.RenderPipelines;
-import net.minecraft.client.gui.DrawContext;
-
 import java.util.Locale;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.renderer.RenderPipelines;
 
 /**
  * What's playing on your PC (Spotify, a browser, anything Windows shows in its media controls):
@@ -58,7 +57,7 @@ public class MediaPlayerModule extends HudElement {
 	}
 
 	@Override
-	protected void draw(DrawContext context, int left, int top, boolean editing) {
+	protected void draw(GuiGraphics context, int left, int top, boolean editing) {
 		WindowsMedia.Track current = MediaSource.track();
 		boolean active = current != null;
 		if (!active && !editing) return;
@@ -71,19 +70,19 @@ public class MediaPlayerModule extends HudElement {
 		// Album art, or a soft placeholder note
 		int artSize = 34;
 		if (active && MediaSource.prepareArt()) {
-			context.drawTexture(RenderPipelines.GUI_TEXTURED, MediaSource.ART, left + 6, top + 6, 0, 0, artSize, artSize, artSize, artSize);
+			context.blit(RenderPipelines.GUI_TEXTURED, MediaSource.ART, left + 6, top + 6, 0, 0, artSize, artSize, artSize, artSize);
 		} else {
 			Glass.rounded(context, left + 6, top + 6, left + 6 + artSize, top + 6 + artSize, 4, 0x40FFFFFF);
-			context.drawTextWithShadow(mc.textRenderer, "♪", left + 6 + artSize / 2 - 3, top + 6 + artSize / 2 - 4, textColor());
+			context.drawString(mc.font, "♪", left + 6 + artSize / 2 - 3, top + 6 + artSize / 2 - 4, textColor());
 		}
 
 		int textLeft = left + 46;
 		int textWidth = WIDTH - 52;
-		context.drawTextWithShadow(mc.textRenderer, fit(title, textWidth - 10), textLeft, top + 6, textColor());
-		context.drawTextWithShadow(mc.textRenderer, fit(artist, textWidth), textLeft, top + 17, mutedColor());
+		context.drawString(mc.font, fit(title, textWidth - 10), textLeft, top + 6, textColor());
+		context.drawString(mc.font, fit(artist, textWidth), textLeft, top + 17, mutedColor());
 		// A little play or pause mark
 		String mark = playing ? "▶" : "Ⅱ";
-		context.drawTextWithShadow(mc.textRenderer, mark, left + WIDTH - 6 - mc.textRenderer.getWidth(mark), top + 6, playing ? accentColor() : mutedColor());
+		context.drawString(mc.font, mark, left + WIDTH - 6 - mc.font.width(mark), top + 6, playing ? accentColor() : mutedColor());
 
 		if (active) {
 			double length = current.length();
@@ -94,19 +93,19 @@ public class MediaPlayerModule extends HudElement {
 				int filled = textLeft + (int) Math.round((left + WIDTH - 6 - textLeft) * position / length);
 				if (filled > textLeft) Glass.rounded(context, textLeft, barTop, filled, barTop + 3, 1, accentColor());
 				String times = clock(position) + " / " + clock(length);
-				context.getMatrices().pushMatrix();
-				context.getMatrices().translate(textLeft, barTop - 7);
-				context.getMatrices().scale(0.7f, 0.7f);
-				context.drawTextWithShadow(mc.textRenderer, times, 0, 0, mutedColor());
-				context.getMatrices().popMatrix();
+				context.pose().pushMatrix();
+				context.pose().translate(textLeft, barTop - 7);
+				context.pose().scale(0.7f, 0.7f);
+				context.drawString(mc.font, times, 0, 0, mutedColor());
+				context.pose().popMatrix();
 			}
 		}
 	}
 
 	/** {@code text}, cut short with an ellipsis if it's wider than {@code width}. */
 	private String fit(String text, int width) {
-		if (mc.textRenderer.getWidth(text) <= width) return text;
-		return mc.textRenderer.trimToWidth(text, width - mc.textRenderer.getWidth("...")) + "...";
+		if (mc.font.width(text) <= width) return text;
+		return mc.font.plainSubstrByWidth(text, width - mc.font.width("...")) + "...";
 	}
 
 	private static String clock(double seconds) {

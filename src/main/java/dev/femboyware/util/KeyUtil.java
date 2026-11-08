@@ -1,28 +1,28 @@
 package dev.femboyware.util;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
 import org.lwjgl.glfw.GLFW;
 
 public final class KeyUtil {
-	private static final MinecraftClient mc = MinecraftClient.getInstance();
+	private static final Minecraft mc = Minecraft.getInstance();
 
 	private KeyUtil() {
 	}
 
 	/** Whether the key or mouse button bound to {@code binding} is held down right now, ignoring screens. */
-	public static boolean isPhysicallyPressed(KeyBinding binding) {
-		InputUtil.Key key = KeyBindingHelper.getBoundKeyOf(binding);
-		if (key.getCode() == InputUtil.UNKNOWN_KEY.getCode()) return false;
-		long handle = mc.getWindow().getHandle();
-		if (key.getCategory() == InputUtil.Type.MOUSE) return GLFW.glfwGetMouseButton(handle, key.getCode()) == GLFW.GLFW_PRESS;
-		return InputUtil.isKeyPressed(mc.getWindow(), key.getCode());
+	public static boolean isPhysicallyPressed(KeyMapping binding) {
+		InputConstants.Key key = KeyBindingHelper.getBoundKeyOf(binding);
+		if (key.getValue() == InputConstants.UNKNOWN.getValue()) return false;
+		long handle = mc.getWindow().handle();
+		if (key.getType() == InputConstants.Type.MOUSE) return GLFW.glfwGetMouseButton(handle, key.getValue()) == GLFW.GLFW_PRESS;
+		return InputConstants.isKeyDown(mc.getWindow(), key.getValue());
 	}
 
 	/** Puts {@code binding} back to whatever the physical key says. */
-	public static void sync(KeyBinding binding) {
-		binding.setPressed(isPhysicallyPressed(binding));
+	public static void sync(KeyMapping binding) {
+		binding.setDown(isPhysicallyPressed(binding));
 	}
 }

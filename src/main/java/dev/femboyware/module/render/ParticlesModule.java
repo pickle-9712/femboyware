@@ -5,10 +5,9 @@ import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.particle.ParticleEffect;
-import net.minecraft.particle.ParticleTypes;
-
 import java.util.Random;
+import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.core.particles.ParticleTypes;
 
 /** A trail of particles around you. */
 public class ParticlesModule extends Module {
@@ -26,8 +25,8 @@ public class ParticlesModule extends Module {
 
 	@Override
 	public void onTick() {
-		if (onlyMoving.get() && mc.player.getVelocity().horizontalLengthSquared() < 1e-4) return;
-		ParticleEffect effect = switch (type.get()) {
+		if (onlyMoving.get() && mc.player.getDeltaMovement().horizontalDistanceSqr() < 1e-4) return;
+		ParticleOptions effect = switch (type.get()) {
 			case HEART -> ParticleTypes.HEART;
 			case FLAME -> ParticleTypes.FLAME;
 			case SOUL -> ParticleTypes.SOUL_FIRE_FLAME;
@@ -39,9 +38,9 @@ public class ParticlesModule extends Module {
 		};
 		for (int i = 0; i < amount.getInt(); i++) {
 			double x = mc.player.getX() + (random.nextDouble() - 0.5) * 0.8;
-			double y = mc.player.getY() + random.nextDouble() * mc.player.getHeight();
+			double y = mc.player.getY() + random.nextDouble() * mc.player.getBbHeight();
 			double z = mc.player.getZ() + (random.nextDouble() - 0.5) * 0.8;
-			mc.world.addParticleClient(effect, x, y, z, 0, 0.02, 0);
+			mc.level.addParticle(effect, x, y, z, 0, 0.02, 0);
 		}
 	}
 }

@@ -2,9 +2,9 @@ package dev.femboyware.mixin;
 
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.movement.ElytraBoostModule;
-import net.minecraft.entity.projectile.FireworkRocketEntity;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.hit.EntityHitResult;
+import net.minecraft.world.entity.projectile.FireworkRocketEntity;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.EntityHitResult;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
@@ -18,21 +18,21 @@ public class FireworkRocketEntityMixin {
 	@Shadow
 	private int life;
 	@Shadow
-	private int lifeTime;
+	private int lifetime;
 
 	@Inject(method = "tick", at = @At("TAIL"))
 	private void femboyware$expire(CallbackInfo ci) {
-		if (femboyware$isBoost() && life > lifeTime) ((FireworkRocketEntity) (Object) this).discard();
+		if (femboyware$isBoost() && life > lifetime) ((FireworkRocketEntity) (Object) this).discard();
 	}
 
-	@Inject(method = "onEntityHit", at = @At("HEAD"), cancellable = true)
+	@Inject(method = "onHitEntity", at = @At("HEAD"), cancellable = true)
 	private void femboyware$onEntityHit(EntityHitResult hit, CallbackInfo ci) {
 		if (!femboyware$isBoost()) return;
 		((FireworkRocketEntity) (Object) this).discard();
 		ci.cancel();
 	}
 
-	@Inject(method = "onBlockHit", at = @At("HEAD"), cancellable = true)
+	@Inject(method = "onHitBlock", at = @At("HEAD"), cancellable = true)
 	private void femboyware$onBlockHit(BlockHitResult hit, CallbackInfo ci) {
 		if (!femboyware$isBoost()) return;
 		((FireworkRocketEntity) (Object) this).discard();

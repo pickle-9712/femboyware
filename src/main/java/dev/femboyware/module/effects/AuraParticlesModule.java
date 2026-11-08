@@ -1,26 +1,25 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
 /** A constant gentle stream of hearts, petals, sparkles or glowing motes rising round you. */
 public class AuraParticlesModule extends PlayerFxModule {
 	public enum Kind { HEARTS, PETALS, SPARKLES, MOTES }
 
-	private static final Identifier HEART = Identifier.of("femboyware", "textures/sky/heart.png");
-	private static final Identifier PETAL = Identifier.of("femboyware", "textures/sky/petal.png");
-	private static final Identifier SPARKLE = Identifier.of("femboyware", "textures/sky/sparkle.png");
+	private static final Identifier HEART = Identifier.fromNamespaceAndPath("femboyware", "textures/sky/heart.png");
+	private static final Identifier PETAL = Identifier.fromNamespaceAndPath("femboyware", "textures/sky/petal.png");
+	private static final Identifier SPARKLE = Identifier.fromNamespaceAndPath("femboyware", "textures/sky/sparkle.png");
 	private static final int MAX = 600;
 
 	private final EnumSetting<Kind> kind = add(new EnumSetting<>("Kind", "Hearts, petals, sparkles or soft glowing motes", Kind.HEARTS));
@@ -32,7 +31,7 @@ public class AuraParticlesModule extends PlayerFxModule {
 	private final Palette palette = palette(0xFFFF77C8, 0xFFFFB6E1);
 	private final EnumSetting<ShowOn> showOn = showOnSetting();
 
-	private record Particle(Vec3d start, double vx, double vz, float rise, long born, float phase, float tint) {}
+	private record Particle(Vec3 start, double vx, double vz, float rise, long born, float phase, float tint) {}
 
 	private final List<Particle> particles = new ArrayList<>();
 	private final Random random = new Random();
@@ -66,13 +65,13 @@ public class AuraParticlesModule extends PlayerFxModule {
 		owed += delta * rate.getFloat();
 		int spawn = (int) owed;
 		owed -= spawn;
-		for (PlayerEntity player : wearers(true)) {
-			if (onlyMoving.get() && player.getVelocity().horizontalLengthSquared() < 0.002) continue;
-			Vec3d feet = player.getLerpedPos(tickDelta);
+		for (Player player : wearers(true)) {
+			if (onlyMoving.get() && player.getDeltaMovement().horizontalDistanceSqr() < 0.002) continue;
+			Vec3 feet = player.getPosition(tickDelta);
 			for (int i = 0; i < spawn && particles.size() < MAX; i++) {
 				double angle = random.nextDouble() * Math.PI * 2;
 				double r = radius.get() * (0.5 + random.nextDouble() * 0.5);
-				Vec3d start = feet.add(Math.cos(angle) * r, random.nextDouble() * player.getHeight() * 0.8, Math.sin(angle) * r);
+				Vec3 start = feet.add(Math.cos(angle) * r, random.nextDouble() * player.getBbHeight() * 0.8, Math.sin(angle) * r);
 				particles.add(new Particle(start, Math.cos(angle) * 0.08, Math.sin(angle) * 0.08, 0.35f + random.nextFloat() * 0.35f,
 					now, random.nextFloat() * 100, random.nextFloat()));
 			}
@@ -87,7 +86,7 @@ public class AuraParticlesModule extends PlayerFxModule {
 		};
 		boolean light = kind.is(Kind.SPARKLES) || kind.is(Kind.MOTES);
 		VertexConsumer consumer = FxRender.textured(event, texture, light, false);
-		Vec3d cam = event.camera().pos;
+		Vec3 cam = event.camera().pos;
 		float s = size.getFloat();
 		for (Particle p : particles) {
 			float age = (now - p.born) / 1e9f;

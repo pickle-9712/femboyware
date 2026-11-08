@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import net.minecraft.world.phys.Vec3;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
@@ -12,12 +13,11 @@ import dev.femboyware.util.HoleUtil;
 import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.PlaceUtil;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.AABB;
 
 /**
  * Fills the spots where an enemy could place a crystal that would hurt you badly, so there is
@@ -42,23 +42,23 @@ public class BlockerModule extends Module {
 
 	@Override
 	public void onTick() {
-		BlockPos feet = mc.player.getBlockPos();
+		BlockPos feet = mc.player.blockPosition();
 		if (holeOnly.get() && !HoleUtil.isHole(feet)) {
 			spots = List.of();
 			return;
 		}
 		int r = radius.getInt();
-		Box self = mc.player.getBoundingBox();
+		AABB self = mc.player.getBoundingBox();
 		List<BlockPos> found = new ArrayList<>();
-		for (BlockPos base : BlockPos.iterate(feet.add(-r, -1, -r), feet.add(r, 1, r))) {
-			BlockPos crystal = base.up();
-			if (!HoleUtil.isBlastProof(mc.world.getBlockState(base)) || !mc.world.isAir(crystal)) continue;
-			if (self.intersects(new Box(crystal))) continue;
-			if (DamageCalculator.crystalDamage(mc.player, base.toImmutable(), false, false) >= minDamage.get()) {
-				found.add(crystal.toImmutable());
+		for (BlockPos base : BlockPos.betweenClosed(feet.offset(-r, -1, -r), feet.offset(r, 1, r))) {
+			BlockPos crystal = base.above();
+			if (!HoleUtil.isBlastProof(mc.level.getBlockState(base)) || !mc.level.isEmptyBlock(crystal)) continue;
+			if (self.intersects(new AABB(crystal))) continue;
+			if (DamageCalculator.crystalDamage(mc.player, base.immutable(), false, false) >= minDamage.get()) {
+				found.add(crystal.immutable());
 			}
 		}
-		found.sort(Comparator.comparingDouble(pos -> mc.player.squaredDistanceTo(pos.toCenterPos())));
+		found.sort(Comparator.comparingDouble(pos -> mc.player.distanceToSqr(Vec3.atCenterOf(pos))));
 		spots = found;
 
 		int placed = 0;
@@ -72,7 +72,7 @@ public class BlockerModule extends Module {
 	public void onRender3D(Render3DEvent event) {
 		if (!render.get()) return;
 		for (BlockPos spot : spots) {
-			RenderUtil.drawBox(event, new Box(spot), color.get(), color.withAlpha(255), 1.5f);
+			RenderUtil.drawBox(event, new AABB(spot), color.get(), color.withAlpha(255), 1.5f);
 		}
 	}
 }

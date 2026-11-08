@@ -1,24 +1,25 @@
 package dev.femboyware.gui;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.client.ClickGuiModule;
 import dev.femboyware.module.render.CleanFontModule;
 import dev.femboyware.module.render.MainMenuModule;
 import net.minecraft.SharedConstants;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen;
-import net.minecraft.client.gui.screen.option.OptionsScreen;
-import net.minecraft.client.gui.screen.world.SelectWorldScreen;
-import net.minecraft.client.gui.widget.PlayerSkinWidget;
-import net.minecraft.client.sound.PositionedSoundInstance;
-import net.minecraft.client.util.DefaultSkinHelper;
-import net.minecraft.entity.player.SkinTextures;
-import net.minecraft.sound.SoundEvents;
-import net.minecraft.text.Style;
-import net.minecraft.text.StyleSpriteSource;
-import net.minecraft.text.Text;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.PlayerSkinWidget;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
+import net.minecraft.client.gui.screens.options.OptionsScreen;
+import net.minecraft.client.gui.screens.worldselection.SelectWorldScreen;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.resources.DefaultPlayerSkin;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.FontDescription;
+import net.minecraft.network.chat.Style;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.world.entity.player.PlayerSkin;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -64,7 +65,7 @@ public class FemboyTitleScreen extends Screen {
 	private record Button(String label, Kind kind, Runnable action, int gapBefore) {}
 
 	private final List<Button> buttons = new ArrayList<>();
-	private Supplier<SkinTextures> skin;
+	private Supplier<PlayerSkin> skin;
 	private PlayerSkinWidget skinWidget;
 	/** Top of each button, from the last frame, for clicks. */
 	private int[] buttonY = new int[0];
@@ -74,26 +75,30 @@ public class FemboyTitleScreen extends Screen {
 	private int canvasHeight;
 
 	public FemboyTitleScreen() {
-		super(Text.literal("femboyware"));
+		super(Component.literal("femboyware"));
 	}
 
 	@Override
 	protected void init() {
 		buttons.clear();
-		buttons.add(new Button("Singleplayer", Kind.PRIMARY, () -> client.setScreen(new SelectWorldScreen(this)), 0));
-		buttons.add(new Button("Multiplayer", Kind.PRIMARY, () -> client.setScreen(new MultiplayerScreen(this)), 0));
-		buttons.add(new Button("Minecraft Settings", Kind.SECONDARY, () -> client.setScreen(new OptionsScreen(this, client.options)), 10));
-		buttons.add(new Button("Client", Kind.SECONDARY, () -> client.setScreen(new ClickGuiScreen(FemboyWare.getModules().get(ClickGuiModule.class))), 0));
-		buttons.add(new Button("Quit Game", Kind.SECONDARY, client::scheduleStop, 10));
-		skin = client.getSkinProvider().supplySkinTextures(client.getGameProfile(), false);
-		Supplier<SkinTextures> loaded = skin;
-		skinWidget = addDrawableChild(new PlayerSkinWidget(SKIN_WIDTH, SKIN_HEIGHT, client.getLoadedEntityModels(), () -> {
-			SkinTextures textures = loaded.get();
-			return textures != null ? textures : DefaultSkinHelper.getSkinTextures(client.getGameProfile());
+		buttons.add(new Button("Singleplayer", Kind.PRIMARY, () -> Mc.setScreen(new SelectWorldScreen(this)), 0));
+		buttons.add(new Button("Multiplayer", Kind.PRIMARY, () -> Mc.setScreen(new JoinMultiplayerScreen(this)), 0));
+		//? if >=26.1 {
+		/*buttons.add(new Button("Minecraft Settings", Kind.SECONDARY, () -> Mc.setScreen(new OptionsScreen(this, minecraft.options, false)), 10));
+		*///?} else {
+		buttons.add(new Button("Minecraft Settings", Kind.SECONDARY, () -> Mc.setScreen(new OptionsScreen(this, minecraft.options)), 10));
+		//?}
+		buttons.add(new Button("Client", Kind.SECONDARY, () -> Mc.setScreen(new ClickGuiScreen(FemboyWare.getModules().get(ClickGuiModule.class))), 0));
+		buttons.add(new Button("Quit Game", Kind.SECONDARY, minecraft::stop, 10));
+		skin = minecraft.getSkinManager().createLookup(minecraft.getGameProfile(), false);
+		Supplier<PlayerSkin> loaded = skin;
+		skinWidget = addRenderableWidget(new PlayerSkinWidget(SKIN_WIDTH, SKIN_HEIGHT, minecraft.getEntityModels(), () -> {
+			PlayerSkin textures = loaded.get();
+			return textures != null ? textures : DefaultPlayerSkin.get(minecraft.getGameProfile());
 		}) {
 			/** Spins left and right only: tilting would swing the head away from the name tag above it. */
 			@Override
-			protected void onDrag(Click click, double offsetX, double offsetY) {
+			protected void onDrag(MouseButtonEvent click, double offsetX, double offsetY) {
 				super.onDrag(click, offsetX, 0);
 			}
 		});
@@ -105,7 +110,7 @@ public class FemboyTitleScreen extends Screen {
 	}
 
 	@Override
-	public void renderBackground(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
+	public void renderBackground(GuiGraphics context, int mouseX, int mouseY, float deltaTicks) {
 		SwirlBackground.draw(context, width, height);
 		// Darker towards the edges so the middle stays easy to read
 		context.fillGradient(0, 0, width, height / 3, 0x60000000, 0x00000000);
@@ -113,17 +118,17 @@ public class FemboyTitleScreen extends Screen {
 	}
 
 	@Override
-	public void render(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
+	public void render(GuiGraphics context, int mouseX, int mouseY, float deltaTicks) {
 		renderBackground(context, mouseX, mouseY, deltaTicks);
 		scale = UiScale.scale();
 		canvasWidth = (int) (width / scale);
 		canvasHeight = (int) (height / scale);
-		context.getMatrices().pushMatrix();
-		context.getMatrices().scale(scale, scale);
+		context.pose().pushMatrix();
+		context.pose().scale(scale, scale);
 		UiScale.begin();
 		renderCanvas(context, (int) (mouseX / scale), (int) (mouseY / scale));
 		UiScale.end();
-		context.getMatrices().popMatrix();
+		context.pose().popMatrix();
 		// The 3D model draws in real GUI units, over its spot on the canvas
 		skinWidget.visible = module().skin();
 		if (skinWidget.visible) {
@@ -132,17 +137,17 @@ public class FemboyTitleScreen extends Screen {
 		}
 	}
 
-	private void renderCanvas(DrawContext context, int mouseX, int mouseY) {
+	private void renderCanvas(GuiGraphics context, int mouseX, int mouseY) {
 		int center = canvasWidth / 2;
 
 		// Centre the title and buttons together, whatever the window size
 		int buttonsHeight = buttons.size() * (BUTTON_HEIGHT + BUTTON_GAP) - BUTTON_GAP;
 		for (Button button : buttons) buttonsHeight += button.gapBefore;
 		int titleY = Math.max(8, (canvasHeight - (TITLE_BLOCK + buttonsHeight)) / 2);
-		Text title = text("femboyware", CleanFontModule.TITLE);
-		context.drawText(textRenderer, title, center - textRenderer.getWidth(title) / 2, titleY, TEXT, false);
-		Text tagline = text("pink utility client", CleanFontModule.CLEAN);
-		context.drawText(textRenderer, tagline, center - textRenderer.getWidth(tagline) / 2, titleY + 22, MUTED, false);
+		Component title = text("femboyware", CleanFontModule.TITLE);
+		context.drawString(font, title, center - font.width(title) / 2, titleY, TEXT, false);
+		Component tagline = text("pink utility client", CleanFontModule.CLEAN);
+		context.drawString(font, tagline, center - font.width(tagline) / 2, titleY + 22, MUTED, false);
 
 		int y = titleY + TITLE_BLOCK;
 		buttonY = new int[buttons.size()];
@@ -153,18 +158,18 @@ public class FemboyTitleScreen extends Screen {
 			boolean hovered = hovered(i, mouseX, mouseY);
 			int left = center - BUTTON_WIDTH / 2;
 			roundedRect(context, left, y, left + BUTTON_WIDTH, y + BUTTON_HEIGHT, RADIUS, hovered ? button.kind.hover : button.kind.color);
-			Text label = text(button.label, CleanFontModule.CLEAN);
-			int labelY = y + (BUTTON_HEIGHT - textRenderer.fontHeight) / 2 + 1;
-			context.drawText(textRenderer, label, center - textRenderer.getWidth(label) / 2, labelY, TEXT, false);
+			Component label = text(button.label, CleanFontModule.CLEAN);
+			int labelY = y + (BUTTON_HEIGHT - font.lineHeight) / 2 + 1;
+			context.drawString(font, label, center - font.width(label) / 2, labelY, TEXT, false);
 			y += BUTTON_HEIGHT + BUTTON_GAP;
 		}
 
 		if (module().skin()) drawSkinExtras(context);
 
-		Text version = text("femboyware " + FemboyWare.VERSION + "  ·  Minecraft " + SharedConstants.getGameVersion().name(), CleanFontModule.CLEAN);
-		context.drawText(textRenderer, version, 6, canvasHeight - 14, 0xB0FFFFFF, false);
-		Text credit = text("made by yum", CleanFontModule.CLEAN);
-		context.drawText(textRenderer, credit, canvasWidth - 6 - textRenderer.getWidth(credit), canvasHeight - 14, 0xB0FFFFFF, false);
+		Component version = text("femboyware " + FemboyWare.VERSION + "  ·  Minecraft " + SharedConstants.getCurrentVersion().name(), CleanFontModule.CLEAN);
+		context.drawString(font, version, 6, canvasHeight - 14, 0xB0FFFFFF, false);
+		Component credit = text("made by yum", CleanFontModule.CLEAN);
+		context.drawString(font, credit, canvasWidth - 6 - font.width(credit), canvasHeight - 14, 0xB0FFFFFF, false);
 	}
 
 	// ---------------------------------------------------------------- skin
@@ -175,18 +180,18 @@ public class FemboyTitleScreen extends Screen {
 	}
 
 	/** A soft shadow on the ground under the skin's feet and your name on a tag above its head; the model itself is {@link #skinWidget}. */
-	private void drawSkinExtras(DrawContext context) {
+	private void drawSkinExtras(GuiGraphics context) {
 		int centerX = (int) (canvasWidth * 0.78f);
 		int top = skinTop();
 		// The model is drawn 97% of the widget's height, centred, so its feet are just above the bottom
 		int feet = top + Math.round(SKIN_HEIGHT * 0.985f);
 		Glass.ellipse(context, centerX - 30, feet - 6, centerX + 30, feet + 6, 0x80000000);
 
-		Text name = text(client.getGameProfile().name(), CleanFontModule.CLEAN);
-		int nameWidth = textRenderer.getWidth(name);
+		Component name = text(minecraft.getGameProfile().name(), CleanFontModule.CLEAN);
+		int nameWidth = font.width(name);
 		int tagTop = top - 20;
 		roundedRect(context, centerX - nameWidth / 2 - 8, tagTop, centerX + nameWidth / 2 + 8, tagTop + 16, 4, 0xF0401838);
-		context.drawText(textRenderer, name, centerX - nameWidth / 2, tagTop + 5, TEXT, false);
+		context.drawString(font, name, centerX - nameWidth / 2, tagTop + 5, TEXT, false);
 	}
 
 	/** Keeps the 3D model's widget over its spot on the canvas, in real GUI units, whatever the window size. */
@@ -200,18 +205,18 @@ public class FemboyTitleScreen extends Screen {
 
 	// ---------------------------------------------------------------- drawing helpers
 
-	private static Text text(String text, StyleSpriteSource font) {
-		return Text.literal(text).setStyle(Style.EMPTY.withFont(font));
+	private static Component text(String text, FontDescription font) {
+		return Component.literal(text).setStyle(Style.EMPTY.withFont(font));
 	}
 
 	/**
 	 * A solid rectangle with its corners rounded off by {@code radius}. The curve is drawn in real
 	 * screen pixels, not layout units, so it stays smooth however far the canvas is scaled.
 	 */
-	static void roundedRect(DrawContext context, int x1, int y1, int x2, int y2, int radius, int color) {
+	static void roundedRect(GuiGraphics context, int x1, int y1, int x2, int y2, int radius, int color) {
 		int density = UiScale.density();
-		context.getMatrices().pushMatrix();
-		context.getMatrices().scale(1f / density, 1f / density);
+		context.pose().pushMatrix();
+		context.pose().scale(1f / density, 1f / density);
 		int left = x1 * density, top = y1 * density, right = x2 * density, bottom = y2 * density;
 		int r = Math.min(radius * density, Math.min((right - left) / 2, (bottom - top) / 2));
 		context.fill(left, top + r, right, bottom - r, color);
@@ -222,7 +227,7 @@ public class FemboyTitleScreen extends Screen {
 			context.fill(left + inset, top + row, right - inset, top + row + 1, color);
 			context.fill(left + inset, bottom - row - 1, right - inset, bottom - row, color);
 		}
-		context.getMatrices().popMatrix();
+		context.pose().popMatrix();
 	}
 
 	// ---------------------------------------------------------------- input
@@ -235,11 +240,11 @@ public class FemboyTitleScreen extends Screen {
 	}
 
 	@Override
-	public boolean mouseClicked(Click click, boolean doubled) {
+	public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
 		if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
 			for (int i = 0; i < buttons.size(); i++) {
 				if (!hovered(i, click.x() / scale, click.y() / scale)) continue;
-				client.getSoundManager().play(PositionedSoundInstance.ui(SoundEvents.UI_BUTTON_CLICK, 1f));
+				minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1f));
 				buttons.get(i).action.run();
 				return true;
 			}

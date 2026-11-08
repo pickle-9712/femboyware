@@ -1,5 +1,6 @@
 package dev.femboyware.module.client;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.gui.ClickGuiScreen;
 import dev.femboyware.gui.Theme;
 import dev.femboyware.module.Category;
@@ -25,12 +26,12 @@ public class ClickGuiModule extends Module {
 			return;
 		}
 		if (screen == null) screen = new ClickGuiScreen(this);
-		mc.setScreen(screen);
+		Mc.setScreen(screen);
 	}
 
 	@Override
 	protected void onDisable() {
 		// When the screen itself is closing it already disables us; only close it when toggled elsewhere
-		if (screen != null && mc.currentScreen == screen && !screen.isClosing()) mc.setScreen(null);
+		if (screen != null && Mc.screen() == screen && !screen.isClosing()) Mc.setScreen(null);
 	}
 }

@@ -1,20 +1,19 @@
 package dev.femboyware.module.hud;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.gui.Glass;
 import dev.femboyware.gui.Theme;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
-import net.minecraft.client.gl.RenderPipelines;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.hud.InGameHud;
-import net.minecraft.entity.effect.StatusEffectInstance;
-import net.minecraft.entity.effect.StatusEffects;
-import net.minecraft.text.Text;
-import net.minecraft.util.StringHelper;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.network.chat.Component;
+import net.minecraft.util.StringUtil;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 
 /** Your potion effects with their icon, level and time left, flashing as they run out. */
 public class PotionEffectsModule extends HudElement {
@@ -34,14 +33,14 @@ public class PotionEffectsModule extends HudElement {
 		return isEnabled() && hideVanilla.get();
 	}
 
-	private List<StatusEffectInstance> effects(boolean editing) {
-		List<StatusEffectInstance> effects = new ArrayList<>();
-		if (mc.player != null) effects.addAll(mc.player.getStatusEffects());
+	private List<MobEffectInstance> effects(boolean editing) {
+		List<MobEffectInstance> effects = new ArrayList<>();
+		if (mc.player != null) effects.addAll(mc.player.getActiveEffects());
 		if (effects.isEmpty() && editing) {
-			effects.add(new StatusEffectInstance(StatusEffects.SPEED, 2400, 1));
-			effects.add(new StatusEffectInstance(StatusEffects.STRENGTH, 1200, 1));
+			effects.add(new MobEffectInstance(MobEffects.SPEED, 2400, 1));
+			effects.add(new MobEffectInstance(MobEffects.STRENGTH, 1200, 1));
 		}
-		effects.sort(Comparator.comparingInt(StatusEffectInstance::getDuration).reversed());
+		effects.sort(Comparator.comparingInt(MobEffectInstance::getDuration).reversed());
 		return effects;
 	}
 
@@ -56,23 +55,23 @@ public class PotionEffectsModule extends HudElement {
 	}
 
 	@Override
-	protected void draw(DrawContext context, int left, int top, boolean editing) {
-		List<StatusEffectInstance> effects = effects(editing);
+	protected void draw(GuiGraphics context, int left, int top, boolean editing) {
+		List<MobEffectInstance> effects = effects(editing);
 		for (int i = 0; i < effects.size(); i++) {
-			StatusEffectInstance effect = effects.get(i);
+			MobEffectInstance effect = effects.get(i);
 			int y = onBottom() ? top + height(editing) - (i + 1) * LINE : top + i * LINE;
 			Glass.draw(context, left, y, left + WIDTH, y + LINE - 1, 4, backgroundColor(Theme.list()), false);
-			context.drawGuiTexture(RenderPipelines.GUI_TEXTURED, InGameHud.getEffectTexture(effect.getEffectType()), left + 3, y + 2, 9, 9);
+			context.blitSprite(RenderPipelines.GUI_TEXTURED, Mc.effectSprite(effect.getEffect()), left + 3, y + 2, 9, 9);
 
-			String name = Text.translatable(effect.getTranslationKey()).getString();
+			String name = Component.translatable(effect.getDescriptionId()).getString();
 			if (effect.getAmplifier() > 0) name += " " + roman(effect.getAmplifier() + 1);
-			int tint = 0xFF000000 | effect.getEffectType().value().getColor();
-			context.drawTextWithShadow(mc.textRenderer, name, left + 15, y + 3, tint);
+			int tint = 0xFF000000 | effect.getEffect().value().getColor();
+			context.drawString(mc.font, name, left + 15, y + 3, tint);
 
-			String time = effect.isInfinite() ? "**:**" : StringHelper.formatTicks(effect.getDuration(), 20);
+			String time = effect.isInfiniteDuration() ? "**:**" : StringUtil.formatTickDuration(effect.getDuration(), 20);
 			// The time blinks in its last ten seconds
-			boolean ending = !effect.isInfinite() && effect.getDuration() < 200 && (System.currentTimeMillis() / 400) % 2 == 0;
-			context.drawTextWithShadow(mc.textRenderer, time, left + WIDTH - 4 - mc.textRenderer.getWidth(time), y + 3, ending ? endingColor.get() : mutedColor());
+			boolean ending = !effect.isInfiniteDuration() && effect.getDuration() < 200 && (System.currentTimeMillis() / 400) % 2 == 0;
+			context.drawString(mc.font, time, left + WIDTH - 4 - mc.font.width(time), y + 3, ending ? endingColor.get() : mutedColor());
 		}
 	}
 

@@ -9,19 +9,18 @@ import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.ChatUtil;
 import dev.femboyware.util.ChunkScanner;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.block.Blocks;
-import net.minecraft.state.property.Properties;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.chunk.WorldChunk;
-
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Finds kelp that has grown since it generated, a sign a chunk has been loaded by a player for a
@@ -41,7 +40,7 @@ public class KelpEspModule extends Module {
 	private static final int NATURAL_MAX_AGE = 23;
 
 	/** Grown kelp columns in one chunk, by the position of each top. */
-	private record GrownKelp(List<BlockPos> tops, Box bounds) {}
+	private record GrownKelp(List<BlockPos> tops, AABB bounds) {}
 
 	private final NumberSetting range = add(new NumberSetting("Range", "Scan radius in chunks", 8, 1, 16, 1));
 	private final NumberSetting minColumns = add(new NumberSetting("Min Columns", "Grown kelp columns a chunk needs before it's flagged", 4, 1, 64, 1));
@@ -76,26 +75,26 @@ public class KelpEspModule extends Module {
 		for (Map.Entry<ChunkPos, GrownKelp> entry : scanner.results().entrySet()) {
 			if (!isFlagged(entry.getValue()) || !notified.add(entry.getKey())) continue;
 			ChatUtil.info(String.format("Grown kelp at %s (%d columns)",
-				ChatUtil.coords(BlockPos.ofFloored(entry.getValue().bounds.getCenter())), entry.getValue().tops.size()));
+				ChatUtil.coords(BlockPos.containing(entry.getValue().bounds.getCenter())), entry.getValue().tops.size()));
 		}
 	}
 
-	private GrownKelp scan(WorldChunk chunk) {
+	private GrownKelp scan(LevelChunk chunk) {
 		List<BlockPos> tops = new ArrayList<>();
-		ChunkScanner.forEachBlock(chunk, state -> state.isOf(Blocks.KELP), (pos, state) -> {
-			if (state.get(Properties.AGE_25) > NATURAL_MAX_AGE || height(chunk, pos) > NATURAL_MAX_HEIGHT) tops.add(pos);
+		ChunkScanner.forEachBlock(chunk, state -> state.is(Blocks.KELP), (pos, state) -> {
+			if (state.getValue(BlockStateProperties.AGE_25) > NATURAL_MAX_AGE || height(chunk, pos) > NATURAL_MAX_HEIGHT) tops.add(pos);
 		});
 		if (tops.isEmpty()) return null;
-		Box bounds = new Box(tops.getFirst());
-		for (BlockPos top : tops) bounds = bounds.union(new Box(top));
+		AABB bounds = new AABB(tops.getFirst());
+		for (BlockPos top : tops) bounds = bounds.minmax(new AABB(top));
 		return new GrownKelp(tops, bounds);
 	}
 
 	/** Length of the kelp column ending at {@code top}. */
-	private static int height(WorldChunk chunk, BlockPos top) {
+	private static int height(LevelChunk chunk, BlockPos top) {
 		int height = 1;
-		BlockPos.Mutable pos = top.mutableCopy().move(0, -1, 0);
-		while (chunk.getBlockState(pos).isOf(Blocks.KELP_PLANT)) {
+		BlockPos.MutableBlockPos pos = top.mutable().move(0, -1, 0);
+		while (chunk.getBlockState(pos).is(Blocks.KELP_PLANT)) {
 			height++;
 			pos.move(0, -1, 0);
 		}
@@ -117,17 +116,17 @@ public class KelpEspModule extends Module {
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
-		Vec3d tracerStart = RenderUtil.tracerOrigin(event);
+		Vec3 tracerStart = RenderUtil.tracerOrigin(event);
 		int fill = (color.get() & 0x00FFFFFF) | 0x20000000;
 		for (GrownKelp kelp : scanner.results().values()) {
 			if (!isFlagged(kelp)) continue;
 			RenderUtil.drawBox(event, kelp.bounds, fill, color.get(), 1.5f, throughWalls.get());
 			if (showColumns.get()) {
-				for (BlockPos top : kelp.tops) RenderUtil.drawBox(event, new Box(top), 0, color.get(), 1f, throughWalls.get());
+				for (BlockPos top : kelp.tops) RenderUtil.drawBox(event, new AABB(top), 0, color.get(), 1f, throughWalls.get());
 			}
-			Vec3d center = kelp.bounds.getCenter();
+			Vec3 center = kelp.bounds.getCenter();
 			if (tracers.get()) RenderUtil.drawLine(event, tracerStart, center, color.get(), 1.5f, throughWalls.get());
-			RenderUtil.drawText(event, kelp.tops.size() + " grown kelp", new Vec3d(center.x, kelp.bounds.maxY + 1, center.z), color.get() | 0xFF000000, 0.5f);
+			RenderUtil.drawText(event, kelp.tops.size() + " grown kelp", new Vec3(center.x, kelp.bounds.maxY + 1, center.z), color.get() | 0xFF000000, 0.5f);
 		}
 	}
 }

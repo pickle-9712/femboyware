@@ -1,66 +1,72 @@
 package dev.femboyware.mixin;
 
+import com.mojang.blaze3d.vertex.PoseStack;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.render.SwingAnimationsModule;
 import dev.femboyware.module.render.ViewModelModule;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.AbstractClientPlayerEntity;
-import net.minecraft.client.render.command.OrderedRenderCommandQueue;
-import net.minecraft.client.render.item.HeldItemRenderer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.item.ItemStack;
-import net.minecraft.util.Arm;
-import net.minecraft.util.Hand;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.renderer.ItemInHandRenderer;
+import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.HumanoidArm;
+import net.minecraft.world.item.ItemStack;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-@Mixin(HeldItemRenderer.class)
+@Mixin(ItemInHandRenderer.class)
 public class HeldItemRendererMixin {
+	//? if >=26.1 {
+	/*private static final String ARM_WITH_ITEM = "submitArmWithItem";
+	*///?} else {
+	private static final String ARM_WITH_ITEM = "renderArmWithItem";
+	//?}
+
 	@Shadow
-	private float equipProgressMainHand;
+	private float mainHandHeight;
 	@Shadow
-	private float lastEquipProgressMainHand;
+	private float oMainHandHeight;
 	@Shadow
-	private float equipProgressOffHand;
+	private float offHandHeight;
 	@Shadow
-	private float lastEquipProgressOffHand;
+	private float oOffHandHeight;
 	@Shadow
-	private ItemStack mainHand;
+	private ItemStack mainHandItem;
 	@Shadow
-	private ItemStack offHand;
+	private ItemStack offHandItem;
 
 	/**
 	 * View Model wraps the whole method in its own push/pop instead of hooking a call inside it,
 	 * so it keeps working when other mods (like ViewModel) rewrite the method body.
 	 */
-	@Inject(method = "renderFirstPersonItem", at = @At("HEAD"))
-	private void femboyware$viewModel(AbstractClientPlayerEntity player, float tickProgress, float pitch, Hand hand, float swingProgress, ItemStack item,
-									  float equipProgress, MatrixStack matrices, OrderedRenderCommandQueue queue, int light, CallbackInfo ci) {
-		matrices.push();
+	@Inject(method = ARM_WITH_ITEM, at = @At("HEAD"))
+	private void femboyware$viewModel(AbstractClientPlayer player, float tickProgress, float pitch, InteractionHand hand, float swingProgress, ItemStack item,
+									  float equipProgress, PoseStack matrices, SubmitNodeCollector queue, int light, CallbackInfo ci) {
+		matrices.pushPose();
 		if (!FemboyWare.isEnabled(ViewModelModule.class)) return;
-		Arm arm = hand == Hand.MAIN_HAND ? player.getMainArm() : player.getMainArm().getOpposite();
+		HumanoidArm arm = hand == InteractionHand.MAIN_HAND ? player.getMainArm() : player.getMainArm().getOpposite();
 		FemboyWare.getModules().get(ViewModelModule.class).apply(matrices, arm);
 	}
 
-	@Inject(method = "renderFirstPersonItem", at = @At("RETURN"))
-	private void femboyware$viewModelPop(AbstractClientPlayerEntity player, float tickProgress, float pitch, Hand hand, float swingProgress, ItemStack item,
-										 float equipProgress, MatrixStack matrices, OrderedRenderCommandQueue queue, int light, CallbackInfo ci) {
-		matrices.pop();
+	@Inject(method = ARM_WITH_ITEM, at = @At("RETURN"))
+	private void femboyware$viewModelPop(AbstractClientPlayer player, float tickProgress, float pitch, InteractionHand hand, float swingProgress, ItemStack item,
+										 float equipProgress, PoseStack matrices, SubmitNodeCollector queue, int light, CallbackInfo ci) {
+		matrices.popPose();
 	}
 
 	/** Swing Animations: items stay fully raised instead of bobbing down when switched. */
-	@Inject(method = "updateHeldItems", at = @At("TAIL"))
+	@Inject(method = "tick", at = @At("TAIL"))
 	private void femboyware$noEquip(CallbackInfo ci) {
 		if (FemboyWare.getModules() == null || !FemboyWare.getModules().get(SwingAnimationsModule.class).noEquip()) return;
-		MinecraftClient mc = MinecraftClient.getInstance();
-		mainHand = mc.player.getMainHandStack();
-		offHand = mc.player.getOffHandStack();
-		equipProgressMainHand = 1f;
-		lastEquipProgressMainHand = 1f;
-		equipProgressOffHand = 1f;
-		lastEquipProgressOffHand = 1f;
+		Minecraft mc = Minecraft.getInstance();
+		mainHandItem = mc.player.getMainHandItem();
+		offHandItem = mc.player.getOffhandItem();
+		mainHandHeight = 1f;
+		oMainHandHeight = 1f;
+		offHandHeight = 1f;
+		oOffHandHeight = 1f;
 	}
 }

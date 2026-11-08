@@ -1,5 +1,6 @@
 package dev.femboyware.gui;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
@@ -13,14 +14,6 @@ import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.Setting;
 import dev.femboyware.setting.StringSetting;
 import dev.femboyware.util.ColorUtil;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.input.CharInput;
-import net.minecraft.client.input.KeyInput;
-import net.minecraft.client.util.InputUtil;
-import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -30,6 +23,13 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
 
 /**
  * One panel per category group, each with a row of tabs, holding expandable modules. Layout is rebuilt every frame into {@link #rows},
@@ -45,7 +45,7 @@ public class ClickGuiScreen extends Screen {
 	private static final String[] CHANNEL_NAMES = {"Red", "Green", "Blue", "Alpha"};
 	private static final int[] CHANNEL_SHIFTS = {16, 8, 0, 24};
 
-	private enum RowType { HEADER, SEARCH_HEADER, TAB, MODULE, BIND, BOOL, NUMBER, ENUM, STRING, COLOR, KEY, SEARCH, PAGE }
+	private enum RowType { HEADER, SEARCH_HEADER, TAB, MODULE, BIND, BOOL, NUMBER, ENUM, ENUM_OPTION, STRING, COLOR, KEY, SEARCH, PAGE }
 
 	/** The three sections along the top; each shows its own panels. */
 	private enum Page {
@@ -96,6 +96,8 @@ public class ClickGuiScreen extends Screen {
 	private final ClickGuiModule module;
 	private final Map<Category.Group, Panel> panels = new EnumMap<>(Category.Group.class);
 	private final Set<Module> expanded = new HashSet<>();
+	/** The mode setting whose dropdown is open, if any. */
+	private EnumSetting<?> openEnum;
 	private final List<Row> rows = new ArrayList<>();
 
 	private Panel dragging;
@@ -128,7 +130,7 @@ public class ClickGuiScreen extends Screen {
 	private final Panel searchPanel;
 
 	public ClickGuiScreen(ClickGuiModule module) {
-		super(Text.literal("femboyware"));
+		super(Component.literal("femboyware"));
 		this.module = module;
 		int x = 10;
 		for (Category.Group group : Category.Group.values()) {
@@ -147,7 +149,7 @@ public class ClickGuiScreen extends Screen {
 	}
 
 	@Override
-	public boolean shouldPause() {
+	public boolean isPauseScreen() {
 		return false;
 	}
 
@@ -167,30 +169,30 @@ public class ClickGuiScreen extends Screen {
 	}
 
 	@Override
-	public void renderBackground(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
+	public void renderBackground(GuiGraphics context, int mouseX, int mouseY, float deltaTicks) {
 		// Frosted: blur whatever is behind, then dim it a little so the glass stands out
-		if (Theme.blur()) applyBlur(context);
+		if (Theme.blur()) renderBlurredBackground(context);
 		context.fill(0, 0, width, height, Theme.dim());
 	}
 
 	@Override
-	public void render(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
+	public void render(GuiGraphics context, int mouseX, int mouseY, float deltaTicks) {
 		renderHudEditor(context, mouseX, mouseY);
 		// Lay out on a fixed canvas, so the GUI takes the same share of the screen at any GUI scale
 		float scale = UiScale.scale();
-		context.getMatrices().pushMatrix();
-		context.getMatrices().scale(scale, scale);
+		context.pose().pushMatrix();
+		context.pose().scale(scale, scale);
 		UiScale.begin();
 		renderScaled(context, (int) (mouseX / scale), (int) (mouseY / scale));
 		UiScale.end();
-		context.getMatrices().popMatrix();
+		context.pose().popMatrix();
 	}
 
 	/**
 	 * The HUD editor: every HUD element that's on, drawn over the blur in its real place, with an
 	 * outline. Drag one to move it.
 	 */
-	private void renderHudEditor(DrawContext context, int mouseX, int mouseY) {
+	private void renderHudEditor(GuiGraphics context, int mouseX, int mouseY) {
 		if (page != Page.HUD) return;
 		if (draggingElement != null) {
 			draggingElement.moveTo(mouseX - elementOffsetX, mouseY - elementOffsetY, width, height);
@@ -224,7 +226,7 @@ public class ClickGuiScreen extends Screen {
 		return elements;
 	}
 
-	private static void dashedOutline(DrawContext context, int x1, int y1, int x2, int y2, int color) {
+	private static void dashedOutline(GuiGraphics context, int x1, int y1, int x2, int y2, int color) {
 		for (int x = x1; x < x2; x += 4) {
 			context.fill(x, y1, Math.min(x + 2, x2), y1 + 1, color);
 			context.fill(x, y2 - 1, Math.min(x + 2, x2), y2, color);
@@ -235,7 +237,7 @@ public class ClickGuiScreen extends Screen {
 		}
 	}
 
-	private void renderScaled(DrawContext context, int mouseX, int mouseY) {
+	private void renderScaled(GuiGraphics context, int mouseX, int mouseY) {
 		if (dragging != null) {
 			dragging.x = mouseX - dragOffsetX;
 			dragging.y = mouseY - dragOffsetY;
@@ -244,7 +246,7 @@ public class ClickGuiScreen extends Screen {
 
 		rows.clear();
 		int accent = module.getAccent();
-		TextRenderer font = textRenderer;
+		Font font = this.font;
 
 		renderPageBar(context, mouseX, mouseY, accent);
 		for (Category.Group group : Category.Group.values()) {
@@ -257,9 +259,9 @@ public class ClickGuiScreen extends Screen {
 			int y = panel.y;
 
 			Glass.draw(context, x, y, x + PANEL_WIDTH, y + panel.height, Theme.roundness(), Theme.panel(), true);
-			context.drawTextWithShadow(font, group.getDisplayName(), x + 7, y + 4, Theme.text());
+			context.drawString(font, group.getDisplayName(), x + 7, y + 4, Theme.text());
 			String arrow = panel.open ? "-" : "+";
-			context.drawTextWithShadow(font, arrow, x + PANEL_WIDTH - 7 - font.getWidth(arrow), y + 4, Theme.text());
+			context.drawString(font, arrow, x + PANEL_WIDTH - 7 - font.width(arrow), y + 4, Theme.text());
 			rows.add(new Row(RowType.HEADER, x, y, PANEL_WIDTH, HEADER_HEIGHT, panel.tab, null, null, 0));
 			y += HEADER_HEIGHT;
 			if (!panel.open) {
@@ -282,7 +284,7 @@ public class ClickGuiScreen extends Screen {
 						if (tab == panel.tab) Glass.draw(context, left + 3, y + 1, right - 3, y + ROW_HEIGHT - 1, 5, ColorUtil.withAlpha(accent, 0x70), false);
 						else if (tabRow.contains(mouseX, mouseY)) Glass.rounded(context, left + 3, y + 1, right - 3, y + ROW_HEIGHT - 1, 5, 0x18FFFFFF);
 						String name = tab.getDisplayName();
-						context.drawTextWithShadow(font, name, (left + right - font.getWidth(name)) / 2, y + 3, tab == panel.tab ? Theme.text() : Theme.muted());
+						context.drawString(font, name, (left + right - font.width(name)) / 2, y + 3, tab == panel.tab ? Theme.text() : Theme.muted());
 					}
 					y += ROW_HEIGHT;
 				}
@@ -298,7 +300,7 @@ public class ClickGuiScreen extends Screen {
 	}
 
 	/** The Modules, HUD and Customization buttons centred along the top, each its own glass button. */
-	private void renderPageBar(DrawContext context, int mouseX, int mouseY, int accent) {
+	private void renderPageBar(GuiGraphics context, int mouseX, int mouseY, int accent) {
 		Page[] pages = Page.values();
 		int canvasWidth = (int) (width / UiScale.scale());
 		int total = pages.length * PAGE_WIDTH + (pages.length - 1) * PAGE_GAP;
@@ -313,21 +315,21 @@ public class ClickGuiScreen extends Screen {
 			Glass.draw(context, x, top, x + PAGE_WIDTH, top + PAGE_HEIGHT, PAGE_HEIGHT / 2, tint, true);
 			if (!selected && row.contains(mouseX, mouseY)) Glass.rounded(context, x, top, x + PAGE_WIDTH, top + PAGE_HEIGHT, PAGE_HEIGHT / 2, 0x18FFFFFF);
 			String label = pages[i].label;
-			context.drawTextWithShadow(textRenderer, label, x + (PAGE_WIDTH - textRenderer.getWidth(label)) / 2, top + (PAGE_HEIGHT - 8) / 2 + 1, selected ? Theme.text() : Theme.muted());
+			context.drawString(font, label, x + (PAGE_WIDTH - font.width(label)) / 2, top + (PAGE_HEIGHT - 8) / 2 + 1, selected ? Theme.text() : Theme.muted());
 		}
 	}
 
 	/** One module's row, plus its settings when expanded. Returns the y below them. */
-	private int renderModule(DrawContext context, Module m, int x, int y, int mouseX, int mouseY, int accent) {
-		TextRenderer font = textRenderer;
+	private int renderModule(GuiGraphics context, Module m, int x, int y, int mouseX, int mouseY, int accent) {
+		Font font = this.font;
 		Row moduleRow = new Row(RowType.MODULE, x, y, PANEL_WIDTH, ROW_HEIGHT, m.getCategory(), m, null, 0);
 		rows.add(moduleRow);
 		if (m.isEnabled()) Glass.draw(context, x + 3, y + 1, x + PANEL_WIDTH - 3, y + ROW_HEIGHT, 4, ColorUtil.withAlpha(accent, 0x80), false);
 		else if (moduleRow.contains(mouseX, mouseY)) Glass.rounded(context, x + 3, y + 1, x + PANEL_WIDTH - 3, y + ROW_HEIGHT, 4, 0x18FFFFFF);
-		context.drawTextWithShadow(font, m.getName(), x + 7, y + 3, m.isEnabled() ? Theme.text() : Theme.muted());
+		context.drawString(font, m.getName(), x + 7, y + 3, m.isEnabled() ? Theme.text() : Theme.muted());
 		if (!m.getSettings().isEmpty()) {
 			String dots = expanded.contains(m) ? "v" : "...";
-			context.drawTextWithShadow(font, dots, x + PANEL_WIDTH - 7 - font.getWidth(dots), y + 2, m.isEnabled() ? Theme.text() : Theme.muted());
+			context.drawString(font, dots, x + PANEL_WIDTH - 7 - font.width(dots), y + 2, m.isEnabled() ? Theme.text() : Theme.muted());
 		}
 		y += ROW_HEIGHT;
 		if (expanded.contains(m)) y = renderSettings(context, m, x, y, mouseX, mouseY, accent);
@@ -335,15 +337,15 @@ public class ClickGuiScreen extends Screen {
 	}
 
 	/** The Search panel: a text box, then every module whose name or description matches. */
-	private void renderSearchPanel(DrawContext context, int mouseX, int mouseY, int accent) {
-		TextRenderer font = textRenderer;
+	private void renderSearchPanel(GuiGraphics context, int mouseX, int mouseY, int accent) {
+		Font font = this.font;
 		Panel panel = searchPanel;
 		int x = panel.x;
 		int y = panel.y;
 		Glass.draw(context, x, y, x + PANEL_WIDTH, y + panel.height, Theme.roundness(), Theme.panel(), true);
-		context.drawTextWithShadow(font, "Search", x + 7, y + 4, Theme.text());
+		context.drawString(font, "Search", x + 7, y + 4, Theme.text());
 		String arrow = panel.open ? "-" : "+";
-		context.drawTextWithShadow(font, arrow, x + PANEL_WIDTH - 7 - font.getWidth(arrow), y + 4, Theme.text());
+		context.drawString(font, arrow, x + PANEL_WIDTH - 7 - font.width(arrow), y + 4, Theme.text());
 		rows.add(new Row(RowType.SEARCH_HEADER, x, y, PANEL_WIDTH, HEADER_HEIGHT, null, null, null, 0));
 		y += HEADER_HEIGHT;
 		if (!panel.open) {
@@ -358,7 +360,7 @@ public class ClickGuiScreen extends Screen {
 		Glass.rounded(context, x + 5, y + 2, x + PANEL_WIDTH - 5, y + ROW_HEIGHT, 4,
 			searching ? ColorUtil.withAlpha(accent, 0x40) : box.contains(mouseX, mouseY) ? 0x40FFFFFF : 0x30000000);
 		if (search.get().isEmpty() && !searching) {
-			context.drawTextWithShadow(font, "Type to search...", x + 10, y + 4, Theme.muted());
+			context.drawString(font, "Type to search...", x + 10, y + 4, Theme.muted());
 		} else {
 			editor(search).render(context, font, x + 8, y + 2, x + PANEL_WIDTH - 8, y + ROW_HEIGHT, searching,
 				Theme.text(), (accent & 0x00FFFFFF) | 0x90000000, accent);
@@ -369,7 +371,7 @@ public class ClickGuiScreen extends Screen {
 		if (!query.isEmpty()) {
 			List<Module> results = matches(query);
 			if (results.isEmpty()) {
-				context.drawTextWithShadow(font, "No matches", x + 7, y + 3, Theme.muted());
+				context.drawString(font, "No matches", x + 7, y + 3, Theme.muted());
 				y += ROW_HEIGHT;
 			}
 			for (Module m : results) y = renderModule(context, m, x, y, mouseX, mouseY, accent);
@@ -398,14 +400,14 @@ public class ClickGuiScreen extends Screen {
 		return tabs;
 	}
 
-	private int renderSettings(DrawContext context, Module m, int x, int y, int mouseX, int mouseY, int accent) {
-		TextRenderer font = textRenderer;
+	private int renderSettings(GuiGraphics context, Module m, int x, int y, int mouseX, int mouseY, int accent) {
+		Font font = this.font;
 		int left = x + 8;
 		int right = x + PANEL_WIDTH - 5;
 
 		context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT, SETTING_BG);
 		String bindText = binding == m ? "Bind: ..." : "Bind: " + keyName(m.getKey());
-		context.drawTextWithShadow(font, bindText, left, y + 3, Theme.muted());
+		context.drawString(font, bindText, left, y + 3, Theme.muted());
 		rows.add(new Row(RowType.BIND, x, y, PANEL_WIDTH, ROW_HEIGHT, null, m, null, 0));
 		y += ROW_HEIGHT;
 
@@ -414,7 +416,7 @@ public class ClickGuiScreen extends Screen {
 
 			if (setting instanceof ColorSetting color) {
 				context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT, SETTING_BG);
-				context.drawTextWithShadow(font, color.getName(), left, y + 3, Theme.text());
+				context.drawString(font, color.getName(), left, y + 3, Theme.text());
 				context.fill(right - 10, y + 2, right, y + ROW_HEIGHT - 2, color.get() | 0xFF000000);
 				y += ROW_HEIGHT;
 				for (int i = 0; i < 4; i++) {
@@ -429,7 +431,7 @@ public class ClickGuiScreen extends Screen {
 			Row row = switch (setting) {
 				case BoolSetting bool -> {
 					context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT, SETTING_BG);
-					context.drawTextWithShadow(font, bool.getName(), left, y + 3, Theme.text());
+					context.drawString(font, bool.getName(), left, y + 3, Theme.text());
 					// A little switch: a pill track with a round knob that slides across when on
 					int trackLeft = right - 14;
 					Glass.rounded(context, trackLeft, y + 3, right, y + ROW_HEIGHT - 3, 4, bool.get() ? accent : 0x40FFFFFF);
@@ -445,14 +447,14 @@ public class ClickGuiScreen extends Screen {
 				}
 				case EnumSetting<?> mode -> {
 					context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT, SETTING_BG);
-					context.drawTextWithShadow(font, mode.getName(), left, y + 3, Theme.text());
-					String value = mode.getDisplayName();
-					context.drawTextWithShadow(font, value, right - font.getWidth(value), y + 3, accent);
+					context.drawString(font, mode.getName(), left, y + 3, Theme.text());
+					String value = mode.getDisplayName() + (openEnum == mode ? " ^" : " v");
+					context.drawString(font, value, right - font.width(value), y + 3, accent);
 					yield new Row(RowType.ENUM, x, y, PANEL_WIDTH, ROW_HEIGHT, null, m, setting, 0);
 				}
 				case StringSetting text -> {
 					context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT * 2, SETTING_BG);
-					context.drawTextWithShadow(font, text.getName(), left, y + 3, Theme.text());
+					context.drawString(font, text.getName(), left, y + 3, Theme.text());
 					boolean focused = typing == text;
 					Glass.rounded(context, left - 2, y + ROW_HEIGHT, right, y + ROW_HEIGHT * 2 - 1, 3, focused ? 0x40FFFFFF : 0x30000000);
 					editor(text).render(context, font, left, y + ROW_HEIGHT, right, y + ROW_HEIGHT * 2 - 1, focused,
@@ -461,9 +463,9 @@ public class ClickGuiScreen extends Screen {
 				}
 				case KeySetting key -> {
 					context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT, SETTING_BG);
-					context.drawTextWithShadow(font, key.getName(), left, y + 3, Theme.text());
+					context.drawString(font, key.getName(), left, y + 3, Theme.text());
 					String value = bindingKey == key ? "..." : keyName(key.get());
-					context.drawTextWithShadow(font, value, right - font.getWidth(value), y + 3, accent);
+					context.drawString(font, value, right - font.width(value), y + 3, accent);
 					yield new Row(RowType.KEY, x, y, PANEL_WIDTH, ROW_HEIGHT, null, m, setting, 0);
 				}
 				default -> null;
@@ -472,23 +474,37 @@ public class ClickGuiScreen extends Screen {
 			if (row.contains(mouseX, mouseY)) context.fill(row.x, row.y, row.x + row.width, row.y + row.height, 0x10FFFFFF);
 			rows.add(row);
 			y += row.height;
+			if (setting instanceof EnumSetting<?> mode && openEnum == mode) {
+				// The open dropdown: one row per option, the current one highlighted
+				Enum<?>[] options = mode.getConstants();
+				for (int i = 0; i < options.length; i++) {
+					boolean current = options[i] == mode.get();
+					context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT, SETTING_BG);
+					context.fill(left - 2, y, left - 1, y + ROW_HEIGHT, current ? accent : 0x30FFFFFF);
+					context.drawString(font, EnumSetting.prettify(options[i].name()), left + 4, y + 3, current ? accent : Theme.muted());
+					Row option = new Row(RowType.ENUM_OPTION, x, y, PANEL_WIDTH, ROW_HEIGHT, null, m, setting, i);
+					if (option.contains(mouseX, mouseY)) context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT, 0x10FFFFFF);
+					rows.add(option);
+					y += ROW_HEIGHT;
+				}
+			}
 		}
 		return y;
 	}
 
-	private void drawSlider(DrawContext context, int x, int y, String name, String value, double fraction, int accent, int indent) {
-		TextRenderer font = textRenderer;
+	private void drawSlider(GuiGraphics context, int x, int y, String name, String value, double fraction, int accent, int indent) {
+		Font font = this.font;
 		int left = x + 8 + indent;
 		int right = x + PANEL_WIDTH - 5;
 		context.fill(x, y, x + PANEL_WIDTH, y + ROW_HEIGHT, SETTING_BG);
 		int filled = left + (int) Math.round((right - left) * Math.max(0, Math.min(1, fraction)));
 		Glass.rounded(context, left, y + ROW_HEIGHT - 3, right, y + ROW_HEIGHT - 1, 1, 0x40FFFFFF);
 		if (filled > left) Glass.rounded(context, left, y + ROW_HEIGHT - 3, filled, y + ROW_HEIGHT - 1, 1, accent);
-		context.drawTextWithShadow(font, name, left, y + 1, Theme.text());
-		context.drawTextWithShadow(font, value, right - font.getWidth(value), y + 1, Theme.muted());
+		context.drawString(font, name, left, y + 1, Theme.text());
+		context.drawString(font, value, right - font.width(value), y + 1, Theme.muted());
 	}
 
-	private void renderTooltip(DrawContext context, int mouseX, int mouseY) {
+	private void renderTooltip(GuiGraphics context, int mouseX, int mouseY) {
 		if (dragging != null || slider != null) return;
 		for (Row row : rows) {
 			if (!row.contains(mouseX, mouseY)) continue;
@@ -498,11 +514,11 @@ public class ClickGuiScreen extends Screen {
 				: row.type == RowType.MODULE ? row.module.getDescription()
 				: row.type == RowType.BIND ? "Click, then press a key. Escape or Delete unbinds" : null;
 			if (description == null || description.isEmpty()) return;
-			int textWidth = textRenderer.getWidth(description);
+			int textWidth = font.width(description);
 			int x = Math.min(mouseX + 8, (int) (width / UiScale.scale()) - textWidth - 6);
 			int y = mouseY + 10;
-			Glass.draw(context, x - 4, y - 3, x + textWidth + 4, y + textRenderer.fontHeight + 2, Math.min(4, Theme.roundness()), Theme.tooltip(), true);
-			context.drawTextWithShadow(textRenderer, description, x, y, Theme.text());
+			Glass.draw(context, x - 4, y - 3, x + textWidth + 4, y + font.lineHeight + 2, Math.min(4, Theme.roundness()), Theme.tooltip(), true);
+			context.drawString(font, description, x, y, Theme.text());
 			return;
 		}
 	}
@@ -510,7 +526,7 @@ public class ClickGuiScreen extends Screen {
 	// ---------------------------------------------------------------- input
 
 	@Override
-	public boolean mouseClicked(Click click, boolean doubled) {
+	public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
 		double mouseX = click.x() / UiScale.scale();
 		double mouseY = click.y() / UiScale.scale();
 		int button = click.button();
@@ -566,13 +582,22 @@ public class ClickGuiScreen extends Screen {
 				case BIND -> binding = row.module;
 				case KEY -> bindingKey = (KeySetting) row.setting;
 				case BOOL -> ((BoolSetting) row.setting).toggle();
-				case ENUM -> ((EnumSetting<?>) row.setting).cycle(button != GLFW.GLFW_MOUSE_BUTTON_RIGHT);
+				case ENUM -> {
+					// Left click opens the dropdown, right click still cycles backwards
+					EnumSetting<?> mode = (EnumSetting<?>) row.setting;
+					if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) mode.cycle(false);
+					else openEnum = openEnum == mode ? null : mode;
+				}
+				case ENUM_OPTION -> {
+					((EnumSetting<?>) row.setting).setIndex(row.shift);
+					openEnum = null;
+				}
 				case STRING -> {
 					typing = (StringSetting) row.setting;
 					typingRowX = row.x;
 					TextEditor editor = editor(typing);
 					// Shift+click grows the selection, but only within the box that already had focus
-					editor.click(textRenderer, mouseX, row.x + 8, click.hasShift() && wasTyping == typing);
+					editor.click(font, mouseX, row.x + 8, click.hasShiftDown() && wasTyping == typing);
 					if (doubled) editor.selectWord();
 					selectingText = button == GLFW.GLFW_MOUSE_BUTTON_LEFT;
 				}
@@ -585,7 +610,7 @@ public class ClickGuiScreen extends Screen {
 				case SEARCH -> {
 					if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) search.set("");
 					searching = true;
-					editor(search).click(textRenderer, mouseX, row.x + 8, click.hasShift() && wasSearching);
+					editor(search).click(font, mouseX, row.x + 8, click.hasShiftDown() && wasSearching);
 					if (doubled) editor(search).selectWord();
 				}
 			}
@@ -613,16 +638,16 @@ public class ClickGuiScreen extends Screen {
 	}
 
 	@Override
-	public boolean mouseDragged(Click click, double offsetX, double offsetY) {
+	public boolean mouseDragged(MouseButtonEvent click, double offsetX, double offsetY) {
 		if (selectingText && typing != null) {
-			editor(typing).drag(textRenderer, click.x() / UiScale.scale(), typingRowX + 8);
+			editor(typing).drag(font, click.x() / UiScale.scale(), typingRowX + 8);
 			return true;
 		}
 		return super.mouseDragged(click, offsetX, offsetY);
 	}
 
 	@Override
-	public boolean mouseReleased(Click click) {
+	public boolean mouseReleased(MouseButtonEvent click) {
 		dragging = null;
 		draggingElement = null;
 		resizingElement = null;
@@ -640,7 +665,7 @@ public class ClickGuiScreen extends Screen {
 			if (row.type != RowType.STRING || mouseX < row.x + 8 || mouseX >= row.x + PANEL_WIDTH - 5
 				|| mouseY < row.y + ROW_HEIGHT || mouseY >= row.y + ROW_HEIGHT * 2) continue;
 			int pixels = (int) ((horizontalAmount - verticalAmount) * 12);
-			editor((StringSetting) row.setting).scrollBy(textRenderer, pixels, PANEL_WIDTH - 13 - 4);
+			editor((StringSetting) row.setting).scrollBy(font, pixels, PANEL_WIDTH - 13 - 4);
 			return true;
 		}
 		for (Panel panel : panels.values()) panel.y += (int) (verticalAmount * 14);
@@ -662,7 +687,7 @@ public class ClickGuiScreen extends Screen {
 	}
 
 	@Override
-	public boolean keyPressed(KeyInput input) {
+	public boolean keyPressed(KeyEvent input) {
 		int key = input.key();
 		boolean unbind = key == GLFW.GLFW_KEY_ESCAPE || key == GLFW.GLFW_KEY_DELETE || key == GLFW.GLFW_KEY_BACKSPACE;
 		if (binding != null) {
@@ -693,7 +718,7 @@ public class ClickGuiScreen extends Screen {
 			}
 			return true;
 		}
-		if (key == GLFW.GLFW_KEY_F && input.hasCtrl()) {
+		if (key == GLFW.GLFW_KEY_F && input.hasControlDown()) {
 			searching = true;
 			searchPanel.open = true;
 			// Search lives on the Modules page
@@ -708,18 +733,18 @@ public class ClickGuiScreen extends Screen {
 	}
 
 	@Override
-	public boolean charTyped(CharInput input) {
-		if (typing != null && input.isValidChar()) {
-			editor(typing).type(input.asString());
+	public boolean charTyped(CharacterEvent input) {
+		if (typing != null && input.isAllowedChatCharacter()) {
+			editor(typing).type(input.codepointAsString());
 			return true;
 		}
 		// Typing with nothing else focused goes straight into the search
-		if (binding == null && bindingKey == null && input.isValidChar() && (searching || !input.asString().isBlank())) {
+		if (binding == null && bindingKey == null && input.isAllowedChatCharacter() && (searching || !input.codepointAsString().isBlank())) {
 			searching = true;
 			searchPanel.open = true;
 			// Search lives on the Modules page
 			page = Page.MODULES;
-			editor(search).type(input.asString());
+			editor(search).type(input.codepointAsString());
 			return true;
 		}
 		return super.charTyped(input);
@@ -736,7 +761,7 @@ public class ClickGuiScreen extends Screen {
 
 	private static String keyName(int key) {
 		if (key < 0) return "None";
-		return InputUtil.Type.KEYSYM.createFromCode(key).getLocalizedText().getString();
+		return InputConstants.Type.KEYSYM.getOrCreate(key).getDisplayName().getString();
 	}
 
 	private static String trim(double value) {

@@ -8,9 +8,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.femboyware.FemboyWare;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.util.math.BlockPos;
-
+import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -50,7 +49,7 @@ public class WaypointManager {
 	/** Saves a waypoint here, replacing one with the same name on this world. */
 	public Waypoint add(String name, BlockPos pos, boolean death) {
 		remove(name);
-		Waypoint waypoint = new Waypoint(name, pos.toImmutable(), currentWorld(), currentDimension(), death);
+		Waypoint waypoint = new Waypoint(name, pos.immutable(), currentWorld(), currentDimension(), death);
 		waypoints.add(waypoint);
 		save();
 		return waypoint;
@@ -75,15 +74,15 @@ public class WaypointManager {
 
 	/** The server address, or the singleplayer world's name, so waypoints don't mix between them. */
 	public static String currentWorld() {
-		MinecraftClient mc = MinecraftClient.getInstance();
-		if (mc.isInSingleplayer() && mc.getServer() != null) return "singleplayer:" + mc.getServer().getSaveProperties().getLevelName();
-		if (mc.getCurrentServerEntry() != null) return mc.getCurrentServerEntry().address.toLowerCase(Locale.ROOT);
+		Minecraft mc = Minecraft.getInstance();
+		if (mc.isLocalServer() && mc.getSingleplayerServer() != null) return "singleplayer:" + mc.getSingleplayerServer().getWorldData().getLevelName();
+		if (mc.getCurrentServer() != null) return mc.getCurrentServer().ip.toLowerCase(Locale.ROOT);
 		return "unknown";
 	}
 
 	public static String currentDimension() {
-		MinecraftClient mc = MinecraftClient.getInstance();
-		return mc.world == null ? "" : mc.world.getRegistryKey().getValue().toString();
+		Minecraft mc = Minecraft.getInstance();
+		return mc.level == null ? "" : mc.level.dimension().identifier().toString();
 	}
 
 	public void load() {

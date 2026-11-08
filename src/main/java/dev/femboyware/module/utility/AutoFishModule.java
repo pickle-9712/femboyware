@@ -6,14 +6,13 @@ import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.InventoryUtil;
-import net.minecraft.enchantment.Enchantments;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.entity.projectile.FishingBobberEntity;
-import net.minecraft.item.FishingRodItem;
-import net.minecraft.item.ItemStack;
-import net.minecraft.util.Hand;
-
 import java.util.Random;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.projectile.FishingHook;
+import net.minecraft.world.item.FishingRodItem;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.enchantment.Enchantments;
 
 /**
  * Casts, waits for a bite and reels in for you.
@@ -22,7 +21,7 @@ import java.util.Random;
 public class AutoFishModule extends Module {
 	private enum State { IDLE, WAITING_FOR_BITE, WAITING_TO_REEL }
 
-	private record Rod(Hand hand, int slot, int score) {}
+	private record Rod(InteractionHand hand, int slot, int score) {}
 
 	private final BoolSetting autoSwitch = add(new BoolSetting("Auto Switch", "Switch to a fishing rod", true));
 	private final BoolSetting antiBreak = add(new BoolSetting("Anti Break", "Don't cast rods that would break", true));
@@ -50,7 +49,7 @@ public class AutoFishModule extends Module {
 
 	@Override
 	public void onTick() {
-		FishingBobberEntity bobber = mc.player.fishHook;
+		FishingHook bobber = mc.player.fishing;
 		if (bobber == null) {
 			state = State.IDLE;
 			Rod rod = bestRod();
@@ -63,7 +62,7 @@ public class AutoFishModule extends Module {
 		switch (state) {
 			case IDLE -> state = State.WAITING_FOR_BITE;
 			case WAITING_FOR_BITE -> {
-				if (bobber.getHookedEntity() != null) {
+				if (bobber.getHookedIn() != null) {
 					reel();
 				} else if (((FishingBobberEntityAccessor) bobber).femboyware$hasCaughtFish()) {
 					catchDelayLeft = randomized(catchDelay.getInt(), catchVariance.getInt());
@@ -71,7 +70,7 @@ public class AutoFishModule extends Module {
 				}
 			}
 			case WAITING_TO_REEL -> {
-				if (bobber.getHookedEntity() == null && catchDelayLeft-- > 0) return;
+				if (bobber.getHookedIn() == null && catchDelayLeft-- > 0) return;
 				reel();
 			}
 		}
@@ -84,14 +83,14 @@ public class AutoFishModule extends Module {
 	private boolean useRod() {
 		Rod rod = bestRod();
 		if (rod == null || !prepare(rod)) return false;
-		mc.interactionManager.interactItem(mc.player, rod.hand);
-		mc.player.swingHand(rod.hand);
+		mc.gameMode.useItem(mc.player, rod.hand);
+		mc.player.swing(rod.hand);
 		castDelayLeft = randomized(castDelay.getInt(), castVariance.getInt());
 		return true;
 	}
 
 	private boolean prepare(Rod rod) {
-		if (rod.hand == Hand.OFF_HAND || rod.slot == mc.player.getInventory().getSelectedSlot()) return true;
+		if (rod.hand == InteractionHand.OFF_HAND || rod.slot == mc.player.getInventory().getSelectedSlot()) return true;
 		if (!autoSwitch.get()) return false;
 		InventoryUtil.select(rod.slot);
 		return true;
@@ -101,22 +100,22 @@ public class AutoFishModule extends Module {
 	private Rod bestRod() {
 		int selected = mc.player.getInventory().getSelectedSlot();
 		Rod best = null;
-		if (usable(mc.player.getMainHandStack())) best = new Rod(Hand.MAIN_HAND, selected, score(mc.player.getMainHandStack()));
-		for (int i = 0; i < PlayerInventory.HOTBAR_SIZE; i++) {
+		if (usable(mc.player.getMainHandItem())) best = new Rod(InteractionHand.MAIN_HAND, selected, score(mc.player.getMainHandItem()));
+		for (int i = 0; i < Inventory.SELECTION_SIZE; i++) {
 			if (i == selected) continue;
-			ItemStack stack = mc.player.getInventory().getStack(i);
+			ItemStack stack = mc.player.getInventory().getItem(i);
 			if (!usable(stack)) continue;
 			int score = score(stack);
-			if (best == null || score > best.score) best = new Rod(Hand.MAIN_HAND, i, score);
+			if (best == null || score > best.score) best = new Rod(InteractionHand.MAIN_HAND, i, score);
 		}
-		ItemStack offhand = mc.player.getOffHandStack();
-		if (usable(offhand) && (best == null || score(offhand) > best.score)) best = new Rod(Hand.OFF_HAND, -1, score(offhand));
+		ItemStack offhand = mc.player.getOffhandItem();
+		if (usable(offhand) && (best == null || score(offhand) > best.score)) best = new Rod(InteractionHand.OFF_HAND, -1, score(offhand));
 		return best;
 	}
 
 	private boolean usable(ItemStack stack) {
 		if (!(stack.getItem() instanceof FishingRodItem)) return false;
-		return !antiBreak.get() || stack.getDamage() != stack.getMaxDamage() - 1;
+		return !antiBreak.get() || stack.getDamageValue() != stack.getMaxDamage() - 1;
 	}
 
 	private static int score(ItemStack stack) {

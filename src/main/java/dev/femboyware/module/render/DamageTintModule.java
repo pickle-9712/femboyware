@@ -4,7 +4,7 @@ import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.util.ColorUtil;
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.GuiGraphics;
 
 /** Flashes the screen with a colour when you take damage. */
 public class DamageTintModule extends Module {
@@ -15,12 +15,12 @@ public class DamageTintModule extends Module {
 	}
 
 	@Override
-	public void onRender2D(DrawContext context, float tickDelta) {
-		int maxHurt = mc.player.maxHurtTime;
+	public void onRender2D(GuiGraphics context, float tickDelta) {
+		int maxHurt = mc.player.hurtDuration;
 		if (mc.player.hurtTime <= 0 || maxHurt <= 0) return;
 		float strength = Math.max(0, (mc.player.hurtTime - tickDelta) / maxHurt);
 		int alpha = (int) (color.getAlpha() * strength);
 		if (alpha <= 0) return;
-		context.fill(0, 0, context.getScaledWindowWidth(), context.getScaledWindowHeight(), ColorUtil.withAlpha(color.get(), alpha));
+		context.fill(0, 0, context.guiWidth(), context.guiHeight(), ColorUtil.withAlpha(color.get(), alpha));
 	}
 }

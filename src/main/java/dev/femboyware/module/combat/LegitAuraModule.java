@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.mixin.InputAccessor;
 import dev.femboyware.mixin.MinecraftClientAccessor;
@@ -13,24 +14,23 @@ import dev.femboyware.util.KeyUtil;
 import dev.femboyware.util.MouseTurner;
 import dev.femboyware.util.Rotation;
 import dev.femboyware.util.TargetUtil;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.entity.effect.StatusEffects;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.BowItem;
-import net.minecraft.item.CrossbowItem;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.registry.tag.ItemTags;
-import net.minecraft.client.option.Perspective;
-import net.minecraft.util.PlayerInput;
-import net.minecraft.util.hit.EntityHitResult;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.Vec2f;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.Random;
+import net.minecraft.client.CameraType;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.util.Mth;
+import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.entity.player.Input;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.BowItem;
+import net.minecraft.world.item.CrossbowItem;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.phys.Vec2;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Fights like a player would: goes into third person, turns the camera onto the nearest player
@@ -93,8 +93,8 @@ public class LegitAuraModule extends Module {
 	private final NumberSetting rangedDistance = add(new NumberSetting("Bow Distance", "Only shoot at targets at least this far away", 8, 4, 60, 1)).visibleWhen(rangedWeapons::get);
 
 	private final Random random = new Random();
-	private PlayerEntity target;
-	private Perspective previousPerspective;
+	private Player target;
+	private CameraType previousPerspective;
 	/** Set when we just switched to the sword: no hit on the same tick, which no hand could do. */
 	private boolean justSwitched;
 	/** Whether a player was under the crosshair last tick, and whether one has just come under it and not been hit yet. */
@@ -139,11 +139,11 @@ public class LegitAuraModule extends Module {
 
 	/** The held weapon's recharge time in ticks: how long a full-strength hit takes to come back. */
 	public float rechargeTicks() {
-		return mc.player == null ? 0 : mc.player.getAttackCooldownProgressPerTick();
+		return mc.player == null ? 0 : mc.player.getCurrentItemAttackStrengthDelay();
 	}
 
 	/** Who Legit Aura is fighting, or null; for the Target HUD. */
-	public PlayerEntity getTarget() {
+	public Player getTarget() {
 		return isEnabled() ? target : null;
 	}
 
@@ -152,8 +152,8 @@ public class LegitAuraModule extends Module {
 		lastFrame = 0;
 		mouse.reset();
 		if (view.get() != View.FIRST_PERSON) {
-			previousPerspective = mc.options.getPerspective();
-			mc.options.setPerspective(Perspective.THIRD_PERSON_BACK);
+			previousPerspective = mc.options.getCameraType();
+			mc.options.setCameraType(CameraType.THIRD_PERSON_BACK);
 		}
 	}
 
@@ -161,10 +161,10 @@ public class LegitAuraModule extends Module {
 	protected void onDisable() {
 		target = null;
 		tapLeft = 0;
-		if (blocking && !nullCheck()) KeyUtil.sync(mc.options.useKey);
+		if (blocking && !nullCheck()) KeyUtil.sync(mc.options.keyUse);
 		blocking = false;
 		if (!nullCheck()) stopRanged();
-		if (previousPerspective != null) mc.options.setPerspective(previousPerspective);
+		if (previousPerspective != null) mc.options.setCameraType(previousPerspective);
 		previousPerspective = null;
 	}
 
@@ -179,7 +179,7 @@ public class LegitAuraModule extends Module {
 			if (target != null && !keep(target)) target = null;
 			if (target == null) target = pick();
 		}
-		PlayerEntity under = underCrosshair();
+		Player under = underCrosshair();
 		if (guarding && under != target) under = null;
 		if (under == null) fresh = false;
 		else if (!wasUnder) fresh = true;
@@ -191,7 +191,7 @@ public class LegitAuraModule extends Module {
 		wasShielded = shielded;
 		updateShield();
 		// Legit Pot has the camera and hotbar while it throws a potion
-		boolean idle = target == null || mc.currentScreen != null || potting();
+		boolean idle = target == null || Mc.screen() != null || potting();
 		if (idle) stopRanged();
 		else if (updateRanged()) return;
 		if (idle || mc.player.isUsingItem()) {
@@ -213,14 +213,14 @@ public class LegitAuraModule extends Module {
 		// The base delay is the held weapon's own recharge time (20 / its attack speed: 12.5 ticks for a
 		// sword, 20 for most axes). The hit itself is scored half a tick ahead, exactly as vanilla does, so
 		// a full-strength hit comes the first tick it can; then Random Delay adds a short pause on top
-		float charge = mc.player.getAttackCooldownProgress(0.5f);
+		float charge = mc.player.getAttackStrengthScale(0.5f);
 		// Someone just stepped under the crosshair: swing straight away to get the first hit in. Above 0.9
 		// a hit still counts as a sprint hit or crit and does at least 85% damage
 		// Hit select: against someone facing us who isn't already reeling, the first hit is theirs to throw.
 		// The moment they swing (or hit us) their weapon starts recharging, and that's when we hit
 		boolean selecting = hitSelect.get() && !breaking && under != null && under.hurtTime == 0
-			&& TargetUtil.isFacing(under, mc.player.getEyePos());
-		boolean theySwung = under != null && (under.handSwinging && under.handSwingTicks <= 2 || mc.player.hurtTime > 0 && mc.player.hurtTime >= mc.player.maxHurtTime - 2);
+			&& TargetUtil.isFacing(under, mc.player.getEyePosition());
+		boolean theySwung = under != null && (under.swinging && under.swingTime <= 2 || mc.player.hurtTime > 0 && mc.player.hurtTime >= mc.player.hurtDuration - 2);
 		if (!selecting) selectWait = 0;
 		boolean quick = charge > 0.9f && (selecting ? theySwung : firstHit.get() && fresh);
 		if (charge < 1 && !breaking && !quick) {
@@ -232,7 +232,7 @@ public class LegitAuraModule extends Module {
 		if (under == null) return;
 		if (breaking && under != target) return;
 		// Swinging into a raised shield does nothing but knock us back; wait for it to drop or for us to get round it
-		if (!breaking && flank.get() && shielded(under) && !mc.player.getMainHandStack().isIn(ItemTags.AXES)) return;
+		if (!breaking && flank.get() && shielded(under) && !mc.player.getMainHandItem().is(ItemTags.AXES)) return;
 		target = under;
 		if (selecting && !theySwung && selectWait < selectTime.getInt()) {
 			selectWait++;
@@ -247,7 +247,7 @@ public class LegitAuraModule extends Module {
 			}
 		}
 		// Facing away they can't hit back, so even a first hit or a combo is worth holding for a crit
-		boolean safe = !TargetUtil.isFacing(under, mc.player.getEyePos());
+		boolean safe = !TargetUtil.isFacing(under, mc.player.getEyePosition());
 		if (!breaking && crits.get() && (safe || (!quick && !(combo.get() && comboing(under)))) && waitForCrit(under)) {
 			critWait++;
 			return;
@@ -280,21 +280,21 @@ public class LegitAuraModule extends Module {
 		switch (ranged) {
 			case PEARL -> {
 				// Number key first, throw on a later tick once the camera is on the arc
-				if (holdSlot(InventoryUtil.findHotbar(stack -> stack.isOf(Items.ENDER_PEARL)))) return true;
+				if (holdSlot(InventoryUtil.findHotbar(stack -> stack.is(Items.ENDER_PEARL)))) return true;
 				if (aimed(1.5f)) {
 					((MinecraftClientAccessor) mc).femboyware$rightClick();
 					stopRanged();
 				}
 			}
 			case BOW -> {
-				if (holdSlot(InventoryUtil.findHotbar(stack -> stack.isOf(Items.BOW)))) return true;
+				if (holdSlot(InventoryUtil.findHotbar(stack -> stack.is(Items.BOW)))) return true;
 				press();
 				// Let go at full draw once on target, which looses the arrow; the next tick draws again
-				if (mc.player.isUsingItem() && BowItem.getPullProgress(mc.player.getItemUseTime()) >= 1 && aimed(1)) release();
+				if (mc.player.isUsingItem() && BowItem.getPowerForTime(mc.player.getTicksUsingItem()) >= 1 && aimed(1)) release();
 			}
 			case CROSSBOW -> {
-				if (holdSlot(InventoryUtil.findHotbar(stack -> stack.isOf(Items.CROSSBOW)))) return true;
-				ItemStack crossbow = mc.player.getMainHandStack();
+				if (holdSlot(InventoryUtil.findHotbar(stack -> stack.is(Items.CROSSBOW)))) return true;
+				ItemStack crossbow = mc.player.getMainHandItem();
 				if (!CrossbowItem.isCharged(crossbow)) press();
 				else if (drawing) release();
 				else if (!mc.player.isUsingItem() && aimed(1)) ((MinecraftClientAccessor) mc).femboyware$rightClick();
@@ -305,31 +305,31 @@ public class LegitAuraModule extends Module {
 
 	/** What to use on the target right now. Sticks with the current choice a little closer in, so it doesn't flicker. */
 	private Ranged chooseRanged() {
-		if (mc.player.getHealth() < engageHealth.get() || !mc.player.canSee(target) || !FemboyWare.getModules().get(LegitPotModule.class).isReady()) return Ranged.NONE;
+		if (mc.player.getHealth() < engageHealth.get() || !mc.player.hasLineOfSight(target) || !FemboyWare.getModules().get(LegitPotModule.class).isReady()) return Ranged.NONE;
 		double distance = mc.player.distanceTo(target);
-		int pearlSlot = InventoryUtil.findHotbar(stack -> stack.isOf(Items.ENDER_PEARL));
+		int pearlSlot = InventoryUtil.findHotbar(stack -> stack.is(Items.ENDER_PEARL));
 		if (pearl.get() && pearlSlot >= 0 && distance >= pearlDistance.get() - (ranged == Ranged.PEARL ? 2 : 0)
-			&& !mc.player.getItemCooldownManager().isCoolingDown(mc.player.getInventory().getStack(pearlSlot))) return Ranged.PEARL;
+			&& !mc.player.getCooldowns().isOnCooldown(mc.player.getInventory().getItem(pearlSlot))) return Ranged.PEARL;
 		if (!rangedWeapons.get() || pearlSlot >= 0) return Ranged.NONE;
 		boolean shooting = ranged == Ranged.BOW || ranged == Ranged.CROSSBOW;
 		if (distance < rangedDistance.get() - (shooting ? 2 : 0)) return Ranged.NONE;
-		int bow = InventoryUtil.findHotbar(stack -> stack.isOf(Items.BOW));
-		if (bow >= 0 && !mc.player.getProjectileType(mc.player.getInventory().getStack(bow)).isEmpty()) return Ranged.BOW;
-		int crossbow = InventoryUtil.findHotbar(stack -> stack.isOf(Items.CROSSBOW));
+		int bow = InventoryUtil.findHotbar(stack -> stack.is(Items.BOW));
+		if (bow >= 0 && !mc.player.getProjectile(mc.player.getInventory().getItem(bow)).isEmpty()) return Ranged.BOW;
+		int crossbow = InventoryUtil.findHotbar(stack -> stack.is(Items.CROSSBOW));
 		if (crossbow >= 0) {
-			ItemStack stack = mc.player.getInventory().getStack(crossbow);
-			if (CrossbowItem.isCharged(stack) || !mc.player.getProjectileType(stack).isEmpty()) return Ranged.CROSSBOW;
+			ItemStack stack = mc.player.getInventory().getItem(crossbow);
+			if (CrossbowItem.isCharged(stack) || !mc.player.getProjectile(stack).isEmpty()) return Ranged.CROSSBOW;
 		}
 		return Ranged.NONE;
 	}
 
 	private void press() {
-		mc.options.useKey.setPressed(true);
+		mc.options.keyUse.setDown(true);
 		drawing = true;
 	}
 
 	private void release() {
-		KeyUtil.sync(mc.options.useKey);
+		KeyUtil.sync(mc.options.keyUse);
 		drawing = false;
 	}
 
@@ -340,8 +340,8 @@ public class LegitAuraModule extends Module {
 	}
 
 	private boolean aimed(float tolerance) {
-		return rangedAim != null && Math.abs(MathHelper.wrapDegrees(rangedAim.yaw() - mc.player.getYaw())) < tolerance
-			&& Math.abs(rangedAim.pitch() - mc.player.getPitch()) < tolerance;
+		return rangedAim != null && Math.abs(Mth.wrapDegrees(rangedAim.yaw() - mc.player.getYRot())) < tolerance
+			&& Math.abs(rangedAim.pitch() - mc.player.getXRot()) < tolerance;
 	}
 
 	/**
@@ -353,17 +353,17 @@ public class LegitAuraModule extends Module {
 		double speed = thrown ? 1.5 : ranged == Ranged.CROSSBOW ? 3.15 : 3.0;
 		double gravity = thrown ? 0.03 : 0.05;
 		// Projectiles start just below the eyes
-		Vec3d from = mc.player.getEyePos().subtract(0, 0.1, 0);
-		Vec3d aim = target.getEntityPos().add(0, thrown ? 0 : target.getHeight() * 0.5, 0);
-		Vec3d walk = new Vec3d(target.getX() - target.lastX, 0, target.getZ() - target.lastZ);
-		Vec3d point = aim;
+		Vec3 from = mc.player.getEyePosition().subtract(0, 0.1, 0);
+		Vec3 aim = target.position().add(0, thrown ? 0 : target.getBbHeight() * 0.5, 0);
+		Vec3 walk = new Vec3(target.getX() - target.xo, 0, target.getZ() - target.zo);
+		Vec3 point = aim;
 		double[] shot = null;
 		for (int i = 0; i < 3; i++) {
 			double dx = point.x - from.x;
 			double dz = point.z - from.z;
 			shot = solve(Math.sqrt(dx * dx + dz * dz), point.y - from.y, speed, gravity, thrown);
 			if (shot == null) break;
-			point = aim.add(walk.multiply(shot[1]));
+			point = aim.add(walk.scale(shot[1]));
 		}
 		rangedAim = shot == null ? null : new Rotation(Rotation.between(from, point).yaw(), (float) shot[0]);
 	}
@@ -425,8 +425,8 @@ public class LegitAuraModule extends Module {
 	}
 
 	/** The player under the crosshair if it's one we can fight, else null. */
-	private PlayerEntity underCrosshair() {
-		return mc.crosshairTarget instanceof EntityHitResult hit && hit.getEntity() instanceof PlayerEntity player && TargetUtil.isValid(player) ? player : null;
+	private Player underCrosshair() {
+		return mc.hitResult instanceof EntityHitResult hit && hit.getEntity() instanceof Player player && TargetUtil.isValid(player) ? player : null;
 	}
 
 	/**
@@ -434,24 +434,24 @@ public class LegitAuraModule extends Module {
 	 * close and facing us; lets go in time for the next hit, or as soon as they're the one stunned.
 	 */
 	private void updateShield() {
-		boolean want = shield.get() && target != null && mc.currentScreen == null && !potting() && shouldBlock();
-		if (want) mc.options.useKey.setPressed(true);
-		else if (blocking) KeyUtil.sync(mc.options.useKey);
+		boolean want = shield.get() && target != null && Mc.screen() == null && !potting() && shouldBlock();
+		if (want) mc.options.keyUse.setDown(true);
+		else if (blocking) KeyUtil.sync(mc.options.keyUse);
 		blocking = want;
 	}
 
 	private boolean shouldBlock() {
-		ItemStack offhand = mc.player.getOffHandStack();
-		if (!offhand.contains(DataComponentTypes.BLOCKS_ATTACKS) || mc.player.getItemCooldownManager().isCoolingDown(offhand)) return false;
-		if (mc.player.isUsingItem() && mc.player.getActiveItem() != offhand) return false;
+		ItemStack offhand = mc.player.getOffhandItem();
+		if (!offhand.has(DataComponents.BLOCKS_ATTACKS) || mc.player.getCooldowns().isOnCooldown(offhand)) return false;
+		if (mc.player.isUsingItem() && mc.player.getUseItem() != offhand) return false;
 		// Someone holding up their own shield can't hit us, so there's nothing to block
-		return mc.player.getAttackCooldownProgress(0) < 0.8f && target.hurtTime == 0 && !target.isBlocking()
-			&& mc.player.distanceTo(target) < 4 && TargetUtil.isFacing(target, mc.player.getEyePos());
+		return mc.player.getAttackStrengthScale(0) < 0.8f && target.hurtTime == 0 && !target.isBlocking()
+			&& mc.player.distanceTo(target) < 4 && TargetUtil.isFacing(target, mc.player.getEyePosition());
 	}
 
 	/** Whether {@code player} has a shield raised that would stop our hits. */
-	private boolean shielded(PlayerEntity player) {
-		return player.isBlocking() && TargetUtil.isFacing(player, mc.player.getEyePos());
+	private boolean shielded(Player player) {
+		return player.isBlocking() && TargetUtil.isFacing(player, mc.player.getEyePosition());
 	}
 
 	private boolean potting() {
@@ -459,8 +459,8 @@ public class LegitAuraModule extends Module {
 	}
 
 	/** Whether {@code player} is flying from a hit, so sprint-hitting again keeps them from fighting back. */
-	private boolean comboing(PlayerEntity player) {
-		return player.hurtTime > 0 && !player.isOnGround();
+	private boolean comboing(Player player) {
+		return player.hurtTime > 0 && !player.onGround();
 	}
 
 	/**
@@ -468,12 +468,12 @@ public class LegitAuraModule extends Module {
 	 * Normally only briefly while already rising in a jump, and on the ground it hits now. When they're
 	 * facing away and can't hit back, it holds on the ground too, jumps, and waits for the fall.
 	 */
-	private boolean waitForCrit(PlayerEntity player) {
+	private boolean waitForCrit(Player player) {
 		if (!canCrit() || falling()) return false;
-		boolean safe = !TargetUtil.isFacing(player, mc.player.getEyePos());
-		if (safe ? critWait >= 20 : mc.player.isOnGround() || critWait >= 6) return false;
-		double reach = mc.player.getEntityInteractionRange();
-		double distance = Math.sqrt(player.getBoundingBox().squaredMagnitude(mc.player.getEyePos()));
+		boolean safe = !TargetUtil.isFacing(player, mc.player.getEyePosition());
+		if (safe ? critWait >= 20 : mc.player.onGround() || critWait >= 6) return false;
+		double reach = mc.player.entityInteractionRange();
+		double distance = Math.sqrt(player.getBoundingBox().distanceToSqr(mc.player.getEyePosition()));
 		return distance < reach - 0.6;
 	}
 
@@ -488,7 +488,7 @@ public class LegitAuraModule extends Module {
 	/** The hotbar slot of the first of {@code items} we have, which is the best; -1 if none. */
 	private int best(Item[] items) {
 		for (Item item : items) {
-			int slot = InventoryUtil.findHotbar(stack -> stack.isOf(item));
+			int slot = InventoryUtil.findHotbar(stack -> stack.is(item));
 			if (slot >= 0) return slot;
 		}
 		return -1;
@@ -503,17 +503,17 @@ public class LegitAuraModule extends Module {
 
 	/** Whether the camera should watch from the side; read by CameraMixin. */
 	public boolean sideView() {
-		return isEnabled() && view.get() == View.SIDE && !mc.options.getPerspective().isFirstPerson();
+		return isEnabled() && view.get() == View.SIDE && !mc.options.getCameraType().isFirstPerson();
 	}
 
 	/** The best player to lock on to: in range, in view, and closest to where we're looking. */
-	private PlayerEntity pick() {
-		PlayerEntity best = null;
+	private Player pick() {
+		Player best = null;
 		double bestScore = Double.MAX_VALUE;
-		for (PlayerEntity player : mc.world.getPlayers()) {
+		for (Player player : mc.level.players()) {
 			if (!TargetUtil.isValid(player) || mc.player.distanceTo(player) > range.get()) continue;
-			if (onlyVisible.get() && !mc.player.canSee(player)) continue;
-			float angle = Math.abs(MathHelper.wrapDegrees(aimRotation(player, 1).yaw() - mc.player.getYaw()));
+			if (onlyVisible.get() && !mc.player.hasLineOfSight(player)) continue;
+			float angle = Math.abs(Mth.wrapDegrees(aimRotation(player, 1).yaw() - mc.player.getYRot()));
 			if (angle > fov.get() / 2) continue;
 			double score = angle + mc.player.distanceTo(player) * 10;
 			if (score < bestScore) {
@@ -525,34 +525,34 @@ public class LegitAuraModule extends Module {
 	}
 
 	/** Stays locked on a little beyond the range, so the target doesn't flicker at its edge. */
-	private boolean keep(PlayerEntity player) {
+	private boolean keep(Player player) {
 		return TargetUtil.isValid(player) && mc.player.distanceTo(player) <= range.get() + 2
-			&& (!onlyVisible.get() || mc.player.canSee(player));
+			&& (!onlyVisible.get() || mc.player.hasLineOfSight(player));
 	}
 
 	/** Whether a hit could be a crit at all right now; in water, on a ladder and so on it can't. */
 	private boolean canCrit() {
-		return !mc.player.isTouchingWater() && !mc.player.isInLava() && !mc.player.isClimbing() && !mc.player.hasVehicle()
-			&& !mc.player.hasStatusEffect(StatusEffects.BLINDNESS) && !mc.player.hasStatusEffect(StatusEffects.LEVITATION)
-			&& !mc.player.hasStatusEffect(StatusEffects.SLOW_FALLING) && !mc.player.getAbilities().flying;
+		return !mc.player.isInWater() && !mc.player.isInLava() && !mc.player.onClimbable() && !mc.player.isPassenger()
+			&& !mc.player.hasEffect(MobEffects.BLINDNESS) && !mc.player.hasEffect(MobEffects.LEVITATION)
+			&& !mc.player.hasEffect(MobEffects.SLOW_FALLING) && !mc.player.getAbilities().flying;
 	}
 
 	/** On the way down from a jump, when a hit lands as a crit. */
 	private boolean falling() {
-		return !mc.player.isOnGround() && mc.player.fallDistance > 0 && mc.player.getVelocity().y < 0 && !mc.player.isSprinting();
+		return !mc.player.onGround() && mc.player.fallDistance > 0 && mc.player.getDeltaMovement().y < 0 && !mc.player.isSprinting();
 	}
 
 	// ---------------------------------------------------------------- moving
 
 	@Override
 	public void onInput() {
-		if (target == null || !chase.get() || mc.currentScreen != null) return;
-		PlayerInput keys = mc.player.input.playerInput;
+		if (target == null || !chase.get() || Mc.screen() != null) return;
+		Input keys = mc.player.input.keyPresses;
 		double distance = mc.player.distanceTo(target);
 		// Keep a sword's length of space: close in when far, ease off near reach, step back if right on top of them.
 		// With more than vanilla's 3 blocks of reach (the Reach module), hang back by the difference so we
 		// hit from outside their reach
-		double extra = Math.max(0, mc.player.getEntityInteractionRange() - 3);
+		double extra = Math.max(0, mc.player.entityInteractionRange() - 3);
 		boolean forward = distance > 2.9 + extra;
 		boolean back = distance < 1.8 + extra;
 		// Sprint all the way in when W-tapping, since every hit should be a sprint hit
@@ -562,21 +562,21 @@ public class LegitAuraModule extends Module {
 		boolean right = keys.right();
 
 		if (crits.get() && canCrit() && distance < 3.6 + extra
-			&& (!(combo.get() && comboing(target)) || !TargetUtil.isFacing(target, mc.player.getEyePos()))) {
-			float charge = mc.player.getAttackCooldownProgress(0.5f);
+			&& (!(combo.get() && comboing(target)) || !TargetUtil.isFacing(target, mc.player.getEyePosition()))) {
+			float charge = mc.player.getAttackStrengthScale(0.5f);
 			// Jump as the sword is nearly charged, so it's full again on the way down
-			if (mc.player.isOnGround() && charge > 0.65f) jump = true;
+			if (mc.player.onGround() && charge > 0.65f) jump = true;
 			// Let go of forward in the air: sprinting stops crits, so players tap off it to land one
-			if (!mc.player.isOnGround()) {
+			if (!mc.player.onGround()) {
 				forward = false;
 				sprint = false;
 			}
 		}
 		// Hop over whatever is in the way, like anyone running at someone would
-		if (forward && mc.player.horizontalCollision && mc.player.isOnGround()) jump = true;
+		if (forward && mc.player.horizontalCollision && mc.player.onGround()) jump = true;
 
 		// Jump the tick a hit lands: running forward into the jump cancels part of the knockback
-		if (jumpReset.get() && mc.player.hurtTime > 0 && mc.player.hurtTime == mc.player.maxHurtTime - 1 && mc.player.isOnGround()
+		if (jumpReset.get() && mc.player.hurtTime > 0 && mc.player.hurtTime == mc.player.hurtDuration - 1 && mc.player.onGround()
 			&& random.nextInt(100) < jumpResetChance.getInt()) {
 			jump = true;
 			forward = true;
@@ -601,12 +601,12 @@ public class LegitAuraModule extends Module {
 		if (tapping) tapLeft--;
 		boolean anyForward = !tapping && (keys.forward() || forward);
 		boolean anyBack = tapping ? wTap.is(Tap.S_TAP) : keys.backward() || (back && !keys.forward());
-		mc.player.input.playerInput = new PlayerInput(anyForward, anyBack, left, right,
-			keys.jump() || jump, keys.sneak(), !tapping && (keys.sprint() || sprint));
+		mc.player.input.keyPresses = new Input(anyForward, anyBack, left, right,
+			keys.jump() || jump, keys.shift(), !tapping && (keys.sprint() || sprint));
 		int forwardAxis = (anyForward ? 1 : 0) - (anyBack ? 1 : 0);
 		int strafeAxis = (left ? 1 : 0) - (right ? 1 : 0);
-		Vec2f movement = new Vec2f(strafeAxis, forwardAxis);
-		((InputAccessor) mc.player.input).femboyware$setMovementVector(movement.lengthSquared() > 0 ? movement.normalize() : Vec2f.ZERO);
+		Vec2 movement = new Vec2(strafeAxis, forwardAxis);
+		((InputAccessor) mc.player.input).femboyware$setMovementVector(movement.lengthSquared() > 0 ? movement.normalized() : Vec2.ZERO);
 	}
 
 	// ---------------------------------------------------------------- aiming
@@ -617,19 +617,19 @@ public class LegitAuraModule extends Module {
 		long now = System.nanoTime();
 		float seconds = lastFrame == 0 ? 0 : Math.min(0.25f, (now - lastFrame) / 1e9f);
 		lastFrame = now;
-		if (target == null || mc.currentScreen != null || seconds <= 0 || potting()) return;
+		if (target == null || Mc.screen() != null || seconds <= 0 || potting()) return;
 
-		float tickDelta = mc.getRenderTickCounter().getTickProgress(true);
+		float tickDelta = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
 		boolean aimingShot = ranged != Ranged.NONE && rangedAim != null;
-		Rotation wanted = aimingShot ? rangedAim : Rotation.between(mc.player.getCameraPosVec(tickDelta), trackPoint(target, tickDelta));
-		float yawDelta = MathHelper.wrapDegrees(wanted.yaw() - mc.player.getYaw());
-		float pitchDelta = wanted.pitch() - mc.player.getPitch();
+		Rotation wanted = aimingShot ? rangedAim : Rotation.between(mc.player.getEyePosition(tickDelta), trackPoint(target, tickDelta));
+		float yawDelta = Mth.wrapDegrees(wanted.yaw() - mc.player.getYRot());
+		float pitchDelta = wanted.pitch() - mc.player.getXRot();
 
 		// Eases in: big turns start fast and slow down as the crosshair arrives, a bit unevenly like a hand
 		// Near reach, track harder, so the crosshair is already on them the moment they step into it and
 		// never slips off while a hit is possible
-		double reach = mc.player.getEntityInteractionRange();
-		boolean close = Math.sqrt(target.getBoundingBox().squaredMagnitude(mc.player.getEyePos())) < reach + 2;
+		double reach = mc.player.entityInteractionRange();
+		boolean close = Math.sqrt(target.getBoundingBox().distanceToSqr(mc.player.getEyePosition())) < reach + 2;
 		float follow = 1 - (float) Math.exp(-aimSpeed.get() * (close || aimingShot ? 1.8 : 1) * seconds);
 		float wobble = 0.85f + random.nextFloat() * 0.3f;
 		mouse.turn(yawDelta * follow * wobble, pitchDelta * follow * wobble);
@@ -640,22 +640,22 @@ public class LegitAuraModule extends Module {
 	 * inside their hitbox. A person keeps their crosshair wherever it sits on the target rather than
 	 * snapping to its middle, and staying inside the edges means it doesn't slip off as they move.
 	 */
-	private Vec3d trackPoint(PlayerEntity player, float tickDelta) {
-		Vec3d eye = mc.player.getCameraPosVec(tickDelta);
-		Box box = player.getBoundingBox().offset(player.getLerpedPos(tickDelta).subtract(player.getEntityPos()));
-		Box inside = box.contract(0.18, 0.3, 0.18);
-		Vec3d onLook = eye.add(mc.player.getRotationVec(tickDelta).multiply(eye.distanceTo(box.getCenter())));
-		return new Vec3d(MathHelper.clamp(onLook.x, inside.minX, inside.maxX),
-			MathHelper.clamp(onLook.y, inside.minY, inside.maxY),
-			MathHelper.clamp(onLook.z, inside.minZ, inside.maxZ));
+	private Vec3 trackPoint(Player player, float tickDelta) {
+		Vec3 eye = mc.player.getEyePosition(tickDelta);
+		AABB box = player.getBoundingBox().move(player.getPosition(tickDelta).subtract(player.position()));
+		AABB inside = box.deflate(0.18, 0.3, 0.18);
+		Vec3 onLook = eye.add(mc.player.getViewVector(tickDelta).scale(eye.distanceTo(box.getCenter())));
+		return new Vec3(Mth.clamp(onLook.x, inside.minX, inside.maxX),
+			Mth.clamp(onLook.y, inside.minY, inside.maxY),
+			Mth.clamp(onLook.z, inside.minZ, inside.maxZ));
 	}
 
 	/** Where to look to aim at {@code player}'s upper body, drifting slowly around it rather than one fixed point. */
-	private Rotation aimRotation(PlayerEntity player, float tickDelta) {
+	private Rotation aimRotation(Player player, float tickDelta) {
 		float time = System.currentTimeMillis() / 1000f + seed;
-		double height = player.getHeight() * (0.62 + 0.12 * Math.sin(time * 1.3));
+		double height = player.getBbHeight() * (0.62 + 0.12 * Math.sin(time * 1.3));
 		double side = 0.08 * Math.sin(time * 0.9);
-		Vec3d aim = player.getLerpedPos(tickDelta).add(side, height, side * 0.5);
-		return Rotation.between(mc.player.getCameraPosVec(tickDelta), aim);
+		Vec3 aim = player.getPosition(tickDelta).add(side, height, side * 0.5);
+		return Rotation.between(mc.player.getEyePosition(tickDelta), aim);
 	}
 }

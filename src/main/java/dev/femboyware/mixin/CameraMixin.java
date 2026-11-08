@@ -8,11 +8,11 @@ import dev.femboyware.module.combat.LegitAuraModule;
 import dev.femboyware.module.render.FreeLookModule;
 import dev.femboyware.module.render.NoCameraClipModule;
 import dev.femboyware.module.utility.FreeCamModule;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.Camera;
-import net.minecraft.entity.Entity;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.World;
+import net.minecraft.client.Camera;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -26,48 +26,72 @@ public abstract class CameraMixin {
 	protected abstract void setRotation(float yaw, float pitch);
 
 	@Shadow
-	protected abstract void setPos(Vec3d pos);
+	protected abstract void setPosition(Vec3 pos);
 
 	/** Free Look: the camera turns with the free look angles instead of the player's. */
-	@ModifyExpressionValue(method = "update", at = @At(value = "INVOKE", target = "Lnet/minecraft/entity/Entity;getYaw(F)F"), require = 0)
+	//? if >=26.1 {
+	/*@ModifyExpressionValue(method = "alignWithEntity", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;getViewYRot(F)F"), require = 0)
+	private float femboyware$freeLookYaw(float yaw) {
+		Entity focusedEntity = ((Camera) (Object) this).entity();
+	*///?} else {
+	@ModifyExpressionValue(method = "setup", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;getViewYRot(F)F"), require = 0)
 	private float femboyware$freeLookYaw(float yaw, @Local(argsOnly = true) Entity focusedEntity) {
+	//?}
 		if (isFreeLook(focusedEntity)) return FemboyWare.getModules().get(FreeLookModule.class).getYaw();
 		// Legit Aura's side view: turned a quarter round, the third person camera sits beside you instead of behind
 		return isSideView(focusedEntity) ? yaw - 90 : yaw;
 	}
 
-	@ModifyExpressionValue(method = "update", at = @At(value = "INVOKE", target = "Lnet/minecraft/entity/Entity;getPitch(F)F"), require = 0)
+	//? if >=26.1 {
+	/*@ModifyExpressionValue(method = "alignWithEntity", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;getViewXRot(F)F"), require = 0)
+	private float femboyware$freeLookPitch(float pitch) {
+		Entity focusedEntity = ((Camera) (Object) this).entity();
+	*///?} else {
+	@ModifyExpressionValue(method = "setup", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;getViewXRot(F)F"), require = 0)
 	private float femboyware$freeLookPitch(float pitch, @Local(argsOnly = true) Entity focusedEntity) {
+	//?}
 		if (isFreeLook(focusedEntity)) return FemboyWare.getModules().get(FreeLookModule.class).getPitch();
 		// From the side, a steady slight downward look keeps both of you in view whichever way you aim
 		return isSideView(focusedEntity) ? 12 : pitch;
 	}
 
+	//? if >=26.1 {
+	/*@ModifyReturnValue(method = "calculateFov", at = @At("RETURN"))
+	private float femboyware$zoom(float fov) {
+		return FemboyWare.getModules().get(dev.femboyware.module.utility.ZoomModule.class).modifyFov(fov);
+	}
+
 	@Inject(method = "update", at = @At("TAIL"))
-	private void femboyware$freeCam(World area, Entity focusedEntity, boolean thirdPerson, boolean inverseView, float tickProgress, CallbackInfo ci) {
+	private void femboyware$freeCam(net.minecraft.client.DeltaTracker deltaTracker, CallbackInfo ci) {
 		if (!FemboyWare.isEnabled(FreeCamModule.class)) return;
+		float tickProgress = ((Camera) (Object) this).getCameraEntityPartialTicks(deltaTracker);
+	*///?} else {
+	@Inject(method = "setup", at = @At("TAIL"))
+	private void femboyware$freeCam(Level area, Entity focusedEntity, boolean thirdPerson, boolean inverseView, float tickProgress, CallbackInfo ci) {
+		if (!FemboyWare.isEnabled(FreeCamModule.class)) return;
+	//?}
 		FreeCamModule freeCam = FemboyWare.getModules().get(FreeCamModule.class);
 		setRotation(freeCam.getYaw(), freeCam.getPitch());
-		setPos(freeCam.getPos(tickProgress));
+		setPosition(freeCam.getPos(tickProgress));
 	}
 
 	/** Free Cam renders your body, which vanilla only does in third person. */
-	@ModifyReturnValue(method = "isThirdPerson", at = @At("RETURN"))
+	@ModifyReturnValue(method = "isDetached", at = @At("RETURN"))
 	private boolean femboyware$freeCamThirdPerson(boolean thirdPerson) {
 		return thirdPerson || FemboyWare.isEnabled(FreeCamModule.class);
 	}
 
-	@Inject(method = "clipToSpace", at = @At("HEAD"), cancellable = true)
+	@Inject(method = "getMaxZoom", at = @At("HEAD"), cancellable = true)
 	private void femboyware$noCameraClip(float distance, CallbackInfoReturnable<Float> cir) {
 		if (FemboyWare.isEnabled(NoCameraClipModule.class)) cir.setReturnValue(FemboyWare.getModules().get(NoCameraClipModule.class).getDistance());
 	}
 
 	private static boolean isSideView(Entity focusedEntity) {
-		return focusedEntity == MinecraftClient.getInstance().player && FemboyWare.getModules() != null
+		return focusedEntity == Minecraft.getInstance().player && FemboyWare.getModules() != null
 			&& FemboyWare.getModules().get(LegitAuraModule.class).sideView();
 	}
 
 	private static boolean isFreeLook(Entity focusedEntity) {
-		return focusedEntity == MinecraftClient.getInstance().player && FemboyWare.isEnabled(FreeLookModule.class);
+		return focusedEntity == Minecraft.getInstance().player && FemboyWare.isEnabled(FreeLookModule.class);
 	}
 }

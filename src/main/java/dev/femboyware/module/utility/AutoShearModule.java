@@ -7,10 +7,10 @@ import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.InventoryUtil;
 import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.Timer;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.passive.SheepEntity;
-import net.minecraft.item.Items;
-import net.minecraft.util.Hand;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.animal.sheep.Sheep;
+import net.minecraft.world.item.Items;
 
 /** Shears every sheep in reach. */
 public class AutoShearModule extends Module {
@@ -27,13 +27,17 @@ public class AutoShearModule extends Module {
 	@Override
 	public void onTick() {
 		if (!timer.passed(delay.get())) return;
-		int slot = InventoryUtil.findHotbar(stack -> stack.isOf(Items.SHEARS));
+		int slot = InventoryUtil.findHotbar(stack -> stack.is(Items.SHEARS));
 		if (slot < 0) return;
-		for (Entity entity : mc.world.getEntities()) {
-			if (!(entity instanceof SheepEntity sheep) || !sheep.isShearable() || mc.player.distanceTo(sheep) > range.get()) continue;
+		for (Entity entity : mc.level.entitiesForRendering()) {
+			if (!(entity instanceof Sheep sheep) || !sheep.readyForShearing() || mc.player.distanceTo(sheep) > range.get()) continue;
 			InventoryUtil.withSlot(slot, switchMode.get(), () -> {
-				mc.interactionManager.interactEntity(mc.player, sheep, Hand.MAIN_HAND);
-				mc.player.swingHand(Hand.MAIN_HAND);
+				//? if >=26.1 {
+				/*mc.gameMode.interact(mc.player, sheep, new net.minecraft.world.phys.EntityHitResult(sheep), InteractionHand.MAIN_HAND);
+				*///?} else {
+				mc.gameMode.interact(mc.player, sheep, InteractionHand.MAIN_HAND);
+				//?}
+				mc.player.swing(InteractionHand.MAIN_HAND);
 			});
 			timer.reset();
 			return;

@@ -1,14 +1,14 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.util.Identifier;
+import net.minecraft.resources.Identifier;
 import org.joml.Vector3f;
 
 /**
@@ -84,7 +84,7 @@ public class PlanetModule extends SkyFxModule {
 
 	/** One half of the rings: the far half ({@code back}) or the near half. */
 	private void ring(Render3DEvent event, Vector3f c, Vector3f u, Vector3f v, float radius, float distance, boolean back, float visible) {
-		MatrixStack.Entry pose = event.matrices().peek();
+		PoseStack.Pose pose = event.matrices().last();
 		VertexConsumer consumer = FxRender.quads(event, false, false);
 		// Three bands with gaps between, like real planetary rings
 		float[][] bands = {{1.35f, 1.7f, 0.75f}, {1.76f, 2.15f, 1f}, {2.22f, 2.4f, 0.5f}};

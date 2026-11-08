@@ -6,9 +6,9 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * A combo count that pops up over whoever you're hitting: it bounces with each hit, gets hotter in
@@ -67,7 +67,7 @@ public class ComboCounterModule extends FxModule {
 		float bounce = 1 + 0.6f * (float) Math.exp(-age * 9) * (float) Math.cos(age * 30);
 		float heat = Math.min(1, (combo - minimum.getInt()) / 12f);
 		int color = FxRender.fade(FxRender.opaque(palette.at(heat)), fade);
-		Vec3d top = target.getLerpedPos(tickDelta()).add(0, target.getHeight() + 0.6, 0);
+		Vec3 top = target.getPosition(tickDelta()).add(0, target.getBbHeight() + 0.6, 0);
 		RenderUtil.drawText(event, "x" + combo, top, color, 0.8f * size.getFloat() * bounce);
 
 		if (!callouts.get()) return;

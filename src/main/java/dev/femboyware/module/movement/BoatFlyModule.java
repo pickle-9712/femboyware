@@ -4,9 +4,9 @@ import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.MoveUtil;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.vehicle.AbstractBoatEntity;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.vehicle.boat.AbstractBoat;
+import net.minecraft.world.phys.Vec3;
 
 /** Flies the boat you're sitting in. Jump goes up, sprint goes down. */
 public class BoatFlyModule extends Module {
@@ -21,13 +21,13 @@ public class BoatFlyModule extends Module {
 	@Override
 	public void onTick() {
 		Entity vehicle = mc.player.getVehicle();
-		if (!(vehicle instanceof AbstractBoatEntity)) return;
+		if (!(vehicle instanceof AbstractBoat)) return;
 
-		Vec3d horizontal = MoveUtil.strafe(speed.get());
+		Vec3 horizontal = MoveUtil.strafe(speed.get());
 		double y = -fall.get();
-		if (mc.options.jumpKey.isPressed()) y = verticalSpeed.get();
-		else if (mc.options.sprintKey.isPressed()) y = -verticalSpeed.get();
-		vehicle.setYaw(mc.player.getYaw());
-		vehicle.setVelocity(horizontal.x, y, horizontal.z);
+		if (mc.options.keyJump.isDown()) y = verticalSpeed.get();
+		else if (mc.options.keySprint.isDown()) y = -verticalSpeed.get();
+		vehicle.setYRot(mc.player.getYRot());
+		vehicle.setDeltaMovement(horizontal.x, y, horizontal.z);
 	}
 }

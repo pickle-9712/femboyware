@@ -7,14 +7,13 @@ import dev.femboyware.module.combat.AutoAnchorModule;
 import dev.femboyware.module.combat.AutoCrystalModule;
 import dev.femboyware.module.combat.LegitAuraModule;
 import dev.femboyware.setting.BoolSetting;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.LivingEntity;
-
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 
 /**
  * Base for effects drawn on whoever you're fighting: the targets of Aura, Legit Aura, Auto Crystal
@@ -106,7 +105,7 @@ public abstract class TargetFxModule extends FxModule {
 			Map.Entry<LivingEntity, Float> entry = iterator.next();
 			LivingEntity entity = entry.getKey();
 			float fade = entry.getValue() + (targets.contains(entity) ? delta : -delta) * FADE_SPEED;
-			if (fade <= 0 && !targets.contains(entity) || entity.isRemoved() || entity.getEntityWorld() != mc.world) {
+			if (fade <= 0 && !targets.contains(entity) || entity.isRemoved() || entity.level() != mc.level) {
 				iterator.remove();
 				continue;
 			}

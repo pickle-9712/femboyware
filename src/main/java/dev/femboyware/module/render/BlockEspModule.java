@@ -1,5 +1,6 @@
 package dev.femboyware.module.render;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
@@ -8,17 +9,6 @@ import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.StringSetting;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.chunk.ChunkSection;
-import net.minecraft.world.chunk.WorldChunk;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -26,6 +16,16 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 /** Highlights chosen blocks, optionally with tracers from the crosshair. */
 public class BlockEspModule extends Module {
@@ -77,10 +77,10 @@ public class BlockEspModule extends Module {
 			scannedAt.clear();
 		}
 
-		ChunkPos center = mc.player.getChunkPos();
+		ChunkPos center = mc.player.chunkPosition();
 		int radius = range.getInt();
-		found.keySet().removeIf(pos -> pos.getChebyshevDistance(center) > radius);
-		scannedAt.keySet().removeIf(pos -> pos.getChebyshevDistance(center) > radius);
+		found.keySet().removeIf(pos -> pos.getChessboardDistance(center) > radius);
+		scannedAt.keySet().removeIf(pos -> pos.getChessboardDistance(center) > radius);
 		if (targets.isEmpty()) return;
 
 		// Scan the stalest chunks first, nearest breaking ties
@@ -88,30 +88,30 @@ public class BlockEspModule extends Module {
 		List<ChunkPos> due = new ArrayList<>();
 		for (int x = -radius; x <= radius; x++) {
 			for (int z = -radius; z <= radius; z++) {
-				ChunkPos pos = new ChunkPos(center.x + x, center.z + z);
-				if (!mc.world.getChunkManager().isChunkLoaded(pos.x, pos.z)) continue;
+				ChunkPos pos = new ChunkPos(Mc.chunkX(center) + x, Mc.chunkZ(center) + z);
+				if (!mc.level.getChunkSource().hasChunk(Mc.chunkX(pos), Mc.chunkZ(pos))) continue;
 				if (now - scannedAt.getOrDefault(pos, 0L) >= RESCAN_MILLIS) due.add(pos);
 			}
 		}
 		due.sort(Comparator.<ChunkPos>comparingLong(pos -> scannedAt.getOrDefault(pos, 0L))
-			.thenComparingInt(pos -> pos.getChebyshevDistance(center)));
+			.thenComparingInt(pos -> pos.getChessboardDistance(center)));
 		for (int i = 0; i < Math.min(CHUNKS_PER_TICK, due.size()); i++) {
 			ChunkPos pos = due.get(i);
-			found.put(pos, scan(mc.world.getChunk(pos.x, pos.z)));
+			found.put(pos, scan(mc.level.getChunk(Mc.chunkX(pos), Mc.chunkZ(pos))));
 			scannedAt.put(pos, now);
 		}
 	}
 
-	private List<BlockPos> scan(WorldChunk chunk) {
+	private List<BlockPos> scan(LevelChunk chunk) {
 		List<BlockPos> result = new ArrayList<>();
-		ChunkSection[] sections = chunk.getSectionArray();
-		int startX = chunk.getPos().getStartX();
-		int startZ = chunk.getPos().getStartZ();
+		LevelChunkSection[] sections = chunk.getSections();
+		int startX = chunk.getPos().getMinBlockX();
+		int startZ = chunk.getPos().getMinBlockZ();
 		for (int i = 0; i < sections.length; i++) {
-			ChunkSection section = sections[i];
+			LevelChunkSection section = sections[i];
 			// Most sections hold none of the blocks we want, and this check reads only the palette
-			if (section.isEmpty() || !section.hasAny(state -> targets.contains(state.getBlock()))) continue;
-			int startY = mc.world.sectionIndexToCoord(i) << 4;
+			if (section.hasOnlyAir() || !section.maybeHas(state -> targets.contains(state.getBlock()))) continue;
+			int startY = mc.level.getSectionYFromSectionIndex(i) << 4;
 			for (int y = 0; y < 16; y++) {
 				for (int z = 0; z < 16; z++) {
 					for (int x = 0; x < 16; x++) {
@@ -127,18 +127,18 @@ public class BlockEspModule extends Module {
 	@Override
 	public void onRender3D(Render3DEvent event) {
 		if (found.isEmpty()) return;
-		Vec3d cam = event.camera().pos;
+		Vec3 cam = event.camera().pos;
 		List<BlockPos> visible = new ArrayList<>();
 		for (List<BlockPos> list : found.values()) visible.addAll(list);
 		if (visible.size() > limit.getInt()) {
-			visible.sort(Comparator.comparingDouble(pos -> pos.getSquaredDistance(cam)));
+			visible.sort(Comparator.comparingDouble(pos -> pos.distToCenterSqr(cam)));
 			visible = visible.subList(0, limit.getInt());
 		}
 
-		Vec3d tracerStart = RenderUtil.tracerOrigin(event);
+		Vec3 tracerStart = RenderUtil.tracerOrigin(event);
 		for (BlockPos pos : visible) {
-			RenderUtil.drawBox(event, new Box(pos), fillColor.get(), lineColor.get(), 1.5f, throughWalls.get());
-			if (tracers.get()) RenderUtil.drawLine(event, tracerStart, Vec3d.ofCenter(pos), tracerColor.get(), 1.5f, throughWalls.get());
+			RenderUtil.drawBox(event, new AABB(pos), fillColor.get(), lineColor.get(), 1.5f, throughWalls.get());
+			if (tracers.get()) RenderUtil.drawLine(event, tracerStart, Vec3.atCenterOf(pos), tracerColor.get(), 1.5f, throughWalls.get());
 		}
 	}
 
@@ -147,7 +147,7 @@ public class BlockEspModule extends Module {
 		for (String part : text.split(",")) {
 			Identifier id = Identifier.tryParse(part.trim().toLowerCase());
 			if (id == null || part.isBlank()) continue;
-			Registries.BLOCK.getOptionalValue(id).ifPresent(result::add);
+			BuiltInRegistries.BLOCK.getOptional(id).ifPresent(result::add);
 		}
 		return result;
 	}

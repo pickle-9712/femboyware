@@ -19,14 +19,14 @@ public class NoRotateModule extends Module {
 	/** Before the server's position packet is applied. */
 	public void beforeServerRotation() {
 		if (!isEnabled() || mc.player == null) return;
-		savedYaw = mc.player.getYaw();
-		savedPitch = mc.player.getPitch();
+		savedYaw = mc.player.getYRot();
+		savedPitch = mc.player.getXRot();
 	}
 
 	/** After it: put the camera back. The tiny nudge makes the next movement packet carry our real look. */
 	public void afterServerRotation() {
 		if (!isEnabled() || mc.player == null) return;
-		mc.player.setYaw(savedYaw + 0.000001f);
-		mc.player.setPitch(savedPitch + 0.000001f);
+		mc.player.setYRot(savedYaw + 0.000001f);
+		mc.player.setXRot(savedPitch + 0.000001f);
 	}
 }

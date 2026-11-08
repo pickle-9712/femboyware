@@ -1,17 +1,16 @@
 package dev.femboyware.module.hud;
 
+import com.mojang.blaze3d.platform.NativeImage;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.combat.BodyguardModule;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.texture.NativeImageBackedTexture;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.MathHelper;
-
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.resources.Identifier;
+import net.minecraft.util.Mth;
 
 /**
  * What's playing on the PC, shared by every HUD element that shows it. One background thread reads
@@ -19,9 +18,9 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * Bodyguard's low power mode it stops reading, so guards spend nothing on it.
  */
 final class MediaSource {
-	static final Identifier ART = Identifier.of("femboyware", "media_art");
+	static final Identifier ART = Identifier.fromNamespaceAndPath("femboyware", "media_art");
 	/** The same art cut to a circle. */
-	static final Identifier ROUND_ART = Identifier.of("femboyware", "media_art_round");
+	static final Identifier ROUND_ART = Identifier.fromNamespaceAndPath("femboyware", "media_art_round");
 	private static final int ROUND_SIZE = 48;
 	/** How often to look at what's playing, in milliseconds, so lyrics start right as a song does. */
 	private static final int POLL = 250;
@@ -70,7 +69,7 @@ final class MediaSource {
 	static double position(WindowsMedia.Track track) {
 		double position = track.position();
 		if (track.playing()) position += (System.currentTimeMillis() - track.updated()) / 1000.0;
-		return MathHelper.clamp(position, 0, track.length() > 0 ? track.length() : Double.MAX_VALUE);
+		return Mth.clamp(position, 0, track.length() > 0 ? track.length() : Double.MAX_VALUE);
 	}
 
 	/** Puts the latest album art on the GPU, once per track; true if there's art to draw. Render thread only. */
@@ -83,7 +82,7 @@ final class MediaSource {
 		try {
 			NativeImage image = new NativeImage(latest.width(), latest.height(), false);
 			for (int y = 0; y < latest.height(); y++) {
-				for (int x = 0; x < latest.width(); x++) image.setColorArgb(x, y, latest.pixels()[y * latest.width() + x]);
+				for (int x = 0; x < latest.width(); x++) image.setPixel(x, y, latest.pixels()[y * latest.width() + x]);
 			}
 			upload(ART, image);
 			upload(ROUND_ART, round(latest));
@@ -95,8 +94,8 @@ final class MediaSource {
 	}
 
 	private static void upload(Identifier id, NativeImage image) {
-		NativeImageBackedTexture texture = new NativeImageBackedTexture(() -> "femboyware media art", image);
-		MinecraftClient.getInstance().getTextureManager().registerTexture(id, texture);
+		DynamicTexture texture = new DynamicTexture(() -> "femboyware media art", image);
+		Minecraft.getInstance().getTextureManager().register(id, texture);
 		texture.upload();
 	}
 
@@ -119,8 +118,8 @@ final class MediaSource {
 				}
 				int samples = factor * factor;
 				float distance = (float) Math.hypot(x + 0.5f - half, y + 0.5f - half);
-				int alpha = (int) (MathHelper.clamp(half - distance + 0.5f, 0, 1) * 255);
-				image.setColorArgb(x, y, alpha << 24 | (r / samples) << 16 | (g / samples) << 8 | b / samples);
+				int alpha = (int) (Mth.clamp(half - distance + 0.5f, 0, 1) * 255);
+				image.setPixel(x, y, alpha << 24 | (r / samples) << 16 | (g / samples) << 8 | b / samples);
 			}
 		}
 		return image;

@@ -7,10 +7,10 @@ import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.entity.effect.StatusEffectInstance;
-import net.minecraft.entity.effect.StatusEffects;
-import net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 
 /**
  * Mines blocks faster, by speed multiplier, fake Haste, or finishing blocks early.
@@ -53,16 +53,16 @@ public class SpeedMineModule extends Module {
 
 		if (mode.is(Mode.HASTE)) {
 			int amplifier = hasteAmplifier.getInt() - 1;
-			StatusEffectInstance haste = mc.player.getStatusEffect(StatusEffects.HASTE);
+			MobEffectInstance haste = mc.player.getEffect(MobEffects.HASTE);
 			if (haste == null || haste.getAmplifier() < amplifier) {
-				mc.player.addStatusEffect(new StatusEffectInstance(StatusEffects.HASTE, -1, amplifier, false, false, false));
+				mc.player.addEffect(new MobEffectInstance(MobEffects.HASTE, -1, amplifier, false, false, false));
 			}
 		} else if (mode.is(Mode.DAMAGE)) {
-			ClientPlayerInteractionManagerAccessor manager = (ClientPlayerInteractionManagerAccessor) mc.interactionManager;
+			ClientPlayerInteractionManagerAccessor manager = (ClientPlayerInteractionManagerAccessor) mc.gameMode;
 			float progress = manager.femboyware$getBreakingProgress();
 			BlockPos pos = manager.femboyware$getBreakingPos();
 			if (pos == null || progress <= 0) return;
-			float delta = mc.world.getBlockState(pos).calcBlockBreakingDelta(mc.player, mc.world, pos);
+			float delta = mc.level.getBlockState(pos).getDestroyProgress(mc.player, mc.level, pos);
 			if (progress + delta >= DAMAGE_THRESHOLD) manager.femboyware$setBreakingProgress(1f);
 		}
 	}
@@ -71,14 +71,14 @@ public class SpeedMineModule extends Module {
 	public void onPacketSend(PacketEvent event) {
 		if (!mode.is(Mode.DAMAGE) || !grimBypass.get()) return;
 		// https://github.com/GrimAnticheat/Grim/issues/1296
-		if (event.getPacket() instanceof PlayerActionC2SPacket packet && packet.getAction() == PlayerActionC2SPacket.Action.STOP_DESTROY_BLOCK) {
-			mc.getNetworkHandler().sendPacket(new PlayerActionC2SPacket(PlayerActionC2SPacket.Action.ABORT_DESTROY_BLOCK, packet.getPos().up(), packet.getDirection()));
+		if (event.getPacket() instanceof ServerboundPlayerActionPacket packet && packet.getAction() == ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK) {
+			mc.getConnection().send(new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.ABORT_DESTROY_BLOCK, packet.getPos().above(), packet.getDirection()));
 		}
 	}
 
 	/** Removes only the hidden Haste we gave ourselves, never a real one. */
 	private void removeHaste() {
-		StatusEffectInstance haste = mc.player.getStatusEffect(StatusEffects.HASTE);
-		if (haste != null && !haste.shouldShowIcon()) mc.player.removeStatusEffect(StatusEffects.HASTE);
+		MobEffectInstance haste = mc.player.getEffect(MobEffects.HASTE);
+		if (haste != null && !haste.showIcon()) mc.player.removeEffect(MobEffects.HASTE);
 	}
 }

@@ -12,23 +12,22 @@ import dev.femboyware.util.DamageCalculator;
 import dev.femboyware.util.InventoryUtil;
 import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket;
-import net.minecraft.util.Hand;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
+import net.minecraft.util.Mth;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Packet-mines the blocks around an enemy's feet so AutoCrystal can crystal them.
@@ -71,7 +70,7 @@ public class AutoMineModule extends Module {
 	}
 
 	private long ticks;
-	private PlayerEntity target;
+	private Player target;
 	private MineJob primary;
 	private MineJob secondary;
 	private BlockPos rebreakPos;
@@ -88,7 +87,7 @@ public class AutoMineModule extends Module {
 
 	@Override
 	protected void onDisable() {
-		if (!nullCheck() && primary != null) sendAction(PlayerActionC2SPacket.Action.ABORT_DESTROY_BLOCK, primary.pos, primary.direction);
+		if (!nullCheck() && primary != null) sendAction(ServerboundPlayerActionPacket.Action.ABORT_DESTROY_BLOCK, primary.pos, primary.direction);
 		releaseHold();
 		primary = null;
 		secondary = null;
@@ -100,7 +99,7 @@ public class AutoMineModule extends Module {
 	public void onTick() {
 		ticks++;
 		// The vanilla interaction manager would fight us over the server's dig state
-		if (mc.interactionManager.isBreakingBlock()) return;
+		if (mc.gameMode.isDestroying()) return;
 		target = findTarget();
 
 		updateSecondary();
@@ -138,14 +137,14 @@ public class AutoMineModule extends Module {
 		if (primary != null) drawProgress(event, primary, 0.7f, primaryColor);
 		if (secondary != null) drawProgress(event, secondary, 1.0f, secondaryColor);
 		if (rebreakPos != null && rebreak.get()) {
-			RenderUtil.drawBox(event, new Box(rebreakPos), 0, rebreakColor.get(), 1.5f);
+			RenderUtil.drawBox(event, new AABB(rebreakPos), 0, rebreakColor.get(), 1.5f);
 		}
 	}
 
 	private void drawProgress(Render3DEvent event, MineJob job, float needed, ColorSetting color) {
-		float progress = MathHelper.clamp(bestDelta(job.pos) * (ticks - job.startTick + 1) / needed, 0f, 1f);
-		Box full = new Box(job.pos);
-		Box box = full.contract(0.5 * (1 - progress));
+		float progress = Mth.clamp(bestDelta(job.pos) * (ticks - job.startTick + 1) / needed, 0f, 1f);
+		AABB full = new AABB(job.pos);
+		AABB box = full.deflate(0.5 * (1 - progress));
 		RenderUtil.drawBox(event, box, color.get(), color.withAlpha(255), 1.5f);
 	}
 
@@ -153,13 +152,13 @@ public class AutoMineModule extends Module {
 
 	private void updatePrimary() {
 		if (primary == null) return;
-		if (mc.world.getBlockState(primary.pos).isAir()) {
+		if (mc.level.getBlockState(primary.pos).isAir()) {
 			rebreakPos = primary.pos;
 			primary = null;
 			return;
 		}
 		if (!inRange(primary.pos)) {
-			sendAction(PlayerActionC2SPacket.Action.ABORT_DESTROY_BLOCK, primary.pos, primary.direction);
+			sendAction(ServerboundPlayerActionPacket.Action.ABORT_DESTROY_BLOCK, primary.pos, primary.direction);
 			primary = null;
 			return;
 		}
@@ -180,7 +179,7 @@ public class AutoMineModule extends Module {
 
 	private void updateSecondary() {
 		if (secondary == null) return;
-		if (mc.world.getBlockState(secondary.pos).isAir() || !inRange(secondary.pos)) {
+		if (mc.level.getBlockState(secondary.pos).isAir() || !inRange(secondary.pos)) {
 			secondary = null;
 			releaseHold();
 			return;
@@ -204,7 +203,7 @@ public class AutoMineModule extends Module {
 
 	private void startNewMines() {
 		// Keep the server's dig position on an open rebreak spot so a re-placed block dies instantly
-		if (rebreak.get() && rebreakPos != null && mc.world.isAir(rebreakPos) && surroundSpots(target).contains(rebreakPos)) return;
+		if (rebreak.get() && rebreakPos != null && mc.level.isEmptyBlock(rebreakPos) && surroundSpots(target).contains(rebreakPos)) return;
 
 		List<BlockPos> candidates = findCandidates(target);
 		if (secondary != null) candidates.remove(secondary.pos);
@@ -213,15 +212,15 @@ public class AutoMineModule extends Module {
 		if (doubleMine.get() && secondary == null && candidates.size() >= 2) {
 			BlockPos background = candidates.get(1);
 			Direction direction = closestFace(background);
-			sendAction(PlayerActionC2SPacket.Action.START_DESTROY_BLOCK, background, direction);
-			sendAction(PlayerActionC2SPacket.Action.STOP_DESTROY_BLOCK, background, direction);
+			sendAction(ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK, background, direction);
+			sendAction(ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK, background, direction);
 			secondary = new MineJob(background, direction, ticks);
 		}
 
 		BlockPos pos = candidates.get(0);
 		Direction direction = closestFace(pos);
-		sendAction(PlayerActionC2SPacket.Action.START_DESTROY_BLOCK, pos, direction);
-		mc.player.swingHand(Hand.MAIN_HAND);
+		sendAction(ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK, pos, direction);
+		mc.player.swing(InteractionHand.MAIN_HAND);
 		primary = new MineJob(pos, direction, ticks);
 		rebreakPos = null;
 	}
@@ -230,8 +229,8 @@ public class AutoMineModule extends Module {
 	private void breakNow(BlockPos pos, Direction direction) {
 		int slot = bestSlot(pos);
 		InventoryUtil.withSlot(slot == -1 ? mc.player.getInventory().getSelectedSlot() : slot, SwitchMode.SILENT, () -> {
-			sendAction(PlayerActionC2SPacket.Action.STOP_DESTROY_BLOCK, pos, direction);
-			mc.player.swingHand(Hand.MAIN_HAND);
+			sendAction(ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK, pos, direction);
+			mc.player.swing(InteractionHand.MAIN_HAND);
 		});
 	}
 
@@ -240,18 +239,18 @@ public class AutoMineModule extends Module {
 		holdReturnSlot = -1;
 	}
 
-	private void sendAction(PlayerActionC2SPacket.Action action, BlockPos pos, Direction direction) {
-		mc.getNetworkHandler().sendPacket(new PlayerActionC2SPacket(action, pos, direction));
+	private void sendAction(ServerboundPlayerActionPacket.Action action, BlockPos pos, Direction direction) {
+		mc.getConnection().send(new ServerboundPlayerActionPacket(action, pos, direction));
 	}
 
 	// ---------------------------------------------------------------- targeting
 
-	private PlayerEntity findTarget() {
-		PlayerEntity best = null;
+	private Player findTarget() {
+		Player best = null;
 		double bestDistance = targetRange.get() * targetRange.get();
-		for (PlayerEntity player : mc.world.getPlayers()) {
+		for (Player player : mc.level.players()) {
 			if (player == mc.player || !player.isAlive() || player.isSpectator() || player.isCreative()) continue;
-			double distance = player.squaredDistanceTo(mc.player);
+			double distance = player.distanceToSqr(mc.player);
 			if (distance < bestDistance) {
 				bestDistance = distance;
 				best = player;
@@ -260,24 +259,24 @@ public class AutoMineModule extends Module {
 		return best;
 	}
 
-	private Set<BlockPos> feetBlocks(PlayerEntity player) {
-		Box box = player.getBoundingBox();
-		int y = MathHelper.floor(player.getY() + 0.2);
+	private Set<BlockPos> feetBlocks(Player player) {
+		AABB box = player.getBoundingBox();
+		int y = Mth.floor(player.getY() + 0.2);
 		Set<BlockPos> set = new LinkedHashSet<>();
-		for (int x = MathHelper.floor(box.minX); x <= MathHelper.floor(box.maxX - 1e-4); x++) {
-			for (int z = MathHelper.floor(box.minZ); z <= MathHelper.floor(box.maxZ - 1e-4); z++) {
+		for (int x = Mth.floor(box.minX); x <= Mth.floor(box.maxX - 1e-4); x++) {
+			for (int z = Mth.floor(box.minZ); z <= Mth.floor(box.maxZ - 1e-4); z++) {
 				set.add(new BlockPos(x, y, z));
 			}
 		}
 		return set;
 	}
 
-	private Set<BlockPos> surroundSpots(PlayerEntity player) {
+	private Set<BlockPos> surroundSpots(Player player) {
 		Set<BlockPos> feet = feetBlocks(player);
 		Set<BlockPos> ring = new LinkedHashSet<>();
 		for (BlockPos pos : feet) {
-			for (Direction direction : Direction.Type.HORIZONTAL) {
-				BlockPos side = pos.offset(direction);
+			for (Direction direction : Direction.Plane.HORIZONTAL) {
+				BlockPos side = pos.relative(direction);
 				if (!feet.contains(side)) ring.add(side);
 			}
 		}
@@ -285,7 +284,7 @@ public class AutoMineModule extends Module {
 	}
 
 	/** Mineable spots ordered best first: burrow blocks, then city blocks by crystal damage. */
-	private List<BlockPos> findCandidates(PlayerEntity player) {
+	private List<BlockPos> findCandidates(Player player) {
 		List<BlockPos> burrowBlocks = new ArrayList<>();
 		if (burrow.get()) {
 			for (BlockPos pos : feetBlocks(player)) {
@@ -297,11 +296,11 @@ public class AutoMineModule extends Module {
 		if (city.get()) {
 			for (BlockPos pos : surroundSpots(player)) {
 				if (!isMineable(pos)) continue;
-				if (crystalCheck.get() && !isCrystalBase(pos.down())) continue;
+				if (crystalCheck.get() && !isCrystalBase(pos.below())) continue;
 				cityBlocks.add(pos);
 			}
 			cityBlocks.sort(Comparator.comparingDouble((BlockPos pos) ->
-				DamageCalculator.crystalDamage(player, Vec3d.ofBottomCenter(pos), false, false)).reversed());
+				DamageCalculator.crystalDamage(player, Vec3.atBottomCenterOf(pos), false, false)).reversed());
 		}
 
 		List<BlockPos> result = new ArrayList<>(burrowBlocks);
@@ -310,26 +309,26 @@ public class AutoMineModule extends Module {
 	}
 
 	private boolean isMineable(BlockPos pos) {
-		BlockState state = mc.world.getBlockState(pos);
-		if (state.isAir() || state.isReplaceable() || state.getHardness(mc.world, pos) < 0) return false;
+		BlockState state = mc.level.getBlockState(pos);
+		if (state.isAir() || state.canBeReplaced() || state.getDestroySpeed(mc.level, pos) < 0) return false;
 		return inRange(pos) && bestDelta(pos) > 0;
 	}
 
 	private boolean isCrystalBase(BlockPos pos) {
-		BlockState state = mc.world.getBlockState(pos);
-		return state.isOf(Blocks.OBSIDIAN) || state.isOf(Blocks.BEDROCK);
+		BlockState state = mc.level.getBlockState(pos);
+		return state.is(Blocks.OBSIDIAN) || state.is(Blocks.BEDROCK);
 	}
 
 	private boolean inRange(BlockPos pos) {
-		return mc.player.getEyePos().squaredDistanceTo(Vec3d.ofCenter(pos)) <= range.get() * range.get();
+		return mc.player.getEyePosition().distanceToSqr(Vec3.atCenterOf(pos)) <= range.get() * range.get();
 	}
 
 	private Direction closestFace(BlockPos pos) {
-		Vec3d eyes = mc.player.getEyePos();
+		Vec3 eyes = mc.player.getEyePosition();
 		Direction best = Direction.UP;
 		double bestDistance = Double.MAX_VALUE;
 		for (Direction direction : Direction.values()) {
-			double distance = eyes.squaredDistanceTo(BlockUtil.faceCenter(pos, direction));
+			double distance = eyes.distanceToSqr(BlockUtil.faceCenter(pos, direction));
 			if (distance < bestDistance) {
 				bestDistance = distance;
 				best = direction;
@@ -344,7 +343,7 @@ public class AutoMineModule extends Module {
 	private int bestSlot(BlockPos pos) {
 		int best = -1;
 		float bestDelta = 0;
-		for (int slot = 0; slot < PlayerInventory.HOTBAR_SIZE; slot++) {
+		for (int slot = 0; slot < Inventory.SELECTION_SIZE; slot++) {
 			float delta = deltaWithSlot(pos, slot);
 			if (delta > bestDelta) {
 				bestDelta = delta;
@@ -361,10 +360,10 @@ public class AutoMineModule extends Module {
 
 	/** Break progress per tick if {@code slot} were held. Swaps the slot client-side only, no packet. */
 	private float deltaWithSlot(BlockPos pos, int slot) {
-		PlayerInventory inventory = mc.player.getInventory();
+		Inventory inventory = mc.player.getInventory();
 		int previous = inventory.getSelectedSlot();
 		inventory.setSelectedSlot(slot);
-		float delta = mc.world.getBlockState(pos).calcBlockBreakingDelta(mc.player, mc.world, pos);
+		float delta = mc.level.getBlockState(pos).getDestroyProgress(mc.player, mc.level, pos);
 		inventory.setSelectedSlot(previous);
 		return delta;
 	}

@@ -7,14 +7,13 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Direction;
-
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 
 /**
  * Shows safe holes: pits walled in by bedrock or obsidian, where crystals can't reach your feet.
@@ -23,7 +22,7 @@ import java.util.List;
 public class HoleEspModule extends Module {
 	private enum Type { BEDROCK, OBSIDIAN, MIXED }
 
-	private record Hole(Box box, Type type) {}
+	private record Hole(AABB box, Type type) {}
 
 	/** Obsidian and up survive crystal explosions. */
 	private static final float BLAST_PROOF = 600f;
@@ -58,11 +57,11 @@ public class HoleEspModule extends Module {
 	@Override
 	public void onTick() {
 		holes.clear();
-		BlockPos center = mc.player.getBlockPos();
+		BlockPos center = mc.player.blockPosition();
 		int h = horizontalRadius.getInt();
 		int v = verticalRadius.getInt();
-		for (BlockPos pos : BlockPos.iterate(center.add(-h, -v, -h), center.add(h, v, h))) {
-			Hole hole = probe(pos.toImmutable());
+		for (BlockPos pos : BlockPos.betweenClosed(center.offset(-h, -v, -h), center.offset(h, v, h))) {
+			Hole hole = probe(pos.immutable());
 			if (hole != null) holes.add(hole);
 		}
 	}
@@ -73,8 +72,8 @@ public class HoleEspModule extends Module {
 		Direction air = null;
 		for (Direction direction : Direction.values()) {
 			if (direction == Direction.UP) continue;
-			BlockPos side = pos.offset(direction);
-			BlockState state = mc.world.getBlockState(side);
+			BlockPos side = pos.relative(direction);
+			BlockState state = mc.level.getBlockState(side);
 			if (isBedrock(state)) bedrock++;
 			else if (isObsidian(state)) obsidian++;
 			else if (direction == Direction.DOWN || !doubles.get() || air != null || !isOpenHole(side)) return null;
@@ -82,7 +81,7 @@ public class HoleEspModule extends Module {
 				// One open side may lead into a second hole; its other walls must hold too
 				for (Direction other : Direction.values()) {
 					if (other == direction.getOpposite() || other == Direction.UP) continue;
-					BlockState wall = mc.world.getBlockState(side.offset(other));
+					BlockState wall = mc.level.getBlockState(side.relative(other));
 					if (isBedrock(wall)) bedrock++;
 					else if (isObsidian(wall)) obsidian++;
 					else return null;
@@ -94,29 +93,29 @@ public class HoleEspModule extends Module {
 		int total = air == null ? 5 : 8;
 		if (bedrock + obsidian != total) return null;
 		Type type = obsidian == total ? Type.OBSIDIAN : bedrock == total ? Type.BEDROCK : Type.MIXED;
-		Box box = new Box(pos.getX(), pos.getY(), pos.getZ(), pos.getX() + 1, pos.getY() + height.get(), pos.getZ() + 1);
+		AABB box = new AABB(pos.getX(), pos.getY(), pos.getZ(), pos.getX() + 1, pos.getY() + height.get(), pos.getZ() + 1);
 		if (air == null) return new Hole(box, type);
 		// Both halves find the same double hole; only the north-west half keeps it
 		if (air == Direction.NORTH || air == Direction.WEST) return null;
-		return new Hole(box.union(box.offset(air.getOffsetX(), 0, air.getOffsetZ())), type);
+		return new Hole(box.minmax(box.move(air.getStepX(), 0, air.getStepZ())), type);
 	}
 
 	private boolean isOpenHole(BlockPos pos) {
-		if (ignoreOwn.get() && mc.player.getBlockPos().equals(pos)) return false;
-		if (!webs.get() && mc.world.getBlockState(pos).isOf(Blocks.COBWEB)) return false;
+		if (ignoreOwn.get() && mc.player.blockPosition().equals(pos)) return false;
+		if (!webs.get() && mc.level.getBlockState(pos).is(Blocks.COBWEB)) return false;
 		for (int i = 0; i < holeHeight.getInt(); i++) {
-			BlockPos above = pos.up(i);
-			if (!mc.world.getBlockState(above).getCollisionShape(mc.world, above).isEmpty()) return false;
+			BlockPos above = pos.above(i);
+			if (!mc.level.getBlockState(above).getCollisionShape(mc.level, above).isEmpty()) return false;
 		}
 		return true;
 	}
 
 	private static boolean isBedrock(BlockState state) {
-		return !state.isAir() && state.getBlock().getHardness() < 0;
+		return !state.isAir() && state.getBlock().defaultDestroyTime() < 0;
 	}
 
 	private static boolean isObsidian(BlockState state) {
-		return !state.isAir() && state.getBlock().getHardness() >= 0 && state.getBlock().getBlastResistance() >= BLAST_PROOF;
+		return !state.isAir() && state.getBlock().defaultDestroyTime() >= 0 && state.getBlock().getExplosionResistance() >= BLAST_PROOF;
 	}
 
 	@Override

@@ -16,6 +16,6 @@ public class SpiderModule extends Module {
 	@Override
 	public void onTick() {
 		if (!mc.player.horizontalCollision || !MoveUtil.isMoving()) return;
-		mc.player.setVelocity(mc.player.getVelocity().x, speed.get(), mc.player.getVelocity().z);
+		mc.player.setDeltaMovement(mc.player.getDeltaMovement().x, speed.get(), mc.player.getDeltaMovement().z);
 	}
 }

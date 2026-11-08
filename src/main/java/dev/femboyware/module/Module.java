@@ -5,22 +5,21 @@ import dev.femboyware.event.PacketEvent;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.hud.NotificationsModule;
 import dev.femboyware.setting.Setting;
-import net.minecraft.block.BlockState;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.entity.Entity;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * Base class for every toggleable feature. Hooks are only invoked while the module is enabled
  * and a world and player exist, so implementations can assume {@code mc.player != null}.
  */
 public abstract class Module {
-	protected static final MinecraftClient mc = MinecraftClient.getInstance();
+	protected static final Minecraft mc = Minecraft.getInstance();
 
 	private final String name;
 	private final String description;
@@ -125,7 +124,7 @@ public abstract class Module {
 	public void onRender3D(Render3DEvent event) {
 	}
 
-	public void onRender2D(DrawContext context, float tickDelta) {
+	public void onRender2D(GuiGraphics context, float tickDelta) {
 	}
 
 	protected void onEnable() {
@@ -163,6 +162,6 @@ public abstract class Module {
 	}
 
 	protected static boolean nullCheck() {
-		return mc.player == null || mc.world == null || mc.interactionManager == null;
+		return mc.player == null || mc.level == null || mc.gameMode == null;
 	}
 }

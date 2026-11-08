@@ -1,17 +1,16 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Glowing orbs with comet tails swirling round your target. Each tail is the orb's own path a moment
@@ -54,14 +53,14 @@ public class TargetSwirlModule extends TargetFxModule {
 		for (Map.Entry<LivingEntity, Float> entry : targets.entrySet()) {
 			LivingEntity target = entry.getKey();
 			float fade = ease(entry.getValue());
-			Vec3d feet = target.getLerpedPos(tickDelta);
-			float height = target.getHeight();
-			float r = (target.getWidth() * 0.5f + 0.35f) * radius.getFloat();
+			Vec3 feet = target.getPosition(tickDelta);
+			float height = target.getBbHeight();
+			float r = (target.getBbWidth() * 0.5f + 0.35f) * radius.getFloat();
 
 			for (int strand = 0; strand < count; strand++) {
 				for (int k = length - 1; k >= 0; k--) {
 					float along = (float) k / length;
-					Vec3d offset = position(strand, count, now - k * spacing, r, height);
+					Vec3 offset = position(strand, count, now - k * spacing, r, height);
 					if (offset == null) continue;
 					float tail = 1 - along;
 					float alpha = fade * (float) Math.pow(tail, 1.4) * envelope(strand, count, now - k * spacing);
@@ -82,22 +81,22 @@ public class TargetSwirlModule extends TargetFxModule {
 		}
 	}
 
-	private record Orb(Vec3d pos, float size, int color, float alpha, boolean halo) {}
+	private record Orb(Vec3 pos, float size, int color, float alpha, boolean halo) {}
 
 	/** Where strand {@code i} is at time {@code t}, from the target's feet. */
-	private Vec3d position(int i, int count, double t, float r, float height) {
+	private Vec3 position(int i, int count, double t, float r, float height) {
 		double share = Math.PI * 2 * i / count;
 		switch (mode.get()) {
 			case HELIX -> {
 				double angle = t * 2.4 + share;
 				double y = height * (0.5 - 0.5 * Math.cos(t * 1.1));
-				return new Vec3d(Math.cos(angle) * r, y, Math.sin(angle) * r);
+				return new Vec3(Math.cos(angle) * r, y, Math.sin(angle) * r);
 			}
 			case TORNADO -> {
 				double climb = frac(t * 0.35 + (double) i / count);
 				double angle = t * 4 + share + climb * 6;
 				double spread = r * (0.3 + 0.95 * climb);
-				return new Vec3d(Math.cos(angle) * spread, climb * height * 1.15 - 0.05, Math.sin(angle) * spread);
+				return new Vec3(Math.cos(angle) * spread, climb * height * 1.15 - 0.05, Math.sin(angle) * spread);
 			}
 			case ATOM -> {
 				// Each orbit is a circle tipped over and turned round the body
@@ -108,18 +107,18 @@ public class TargetSwirlModule extends TargetFxModule {
 				double y = z * Math.sin(tilt);
 				z *= Math.cos(tilt);
 				double rx = x * Math.cos(turn) - z * Math.sin(turn), rz = x * Math.sin(turn) + z * Math.cos(turn);
-				return new Vec3d(rx, height * 0.55 + y, rz);
+				return new Vec3(rx, height * 0.55 + y, rz);
 			}
 			case RINGS -> {
 				double angle = t * 3 * (i % 2 == 0 ? 1 : -1) + i * 1.3;
 				double y = height * (i + 0.5) / count;
-				return new Vec3d(Math.cos(angle) * r, y, Math.sin(angle) * r);
+				return new Vec3(Math.cos(angle) * r, y, Math.sin(angle) * r);
 			}
 			case SPIRITS -> {
 				double angle = t * (1.4 + 0.3 * i) + i * 2.4;
 				double spread = r * (0.8 + 0.3 * Math.sin(t * 1.7 + i * 1.3));
 				double y = height * (0.5 + 0.42 * Math.sin(t * 1.1 + i * 2.1));
-				return new Vec3d(Math.cos(angle) * spread, y, Math.sin(angle) * spread);
+				return new Vec3(Math.cos(angle) * spread, y, Math.sin(angle) * spread);
 			}
 		}
 		return null;

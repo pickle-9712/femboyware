@@ -1,22 +1,21 @@
 package dev.femboyware.util;
 
 import dev.femboyware.util.InventoryUtil.SwitchMode;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
-import net.minecraft.util.Hand;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.function.Predicate;
+import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 
 /** Shared block placement used by the trap, filler and utility modules. */
 public final class PlaceUtil {
-	private static final MinecraftClient mc = MinecraftClient.getInstance();
+	private static final Minecraft mc = Minecraft.getInstance();
 	public static final double RANGE = 5.5;
-	public static final Predicate<ItemStack> OBSIDIAN = stack -> stack.isOf(Items.OBSIDIAN) || stack.isOf(Items.CRYING_OBSIDIAN);
+	public static final Predicate<ItemStack> OBSIDIAN = stack -> stack.is(Items.OBSIDIAN) || stack.is(Items.CRYING_OBSIDIAN);
 
 	private PlaceUtil() {
 	}
@@ -44,20 +43,20 @@ public final class PlaceUtil {
 
 	/** Whether {@code pos} is empty, in range and, if {@code checkEntities}, not blocked by an entity. */
 	public static boolean canPlace(BlockPos pos, boolean checkEntities) {
-		if (!mc.world.getBlockState(pos).isReplaceable()) return false;
-		if (mc.player.getEyePos().squaredDistanceTo(Vec3d.ofCenter(pos)) > RANGE * RANGE) return false;
+		if (!mc.level.getBlockState(pos).canBeReplaced()) return false;
+		if (mc.player.getEyePosition().distanceToSqr(Vec3.atCenterOf(pos)) > RANGE * RANGE) return false;
 		return !checkEntities || !BlockUtil.hasBlockingEntity(pos, false);
 	}
 
 	/** Right clicks {@code hit} while holding a stack matching {@code item}. */
 	public static boolean interact(BlockHitResult hit, Predicate<ItemStack> item, SwitchMode switchMode, boolean rotate) {
-		Hand hand = item.test(mc.player.getOffHandStack()) ? Hand.OFF_HAND : Hand.MAIN_HAND;
+		InteractionHand hand = item.test(mc.player.getOffhandItem()) ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
 		Runnable action = () -> {
-			if (rotate) lookAt(hit.getPos());
-			mc.interactionManager.interactBlock(mc.player, hand, hit);
-			mc.player.swingHand(hand);
+			if (rotate) lookAt(hit.getLocation());
+			mc.gameMode.useItemOn(mc.player, hand, hit);
+			mc.player.swing(hand);
 		};
-		if (hand == Hand.OFF_HAND) {
+		if (hand == InteractionHand.OFF_HAND) {
 			action.run();
 			return true;
 		}
@@ -68,23 +67,23 @@ public final class PlaceUtil {
 
 	/** Uses the item matching {@code item} without targeting a block, e.g. throwing a pearl. */
 	public static boolean useItem(Predicate<ItemStack> item, SwitchMode switchMode) {
-		if (item.test(mc.player.getOffHandStack())) {
-			mc.interactionManager.interactItem(mc.player, Hand.OFF_HAND);
-			mc.player.swingHand(Hand.OFF_HAND);
+		if (item.test(mc.player.getOffhandItem())) {
+			mc.gameMode.useItem(mc.player, InteractionHand.OFF_HAND);
+			mc.player.swing(InteractionHand.OFF_HAND);
 			return true;
 		}
 		int slot = InventoryUtil.findHotbar(item);
 		if (slot < 0) return false;
 		return InventoryUtil.withSlot(slot, switchMode, () -> {
-			mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
-			mc.player.swingHand(Hand.MAIN_HAND);
+			mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
+			mc.player.swing(InteractionHand.MAIN_HAND);
 		});
 	}
 
 	/** Sends a one-off rotation packet facing {@code point}. */
-	public static void lookAt(Vec3d point) {
-		Rotation rotation = Rotation.between(mc.player.getEyePos(), point);
-		mc.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.LookAndOnGround(
-			rotation.yaw(), rotation.pitch(), mc.player.isOnGround(), mc.player.horizontalCollision));
+	public static void lookAt(Vec3 point) {
+		Rotation rotation = Rotation.between(mc.player.getEyePosition(), point);
+		mc.getConnection().send(new ServerboundMovePlayerPacket.Rot(
+			rotation.yaw(), rotation.pitch(), mc.player.onGround(), mc.player.horizontalCollision));
 	}
 }

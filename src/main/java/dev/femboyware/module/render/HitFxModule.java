@@ -5,17 +5,16 @@ import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.EntityType;
-import net.minecraft.entity.LightningEntity;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.particle.ParticleEffect;
-import net.minecraft.particle.ParticleTypes;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.sound.SoundEvent;
-import net.minecraft.sound.SoundEvents;
-
 import java.util.Random;
+import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LightningBolt;
+import net.minecraft.world.entity.LivingEntity;
 
 /** Client-side effects when you hit something: particles, sounds and lightning. */
 public class HitFxModule extends Module {
@@ -39,7 +38,7 @@ public class HitFxModule extends Module {
 	public void onPreAttack(Entity target) {
 		if (!(target instanceof LivingEntity)) return;
 
-		ParticleEffect effect = switch (particles.get()) {
+		ParticleOptions effect = switch (particles.get()) {
 			case NONE -> null;
 			case CRIT -> ParticleTypes.CRIT;
 			case MAGIC -> ParticleTypes.ENCHANTED_HIT;
@@ -49,31 +48,31 @@ public class HitFxModule extends Module {
 		};
 		if (effect != null) {
 			for (int i = 0; i < amount.getInt(); i++) {
-				double x = target.getX() + (random.nextDouble() - 0.5) * target.getWidth();
-				double y = target.getY() + random.nextDouble() * target.getHeight();
-				double z = target.getZ() + (random.nextDouble() - 0.5) * target.getWidth();
-				mc.world.addParticleClient(effect, x, y, z, (random.nextDouble() - 0.5) * 0.4, random.nextDouble() * 0.3, (random.nextDouble() - 0.5) * 0.4);
+				double x = target.getX() + (random.nextDouble() - 0.5) * target.getBbWidth();
+				double y = target.getY() + random.nextDouble() * target.getBbHeight();
+				double z = target.getZ() + (random.nextDouble() - 0.5) * target.getBbWidth();
+				mc.level.addParticle(effect, x, y, z, (random.nextDouble() - 0.5) * 0.4, random.nextDouble() * 0.3, (random.nextDouble() - 0.5) * 0.4);
 			}
 		}
 
 		SoundEvent soundEvent = switch (sound.get()) {
 			case NONE -> null;
-			case BELL -> SoundEvents.BLOCK_NOTE_BLOCK_BELL.value();
-			case ORB -> SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP;
-			case ANVIL -> SoundEvents.BLOCK_ANVIL_LAND;
-			case BASS -> SoundEvents.BLOCK_NOTE_BLOCK_BASS.value();
+			case BELL -> SoundEvents.NOTE_BLOCK_BELL.value();
+			case ORB -> SoundEvents.EXPERIENCE_ORB_PICKUP;
+			case ANVIL -> SoundEvents.ANVIL_LAND;
+			case BASS -> SoundEvents.NOTE_BLOCK_BASS.value();
 		};
 		if (soundEvent != null) {
-			mc.world.playSoundClient(target.getX(), target.getY(), target.getZ(), soundEvent, SoundCategory.PLAYERS, 0.8f, 0.9f + random.nextFloat() * 0.2f, false);
+			mc.level.playLocalSound(target.getX(), target.getY(), target.getZ(), soundEvent, SoundSource.PLAYERS, 0.8f, 0.9f + random.nextFloat() * 0.2f, false);
 		}
 
 		if (lightning.get()) {
-			LightningEntity bolt = new LightningEntity(EntityType.LIGHTNING_BOLT, mc.world);
+			LightningBolt bolt = new LightningBolt(EntityType.LIGHTNING_BOLT, mc.level);
 			bolt.setId(nextLightningId--);
-			bolt.refreshPositionAfterTeleport(target.getEntityPos());
+			bolt.snapTo(target.position());
 			// Cosmetic only: no fire, and the bolt discards itself client side after a few ticks
-			bolt.setCosmetic(true);
-			mc.world.addEntity(bolt);
+			bolt.setVisualOnly(true);
+			mc.level.addEntity(bolt);
 		}
 	}
 }

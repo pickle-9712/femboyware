@@ -9,9 +9,9 @@ import dev.femboyware.util.InventoryUtil;
 import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.PlaceUtil;
 import dev.femboyware.util.TargetUtil;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.Items;
-import net.minecraft.util.Hand;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Items;
 
 /**
  * Lands a mace smash the moment a target is in reach while you are falling. Mace damage scales
@@ -31,21 +31,21 @@ public class MaceKillerModule extends Module {
 
 	@Override
 	public void onTick() {
-		if (mc.player.isOnGround() || mc.player.isGliding()) {
+		if (mc.player.onGround() || mc.player.isFallFlying()) {
 			hitThisFall = false;
 			return;
 		}
 		if (hitThisFall || mc.player.fallDistance < minFall.get()) return;
 
-		PlayerEntity target = TargetUtil.closestPlayer(range.get());
+		Player target = TargetUtil.closestPlayer(range.get());
 		if (target == null) return;
-		int slot = InventoryUtil.findHotbar(stack -> stack.isOf(Items.MACE));
+		int slot = InventoryUtil.findHotbar(stack -> stack.is(Items.MACE));
 		if (slot < 0) return;
 
 		hitThisFall = InventoryUtil.withSlot(slot, switchMode.get(), () -> {
 			if (rotate.get()) PlaceUtil.lookAt(target.getBoundingBox().getCenter());
-			mc.interactionManager.attackEntity(mc.player, target);
-			mc.player.swingHand(Hand.MAIN_HAND);
+			mc.gameMode.attack(mc.player, target);
+			mc.player.swing(InteractionHand.MAIN_HAND);
 		});
 	}
 }

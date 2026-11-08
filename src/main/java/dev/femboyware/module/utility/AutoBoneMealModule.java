@@ -8,19 +8,19 @@ import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.PlaceUtil;
 import dev.femboyware.util.Timer;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.CocoaBlock;
-import net.minecraft.block.CropBlock;
-import net.minecraft.block.Fertilizable;
-import net.minecraft.block.SaplingBlock;
-import net.minecraft.block.StemBlock;
-import net.minecraft.block.SweetBerryBushBlock;
-import net.minecraft.item.Items;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.BonemealableBlock;
+import net.minecraft.world.level.block.CocoaBlock;
+import net.minecraft.world.level.block.CropBlock;
+import net.minecraft.world.level.block.SaplingBlock;
+import net.minecraft.world.level.block.StemBlock;
+import net.minecraft.world.level.block.SweetBerryBushBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 
 /** Uses bone meal on growable plants around you. */
 public class AutoBoneMealModule extends Module {
@@ -40,16 +40,16 @@ public class AutoBoneMealModule extends Module {
 	public void onTick() {
 		if (!timer.passed(delay.get())) return;
 		int r = (int) Math.ceil(range.get());
-		BlockPos feet = mc.player.getBlockPos();
-		Vec3d eyes = mc.player.getEyePos();
-		for (BlockPos pos : BlockPos.iterate(feet.add(-r, -r, -r), feet.add(r, r, r))) {
-			if (eyes.squaredDistanceTo(Vec3d.ofCenter(pos)) > range.get() * range.get()) continue;
-			BlockState state = mc.world.getBlockState(pos);
-			if (!(state.getBlock() instanceof Fertilizable fertilizable) || !fertilizable.isFertilizable(mc.world, pos, state)) continue;
+		BlockPos feet = mc.player.blockPosition();
+		Vec3 eyes = mc.player.getEyePosition();
+		for (BlockPos pos : BlockPos.betweenClosed(feet.offset(-r, -r, -r), feet.offset(r, r, r))) {
+			if (eyes.distanceToSqr(Vec3.atCenterOf(pos)) > range.get() * range.get()) continue;
+			BlockState state = mc.level.getBlockState(pos);
+			if (!(state.getBlock() instanceof BonemealableBlock fertilizable) || !fertilizable.isValidBonemealTarget(mc.level, pos, state)) continue;
 			if (cropsOnly.get() && !isCrop(state.getBlock())) continue;
 
-			BlockHitResult hit = new BlockHitResult(Vec3d.ofCenter(pos), Direction.UP, pos.toImmutable(), false);
-			if (PlaceUtil.interact(hit, stack -> stack.isOf(Items.BONE_MEAL), switchMode.get(), rotate.get())) timer.reset();
+			BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(pos), Direction.UP, pos.immutable(), false);
+			if (PlaceUtil.interact(hit, stack -> stack.is(Items.BONE_MEAL), switchMode.get(), rotate.get())) timer.reset();
 			return;
 		}
 	}

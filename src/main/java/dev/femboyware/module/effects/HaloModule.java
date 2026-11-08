@@ -1,18 +1,17 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.math.Axis;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.RotationAxis;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.List;
 import java.util.function.Consumer;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
 /** A glowing halo floating over your head, turning with it. */
 public class HaloModule extends PlayerFxModule {
@@ -33,7 +32,7 @@ public class HaloModule extends PlayerFxModule {
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
-		List<PlayerEntity> wearers = wearers(true);
+		List<Player> wearers = wearers(true);
 		if (wearers.isEmpty()) return;
 		float r = size.getFloat(), half = thickness.getFloat() / 2;
 		if (glow.get()) {
@@ -49,18 +48,18 @@ public class HaloModule extends PlayerFxModule {
 			(t, inner) -> inner ? FxRender.lighten(palette.at(t), 0.5f) : palette.at(t)));
 	}
 
-	private void draw(Render3DEvent event, List<PlayerEntity> wearers, Consumer<MatrixStack.Entry> shape) {
+	private void draw(Render3DEvent event, List<Player> wearers, Consumer<PoseStack.Pose> shape) {
 		float tickDelta = tickDelta();
-		Vec3d cam = event.camera().pos;
-		MatrixStack matrices = event.matrices();
-		for (PlayerEntity player : wearers) {
-			matrices.push();
+		Vec3 cam = event.camera().pos;
+		PoseStack matrices = event.matrices();
+		for (Player player : wearers) {
+			matrices.pushPose();
 			toHead(matrices, player, cam.x, cam.y, cam.z, tickDelta);
 			float lift = height.getFloat() + (bob.get() ? (float) Math.sin(time() * 2 + player.getId()) * 0.03f : 0);
 			matrices.translate(0, lift, 0);
-			matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(-tilt.getFloat()));
-			shape.accept(matrices.peek());
-			matrices.pop();
+			matrices.mulPose(Axis.XP.rotationDegrees(-tilt.getFloat()));
+			shape.accept(matrices.last());
+			matrices.popPose();
 		}
 	}
 }

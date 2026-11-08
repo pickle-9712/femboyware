@@ -2,14 +2,13 @@ package dev.femboyware.module.hud;
 
 import com.mojang.blaze3d.textures.GpuTextureView;
 import dev.femboyware.gui.UiScale;
-import net.minecraft.text.Style;
-import net.minecraft.text.StyleSpriteSource;
-import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
-
 import java.util.Collections;
 import java.util.Set;
 import java.util.WeakHashMap;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.FontDescription;
+import net.minecraft.network.chat.Style;
+import net.minecraft.resources.Identifier;
 
 /**
  * Smooth fonts for lyrics. Glyphs look sharpest rasterised at the size they land on screen, and lyrics
@@ -25,23 +24,23 @@ public enum LyricFont {
 	private static final Set<GpuTextureView> SMOOTH = Collections.newSetFromMap(new WeakHashMap<>());
 
 	private final String name;
-	private final StyleSpriteSource[] sources = new StyleSpriteSource[10];
+	private final FontDescription[] sources = new FontDescription[10];
 
 	LyricFont(String name) {
 		this.name = name;
 	}
 
-	private StyleSpriteSource source(int index) {
-		if (sources[index] == null) sources[index] = new StyleSpriteSource.Font(Identifier.of("femboyware", "lyric_" + name + "_" + SIZES[index]));
+	private FontDescription source(int index) {
+		if (sources[index] == null) sources[index] = new FontDescription.Resource(Identifier.fromNamespaceAndPath("femboyware", "lyric_" + name + "_" + SIZES[index]));
 		return sources[index];
 	}
 
 	/** {@code string} in this font, for drawing at {@code scale} times normal GUI size. */
-	public Text text(String string, float scale, boolean italic) {
+	public Component text(String string, float scale, boolean italic) {
 		float pixels = UiScale.density() * scale;
 		int index = 0;
 		while (index < SIZES.length - 1 && SIZES[index] < pixels) index++;
-		return Text.literal(string).setStyle(Style.EMPTY.withFont(source(index)).withItalic(italic));
+		return Component.literal(string).setStyle(Style.EMPTY.withFont(source(index)).withItalic(italic));
 	}
 
 	public static void noteAtlas(Identifier font, GpuTextureView view) {

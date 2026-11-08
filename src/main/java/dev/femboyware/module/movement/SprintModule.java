@@ -26,17 +26,17 @@ public class SprintModule extends Module {
 
 	@Override
 	protected void onDisable() {
-		if (!nullCheck()) KeyUtil.sync(mc.options.sprintKey);
+		if (!nullCheck()) KeyUtil.sync(mc.options.keySprint);
 	}
 
 	@Override
 	public void onTick() {
 		if (mode.is(Mode.LEGIT)) {
-			mc.options.sprintKey.setPressed(true);
+			mc.options.keySprint.setDown(true);
 			return;
 		}
-		boolean moving = mc.player.input.getMovementInput().lengthSquared() > 0;
-		boolean hungry = mc.player.getHungerManager().getFoodLevel() <= 6 && !mc.player.getAbilities().allowFlying;
-		if (moving && !hungry && !mc.player.isSneaking() && !mc.player.horizontalCollision) mc.player.setSprinting(true);
+		boolean moving = mc.player.input.getMoveVector().lengthSquared() > 0;
+		boolean hungry = mc.player.getFoodData().getFoodLevel() <= 6 && !mc.player.getAbilities().mayfly;
+		if (moving && !hungry && !mc.player.isShiftKeyDown() && !mc.player.horizontalCollision) mc.player.setSprinting(true);
 	}
 }

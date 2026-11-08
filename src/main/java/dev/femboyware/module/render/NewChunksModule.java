@@ -1,5 +1,6 @@
 package dev.femboyware.module.render;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
@@ -9,14 +10,13 @@ import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.ChunkScanner;
 import dev.femboyware.util.RenderUtil;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientChunkEvents;
-import net.minecraft.block.BlockState;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.fluid.FluidState;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.chunk.WorldChunk;
-
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.material.FluidState;
+import net.minecraft.world.phys.AABB;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -37,7 +37,7 @@ public class NewChunksModule extends Module {
 
 	private final Set<Long> newChunks = new HashSet<>();
 	private final Set<Long> oldChunks = new HashSet<>();
-	private ClientWorld world;
+	private ClientLevel world;
 
 	public NewChunksModule() {
 		super("New Chunks", "Shows new and old chunks, for finding bases and trails", Category.ESP);
@@ -59,10 +59,10 @@ public class NewChunksModule extends Module {
 
 	@Override
 	public void onTick() {
-		if (mc.world != world) {
+		if (mc.level != world) {
 			newChunks.clear();
 			oldChunks.clear();
-			world = mc.world;
+			world = mc.level;
 		}
 	}
 
@@ -70,13 +70,13 @@ public class NewChunksModule extends Module {
 	@Override
 	public void onBlockUpdate(BlockPos pos, BlockState state) {
 		if (!flowing(state.getFluidState())) return;
-		long chunk = ChunkPos.toLong(pos.getX() >> 4, pos.getZ() >> 4);
+		long chunk = Mc.chunkKey(pos.getX() >> 4, pos.getZ() >> 4);
 		if (!oldChunks.contains(chunk)) newChunks.add(chunk);
 	}
 
 	/** Flowing liquid already in a chunk as it arrives means it was generated before and has settled. */
-	private void onChunkLoad(WorldChunk chunk) {
-		long key = chunk.getPos().toLong();
+	private void onChunkLoad(LevelChunk chunk) {
+		long key = Mc.chunkKey(chunk.getPos());
 		if (newChunks.contains(key)) return;
 		boolean[] found = {false};
 		ChunkScanner.forEachBlock(chunk, state -> flowing(state.getFluidState()), (pos, state) -> found[0] = true);
@@ -84,7 +84,7 @@ public class NewChunksModule extends Module {
 	}
 
 	private static boolean flowing(FluidState fluid) {
-		return !fluid.isEmpty() && !fluid.isStill();
+		return !fluid.isEmpty() && !fluid.isSource();
 	}
 
 	@Override
@@ -97,9 +97,9 @@ public class NewChunksModule extends Module {
 	private void draw(Render3DEvent event, Set<Long> chunks, int color, double y) {
 		int outline = color | 0xFF000000;
 		for (long key : chunks) {
-			int x = ChunkPos.getPackedX(key) << 4;
-			int z = ChunkPos.getPackedZ(key) << 4;
-			RenderUtil.drawBox(event, new Box(x, y, z, x + 16, y + 0.02, z + 16), color, outline, 1.5f);
+			int x = ChunkPos.getX(key) << 4;
+			int z = ChunkPos.getZ(key) << 4;
+			RenderUtil.drawBox(event, new AABB(x, y, z, x + 16, y + 0.02, z + 16), color, outline, 1.5f);
 		}
 	}
 }

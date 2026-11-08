@@ -3,8 +3,8 @@ package dev.femboyware.util;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.movement.TimerModule;
 import dev.femboyware.module.utility.TpsSyncModule;
-import net.minecraft.network.packet.Packet;
-import net.minecraft.network.packet.s2c.play.WorldTimeUpdateS2CPacket;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientboundSetTimePacket;
 
 /**
  * Estimates the server tick rate from world time updates (sent once a second) and decides how
@@ -22,7 +22,7 @@ public final class TickRate {
 
 	/** Called on the netty thread for every received packet. */
 	public static synchronized void onPacket(Packet<?> packet) {
-		if (!(packet instanceof WorldTimeUpdateS2CPacket)) return;
+		if (!(packet instanceof ClientboundSetTimePacket)) return;
 		long now = System.nanoTime();
 		if (lastUpdate >= 0) {
 			float seconds = (now - lastUpdate) / 1e9f;

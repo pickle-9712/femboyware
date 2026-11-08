@@ -8,14 +8,14 @@ import dev.femboyware.util.ChatUtil;
 import dev.femboyware.util.InventoryUtil;
 import dev.femboyware.util.Rotation;
 import dev.femboyware.util.Timer;
-import net.minecraft.item.Items;
-import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
-import net.minecraft.util.Hand;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.util.Mth;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Two ways into walls:
@@ -73,7 +73,7 @@ public class PhaseModule extends Module {
 			throwPearl();
 			return;
 		}
-		boolean inBlock = !mc.world.isSpaceEmpty(mc.player, mc.player.getBoundingBox().contract(0.01));
+		boolean inBlock = !mc.level.noCollision(mc.player, mc.player.getBoundingBox().deflate(0.01));
 		if (inBlock) inside = true;
 		// Done once we've walked back out, or if the pearl never got us in
 		if ((inside && !inBlock) || (!inside && timer.passed(PEARL_TIMEOUT))) setEnabled(false);
@@ -82,29 +82,29 @@ public class PhaseModule extends Module {
 	// ---------------------------------------------------------------- pearl
 
 	private void throwPearl() {
-		int slot = InventoryUtil.findHotbar(stack -> stack.isOf(Items.ENDER_PEARL));
+		int slot = InventoryUtil.findHotbar(stack -> stack.is(Items.ENDER_PEARL));
 		if (slot < 0) {
 			ChatUtil.info("Phase: no ender pearl in your hotbar");
 			setEnabled(false);
 			return;
 		}
-		Vec3d aim = aimPoint();
+		Vec3 aim = aimPoint();
 		if (aim == null) {
 			ChatUtil.info("Phase: no solid block next to your feet");
 			setEnabled(false);
 			return;
 		}
-		if (mc.player.getItemCooldownManager().isCoolingDown(mc.player.getInventory().getStack(slot))) return;
+		if (mc.player.getCooldowns().isOnCooldown(mc.player.getInventory().getItem(slot))) return;
 
 		// The throw packet carries the look direction, so face the spot just for the throw
-		Rotation rotation = Rotation.between(mc.player.getEyePos(), aim);
-		float yaw = mc.player.getYaw();
-		float pitch = mc.player.getPitch();
-		mc.player.setYaw(rotation.yaw());
-		mc.player.setPitch(rotation.pitch());
-		InventoryUtil.withSlot(slot, InventoryUtil.SwitchMode.SILENT, () -> mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND));
-		mc.player.setYaw(yaw);
-		mc.player.setPitch(pitch);
+		Rotation rotation = Rotation.between(mc.player.getEyePosition(), aim);
+		float yaw = mc.player.getYRot();
+		float pitch = mc.player.getXRot();
+		mc.player.setYRot(rotation.yaw());
+		mc.player.setXRot(rotation.pitch());
+		InventoryUtil.withSlot(slot, InventoryUtil.SwitchMode.SILENT, () -> mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND));
+		mc.player.setYRot(yaw);
+		mc.player.setXRot(pitch);
 		thrown = true;
 		timer.reset();
 	}
@@ -113,14 +113,14 @@ public class PhaseModule extends Module {
 	 * Where to throw: low on the face of the solid block beside our feet, in the direction we're
 	 * facing or the nearest solid side. The pearl lands on that face, putting us half inside it.
 	 */
-	private Vec3d aimPoint() {
-		BlockPos feet = mc.player.getBlockPos();
-		Direction facing = Direction.fromHorizontalDegrees(mc.player.getYaw());
+	private Vec3 aimPoint() {
+		BlockPos feet = mc.player.blockPosition();
+		Direction facing = Direction.fromYRot(mc.player.getYRot());
 		Direction best = null;
 		double bestDistance = Double.MAX_VALUE;
-		for (Direction side : Direction.Type.HORIZONTAL) {
-			BlockPos block = feet.offset(side);
-			if (!mc.world.getBlockState(block).isFullCube(mc.world, block)) continue;
+		for (Direction side : Direction.Plane.HORIZONTAL) {
+			BlockPos block = feet.relative(side);
+			if (!mc.level.getBlockState(block).isCollisionShapeFullBlock(mc.level, block)) continue;
 			// Facing it wins; otherwise whichever face is closest
 			double distance = side == facing ? -1 : faceDistance(side);
 			if (distance < bestDistance) {
@@ -129,19 +129,19 @@ public class PhaseModule extends Module {
 			}
 		}
 		if (best == null) return null;
-		BlockPos block = feet.offset(best);
-		Vec3d pos = mc.player.getEntityPos();
+		BlockPos block = feet.relative(best);
+		Vec3 pos = mc.player.position();
 		// On the face, across from where we stand, just above the floor so the pearl hits the face and not the ground
-		double faceX = best.getOffsetX() == 0 ? MathHelper.clamp(pos.x, block.getX() + 0.2, block.getX() + 0.8)
-			: best.getOffsetX() > 0 ? block.getX() + 0.001 : block.getX() + 0.999;
-		double faceZ = best.getOffsetZ() == 0 ? MathHelper.clamp(pos.z, block.getZ() + 0.2, block.getZ() + 0.8)
-			: best.getOffsetZ() > 0 ? block.getZ() + 0.001 : block.getZ() + 0.999;
-		return new Vec3d(faceX, feet.getY() + 0.15, faceZ);
+		double faceX = best.getStepX() == 0 ? Mth.clamp(pos.x, block.getX() + 0.2, block.getX() + 0.8)
+			: best.getStepX() > 0 ? block.getX() + 0.001 : block.getX() + 0.999;
+		double faceZ = best.getStepZ() == 0 ? Mth.clamp(pos.z, block.getZ() + 0.2, block.getZ() + 0.8)
+			: best.getStepZ() > 0 ? block.getZ() + 0.001 : block.getZ() + 0.999;
+		return new Vec3(faceX, feet.getY() + 0.15, faceZ);
 	}
 
 	private double faceDistance(Direction side) {
-		Vec3d pos = mc.player.getEntityPos();
-		BlockPos feet = mc.player.getBlockPos();
+		Vec3 pos = mc.player.position();
+		BlockPos feet = mc.player.blockPosition();
 		return switch (side) {
 			case EAST -> feet.getX() + 1 - pos.x;
 			case WEST -> pos.x - feet.getX();
@@ -154,16 +154,16 @@ public class PhaseModule extends Module {
 	// ---------------------------------------------------------------- clip
 
 	private void clip() {
-		if (!mc.player.horizontalCollision || !mc.player.input.hasForwardMovement() || !timer.passed(delay.get())) return;
-		double radians = Math.toRadians(mc.player.getYaw());
-		Vec3d direction = new Vec3d(-Math.sin(radians), 0, Math.cos(radians));
-		Box box = mc.player.getBoundingBox();
+		if (!mc.player.horizontalCollision || !mc.player.input.hasForwardImpulse() || !timer.passed(delay.get())) return;
+		double radians = Math.toRadians(mc.player.getYRot());
+		Vec3 direction = new Vec3(-Math.sin(radians), 0, Math.cos(radians));
+		AABB box = mc.player.getBoundingBox();
 		for (double d = 0.3; d <= distance.get(); d += 0.1) {
-			Vec3d offset = direction.multiply(d);
-			if (!mc.world.isSpaceEmpty(mc.player, box.offset(offset))) continue;
-			Vec3d target = mc.player.getEntityPos().add(offset);
-			mc.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.PositionAndOnGround(target, mc.player.isOnGround(), false));
-			mc.player.setPosition(target);
+			Vec3 offset = direction.scale(d);
+			if (!mc.level.noCollision(mc.player, box.move(offset))) continue;
+			Vec3 target = mc.player.position().add(offset);
+			mc.getConnection().send(new ServerboundMovePlayerPacket.Pos(target, mc.player.onGround(), false));
+			mc.player.setPos(target);
 			timer.reset();
 			return;
 		}

@@ -8,22 +8,21 @@ import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.PlaceUtil;
 import dev.femboyware.util.Timer;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.registry.tag.ItemTags;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.function.Predicate;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 
 /** Tills the dirt and grass around you into farmland, and can plant seeds on it straight away. */
 public class SoilRipperModule extends Module {
-	private static final Predicate<ItemStack> SEEDS = stack -> stack.isOf(Items.WHEAT_SEEDS) || stack.isOf(Items.CARROT)
-		|| stack.isOf(Items.POTATO) || stack.isOf(Items.BEETROOT_SEEDS) || stack.isOf(Items.MELON_SEEDS) || stack.isOf(Items.PUMPKIN_SEEDS);
+	private static final Predicate<ItemStack> SEEDS = stack -> stack.is(Items.WHEAT_SEEDS) || stack.is(Items.CARROT)
+		|| stack.is(Items.POTATO) || stack.is(Items.BEETROOT_SEEDS) || stack.is(Items.MELON_SEEDS) || stack.is(Items.PUMPKIN_SEEDS);
 
 	private final NumberSetting range = add(new NumberSetting("Range", "How far to reach", 4.5, 1, 6, 0.5));
 	private final NumberSetting delay = add(new NumberSetting("Delay", "Milliseconds between actions", 100, 0, 1000, 10));
@@ -41,18 +40,18 @@ public class SoilRipperModule extends Module {
 	public void onTick() {
 		if (!timer.passed(delay.get())) return;
 		int r = (int) Math.ceil(range.get());
-		BlockPos feet = mc.player.getBlockPos();
-		Vec3d eyes = mc.player.getEyePos();
-		for (BlockPos pos : BlockPos.iterate(feet.add(-r, -2, -r), feet.add(r, 1, r))) {
-			if (eyes.squaredDistanceTo(Vec3d.ofCenter(pos)) > range.get() * range.get()) continue;
-			if (!mc.world.getBlockState(pos.up()).isAir()) continue;
-			BlockState state = mc.world.getBlockState(pos);
+		BlockPos feet = mc.player.blockPosition();
+		Vec3 eyes = mc.player.getEyePosition();
+		for (BlockPos pos : BlockPos.betweenClosed(feet.offset(-r, -2, -r), feet.offset(r, 1, r))) {
+			if (eyes.distanceToSqr(Vec3.atCenterOf(pos)) > range.get() * range.get()) continue;
+			if (!mc.level.getBlockState(pos.above()).isAir()) continue;
+			BlockState state = mc.level.getBlockState(pos);
 			Predicate<ItemStack> tool;
-			if (isTillable(state)) tool = stack -> stack.isIn(ItemTags.HOES);
-			else if (plant.get() && state.isOf(Blocks.FARMLAND)) tool = SEEDS;
+			if (isTillable(state)) tool = stack -> stack.is(ItemTags.HOES);
+			else if (plant.get() && state.is(Blocks.FARMLAND)) tool = SEEDS;
 			else continue;
 
-			BlockHitResult hit = new BlockHitResult(Vec3d.ofCenter(pos).add(0, 0.5, 0), Direction.UP, pos.toImmutable(), false);
+			BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(pos).add(0, 0.5, 0), Direction.UP, pos.immutable(), false);
 			if (PlaceUtil.interact(hit, tool, switchMode.get(), rotate.get())) {
 				timer.reset();
 				return;
@@ -61,6 +60,6 @@ public class SoilRipperModule extends Module {
 	}
 
 	private static boolean isTillable(BlockState state) {
-		return state.isOf(Blocks.GRASS_BLOCK) || state.isOf(Blocks.DIRT) || state.isOf(Blocks.DIRT_PATH) || state.isOf(Blocks.COARSE_DIRT);
+		return state.is(Blocks.GRASS_BLOCK) || state.is(Blocks.DIRT) || state.is(Blocks.DIRT_PATH) || state.is(Blocks.COARSE_DIRT);
 	}
 }

@@ -3,13 +3,12 @@ package dev.femboyware.module.hud;
 import dev.femboyware.gui.Glass;
 import dev.femboyware.gui.Theme;
 import dev.femboyware.setting.BoolSetting;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.util.math.Direction;
-import net.minecraft.world.World;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.core.Direction;
+import net.minecraft.world.level.Level;
 
 /** Where you are: your coordinates, the matching spot in the other dimension, and which way you face. */
 public class CoordinatesModule extends HudElement {
@@ -30,19 +29,19 @@ public class CoordinatesModule extends HudElement {
 		}
 		double x = mc.player.getX(), y = mc.player.getY(), z = mc.player.getZ();
 		lines.add(String.format(Locale.ROOT, "XYZ %.1f %.1f %.1f", x, y, z));
-		if (otherDimension.get() && mc.world != null) {
-			if (mc.world.getRegistryKey() == World.NETHER) lines.add(String.format(Locale.ROOT, "Overworld %.0f %.0f", x * 8, z * 8));
-			else if (mc.world.getRegistryKey() == World.OVERWORLD) lines.add(String.format(Locale.ROOT, "Nether %.0f %.0f", x / 8, z / 8));
+		if (otherDimension.get() && mc.level != null) {
+			if (mc.level.dimension() == Level.NETHER) lines.add(String.format(Locale.ROOT, "Overworld %.0f %.0f", x * 8, z * 8));
+			else if (mc.level.dimension() == Level.OVERWORLD) lines.add(String.format(Locale.ROOT, "Nether %.0f %.0f", x / 8, z / 8));
 		}
 		if (facing.get()) {
-			Direction direction = mc.player.getHorizontalFacing();
+			Direction direction = mc.player.getDirection();
 			String axis = switch (direction) {
 				case NORTH -> "-Z";
 				case SOUTH -> "+Z";
 				case WEST -> "-X";
 				default -> "+X";
 			};
-			lines.add("Facing " + direction.asString().substring(0, 1).toUpperCase(Locale.ROOT) + direction.asString().substring(1) + " (" + axis + ")");
+			lines.add("Facing " + direction.getSerializedName().substring(0, 1).toUpperCase(Locale.ROOT) + direction.getSerializedName().substring(1) + " (" + axis + ")");
 		}
 		return lines;
 	}
@@ -50,7 +49,7 @@ public class CoordinatesModule extends HudElement {
 	@Override
 	public int width(boolean editing) {
 		int widest = 0;
-		for (String line : lines()) widest = Math.max(widest, mc.textRenderer.getWidth(line));
+		for (String line : lines()) widest = Math.max(widest, mc.font.width(line));
 		return widest + (background.get() ? 12 : 0);
 	}
 
@@ -60,12 +59,12 @@ public class CoordinatesModule extends HudElement {
 	}
 
 	@Override
-	protected void draw(DrawContext context, int left, int top, boolean editing) {
+	protected void draw(GuiGraphics context, int left, int top, boolean editing) {
 		if (background.get()) Glass.draw(context, left, top, left + width(editing), top + height(editing), 4, backgroundColor(Theme.list()), false);
 		int pad = background.get() ? 6 : 0;
 		List<String> lines = lines();
 		for (int i = 0; i < lines.size(); i++) {
-			context.drawTextWithShadow(mc.textRenderer, lines.get(i), left + pad, top + (background.get() ? 4 : 0) + i * 10, i == 0 ? textColor() : mutedColor());
+			context.drawString(mc.font, lines.get(i), left + pad, top + (background.get() ? 4 : 0) + i * 10, i == 0 ? textColor() : mutedColor());
 		}
 	}
 }

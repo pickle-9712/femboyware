@@ -7,16 +7,15 @@ import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.InventoryUtil;
 import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.PlaceUtil;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
-import net.minecraft.util.Hand;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.function.Predicate;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Places a block inside your own feet: fakes a jump with position packets, places the block in
@@ -42,11 +41,11 @@ public class BurrowModule extends Module {
 	}
 
 	private void burrow() {
-		BlockPos feet = BlockPos.ofFloored(mc.player.getX(), mc.player.getY() + 0.2, mc.player.getZ());
-		if (!mc.player.isOnGround() || !mc.world.getBlockState(feet).isReplaceable()) return;
-		if (!mc.world.getBlockState(feet.up(2)).isReplaceable()) return;
+		BlockPos feet = BlockPos.containing(mc.player.getX(), mc.player.getY() + 0.2, mc.player.getZ());
+		if (!mc.player.onGround() || !mc.level.getBlockState(feet).canBeReplaced()) return;
+		if (!mc.level.getBlockState(feet.above(2)).canBeReplaced()) return;
 
-		Predicate<ItemStack> block = stack -> PlaceUtil.OBSIDIAN.test(stack) || enderChest.get() && stack.isOf(Items.ENDER_CHEST);
+		Predicate<ItemStack> block = stack -> PlaceUtil.OBSIDIAN.test(stack) || enderChest.get() && stack.is(Items.ENDER_CHEST);
 		int slot = InventoryUtil.findHotbar(block);
 		if (slot < 0) return;
 
@@ -54,20 +53,20 @@ public class BurrowModule extends Module {
 		double y = mc.player.getY();
 		double z = mc.player.getZ();
 		for (double offset : JUMP) {
-			mc.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.PositionAndOnGround(x, y + offset, z, false, false));
+			mc.getConnection().send(new ServerboundMovePlayerPacket.Pos(x, y + offset, z, false, false));
 		}
 
-		BlockPos ground = feet.down();
-		Vec3d hitVec = Vec3d.ofCenter(ground).add(0, 0.5, 0);
+		BlockPos ground = feet.below();
+		Vec3 hitVec = Vec3.atCenterOf(ground).add(0, 0.5, 0);
 		BlockHitResult hit = new BlockHitResult(hitVec, Direction.UP, ground, false);
 		InventoryUtil.withSlot(slot, SwitchMode.SILENT, () -> {
 			if (rotate.get()) {
-				mc.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.LookAndOnGround(mc.player.getYaw(), 90f, false, false));
+				mc.getConnection().send(new ServerboundMovePlayerPacket.Rot(mc.player.getYRot(), 90f, false, false));
 			}
-			mc.interactionManager.interactBlock(mc.player, Hand.MAIN_HAND, hit);
-			mc.player.swingHand(Hand.MAIN_HAND);
+			mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, hit);
+			mc.player.swing(InteractionHand.MAIN_HAND);
 		});
 
-		mc.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.PositionAndOnGround(x, y + rubberband.get(), z, false, false));
+		mc.getConnection().send(new ServerboundMovePlayerPacket.Pos(x, y + rubberband.get(), z, false, false));
 	}
 }

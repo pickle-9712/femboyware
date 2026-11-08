@@ -8,9 +8,9 @@ import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.InventoryUtil;
 import dev.femboyware.util.Timer;
-import net.minecraft.item.Item;
-import net.minecraft.item.Items;
-import net.minecraft.registry.tag.ItemTags;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 
 /** Keeps the item you want in your offhand, falling back to a totem when you're in danger. */
 public class OffhandModule extends Module {
@@ -43,15 +43,15 @@ public class OffhandModule extends Module {
 
 	@Override
 	public void onTick() {
-		if (mc.player.currentScreenHandler != mc.player.playerScreenHandler || !timer.passed(delay.get())) return;
+		if (mc.player.containerMenu != mc.player.inventoryMenu || !timer.passed(delay.get())) return;
 		if (FemboyWare.getModules().get(QuiverModule.class).isBusy()) return;
 		Item wanted = desired();
-		if (mc.player.getOffHandStack().isOf(wanted)) return;
+		if (mc.player.getOffhandItem().is(wanted)) return;
 
-		int slot = InventoryUtil.findInventory(stack -> stack.isOf(wanted));
+		int slot = InventoryUtil.findInventory(stack -> stack.is(wanted));
 		// Out of the preferred item: a totem is always the safe fallback
-		if (slot < 0 && wanted != Items.TOTEM_OF_UNDYING && !mc.player.getOffHandStack().isOf(Items.TOTEM_OF_UNDYING)) {
-			slot = InventoryUtil.findInventory(stack -> stack.isOf(Items.TOTEM_OF_UNDYING));
+		if (slot < 0 && wanted != Items.TOTEM_OF_UNDYING && !mc.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING)) {
+			slot = InventoryUtil.findInventory(stack -> stack.is(Items.TOTEM_OF_UNDYING));
 		}
 		if (slot < 0) return;
 		InventoryUtil.swapWithOffhand(slot);
@@ -60,9 +60,9 @@ public class OffhandModule extends Module {
 
 	private Item desired() {
 		float hp = mc.player.getHealth() + mc.player.getAbsorptionAmount();
-		boolean danger = hp <= health.get() || fallSafety.get() && mc.player.fallDistance > 10 && !mc.player.isGliding();
+		boolean danger = hp <= health.get() || fallSafety.get() && mc.player.fallDistance > 10 && !mc.player.isFallFlying();
 		if (danger) return Items.TOTEM_OF_UNDYING;
-		if (swordGapple.get() && mc.options.useKey.isPressed() && mc.player.getMainHandStack().isIn(ItemTags.SWORDS)) {
+		if (swordGapple.get() && mc.options.keyUse.isDown() && mc.player.getMainHandItem().is(ItemTags.SWORDS)) {
 			return bestApple();
 		}
 		return switch (mode.get()) {
@@ -73,8 +73,8 @@ public class OffhandModule extends Module {
 	}
 
 	private Item bestApple() {
-		boolean enchanted = mc.player.getOffHandStack().isOf(Items.ENCHANTED_GOLDEN_APPLE)
-			|| InventoryUtil.findInventory(stack -> stack.isOf(Items.ENCHANTED_GOLDEN_APPLE)) >= 0;
+		boolean enchanted = mc.player.getOffhandItem().is(Items.ENCHANTED_GOLDEN_APPLE)
+			|| InventoryUtil.findInventory(stack -> stack.is(Items.ENCHANTED_GOLDEN_APPLE)) >= 0;
 		return enchanted ? Items.ENCHANTED_GOLDEN_APPLE : Items.GOLDEN_APPLE;
 	}
 }

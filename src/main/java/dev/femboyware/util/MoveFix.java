@@ -1,9 +1,9 @@
 package dev.femboyware.util;
 
 import dev.femboyware.mixin.InputAccessor;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.util.PlayerInput;
-import net.minecraft.util.math.Vec2f;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.world.entity.player.Input;
+import net.minecraft.world.phys.Vec2;
 
 /**
  * Remaps WASD so that, moving relative to the server yaw, the player still goes roughly where the
@@ -20,13 +20,13 @@ public final class MoveFix {
 	}
 
 	/** Call right after {@code Input.tick()}, before anything reads the keys. */
-	public static void fixInput(ClientPlayerEntity player, float serverYaw) {
-		PlayerInput keys = player.input.playerInput;
+	public static void fixInput(LocalPlayer player, float serverYaw) {
+		Input keys = player.input.keyPresses;
 		int forward = (keys.forward() ? 1 : 0) - (keys.backward() ? 1 : 0);
 		int strafe = (keys.left() ? 1 : 0) - (keys.right() ? 1 : 0);
 		if (forward == 0 && strafe == 0) return;
 
-		double[] wanted = direction(forward, strafe, player.getYaw());
+		double[] wanted = direction(forward, strafe, player.getYRot());
 		int bestForward = 0;
 		int bestStrafe = 0;
 		double bestDot = -2;
@@ -43,9 +43,9 @@ public final class MoveFix {
 			}
 		}
 
-		player.input.playerInput = new PlayerInput(bestForward > 0, bestForward < 0, bestStrafe > 0, bestStrafe < 0,
-			keys.jump(), keys.sneak(), keys.sprint());
-		((InputAccessor) player.input).femboyware$setMovementVector(new Vec2f(bestStrafe, bestForward).normalize());
+		player.input.keyPresses = new Input(bestForward > 0, bestForward < 0, bestStrafe > 0, bestStrafe < 0,
+			keys.jump(), keys.shift(), keys.sprint());
+		((InputAccessor) player.input).femboyware$setMovementVector(new Vec2(bestStrafe, bestForward).normalized());
 	}
 
 	/** Normalised world-space XZ direction of a key combination, matching vanilla's input-to-velocity maths. */

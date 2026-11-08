@@ -13,9 +13,13 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+import dev.femboyware.event.WorldBuffers;
+//? if >=26.1 {
+/*import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
+*///?} else {
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
-import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.util.Identifier;
+//?}
+import net.minecraft.resources.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,16 +48,26 @@ public class FemboyWare implements ClientModInitializer {
 		config.load();
 
 		ClientTickEvents.START_CLIENT_TICK.register(client -> modules.onTick());
-		HudElementRegistry.addLast(Identifier.of(NAME, "hud"), (context, tickCounter) ->
-			modules.onRender2D(context, tickCounter.getTickProgress(true)));
+		HudElementRegistry.addLast(Identifier.fromNamespaceAndPath(NAME, "hud"), (context, tickCounter) ->
+			modules.onRender2D(context, tickCounter.getGameTimeDeltaPartialTick(true)));
+		//? if >=26.1 {
+		/*// World drawing is collected before the frame renders, so the pink grade (run after it) tints ESP too
+		LevelRenderEvents.COLLECT_SUBMITS.register(context -> {
+			WorldBuffers buffers = new WorldBuffers(context.submitNodeCollector());
+			modules.onRender3D(new Render3DEvent(context.poseStack(), buffers, context.levelState().cameraRenderState));
+			buffers.endBatch();
+		});
+		LevelRenderEvents.END_MAIN.register(context -> modules.get(PinkSkyModule.class).gradeWorld());
+		*///?} else {
 		WorldRenderEvents.END_MAIN.register(context -> {
 			// Grade the world pink first, so ESP and labels drawn after keep their own colours
-			if (context.consumers() instanceof VertexConsumerProvider.Immediate immediate) immediate.draw();
+			WorldBuffers buffers = new WorldBuffers(context.consumers());
+			buffers.endBatch();
 			modules.get(PinkSkyModule.class).gradeWorld();
-			Render3DEvent event = new Render3DEvent(context.matrices(), context.consumers(), context.worldState().cameraRenderState);
-			modules.onRender3D(event);
-			if (context.consumers() instanceof VertexConsumerProvider.Immediate immediate) immediate.draw();
+			modules.onRender3D(new Render3DEvent(context.matrices(), buffers, context.worldState().cameraRenderState));
+			buffers.endBatch();
 		});
+		//?}
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> config.save());
 
 		LOGGER.info("{} {} loaded", NAME, VERSION);

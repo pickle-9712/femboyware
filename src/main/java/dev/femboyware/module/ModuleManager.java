@@ -174,6 +174,9 @@ import dev.femboyware.module.utility.AutoBoneMealModule;
 import dev.femboyware.module.utility.AutoClickerModule;
 import dev.femboyware.module.utility.AutoEatModule;
 import dev.femboyware.module.utility.AutoFishModule;
+import dev.femboyware.module.utility.AutoFlirtModule;
+import dev.femboyware.module.utility.HeadpatModule;
+import dev.femboyware.module.utility.AutoHugModule;
 import dev.femboyware.module.utility.AutoLandModule;
 import dev.femboyware.module.utility.AutoMendModule;
 import dev.femboyware.module.utility.AutoMeowModule;
@@ -206,12 +209,6 @@ import dev.femboyware.module.utility.SpeedMineModule;
 import dev.femboyware.module.utility.TpsSyncModule;
 import dev.femboyware.module.utility.WaypointsModule;
 import dev.femboyware.module.utility.ZoomModule;
-import net.minecraft.block.BlockState;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.entity.Entity;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -219,6 +216,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.block.state.BlockState;
 
 public class ModuleManager {
 	private final List<Module> modules = new ArrayList<>();
@@ -422,6 +424,9 @@ public class ModuleManager {
 		register(new FastUseModule());
 		// Utility: Misc
 		register(new AutoMeowModule());
+		register(new AutoFlirtModule());
+		register(new HeadpatModule());
+		register(new AutoHugModule());
 		register(new AutoMoanModule());
 		// Hit Sounds is hidden for now; register it again to bring it back
 		// register(new HitSoundsModule());
@@ -538,7 +543,7 @@ public class ModuleManager {
 		}
 	}
 
-	public void onRender2D(DrawContext context, float tickDelta) {
+	public void onRender2D(GuiGraphics context, float tickDelta) {
 		UiScale.beginClient();
 		try {
 			dispatch(module -> module.onRender2D(context, tickDelta));

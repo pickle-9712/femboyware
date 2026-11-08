@@ -7,7 +7,7 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.GuiGraphics;
 
 /** The client's name and version, each letter in its own shifting colour. */
 public class WatermarkModule extends HudElement {
@@ -33,25 +33,25 @@ public class WatermarkModule extends HudElement {
 	/** Width drawn one letter at a time, as draw does; a touch wider than the whole string at once. */
 	private int lettersWidth(String text) {
 		int width = 0;
-		for (int i = 0; i < text.length(); i++) width += mc.textRenderer.getWidth(String.valueOf(text.charAt(i)));
+		for (int i = 0; i < text.length(); i++) width += mc.font.width(String.valueOf(text.charAt(i)));
 		return width;
 	}
 
 	@Override
 	public int height(boolean editing) {
-		return mc.textRenderer.fontHeight + (background.get() ? 8 : 0);
+		return mc.font.lineHeight + (background.get() ? 8 : 0);
 	}
 
 	@Override
-	protected void draw(DrawContext context, int left, int top, boolean editing) {
+	protected void draw(GuiGraphics context, int left, int top, boolean editing) {
 		int pad = background.get() ? 6 : 0;
 		if (background.get()) Glass.draw(context, left, top, left + width(editing), top + height(editing), 4, backgroundColor(Theme.list()), false);
 		String text = text();
 		int x = left + pad;
 		for (int i = 0; i < text.length(); i++) {
 			String letter = String.valueOf(text.charAt(i));
-			context.drawTextWithShadow(mc.textRenderer, letter, x, top + (background.get() ? 4 : 0), colors.get().at(i, speed.getFloat(), color.get()));
-			x += mc.textRenderer.getWidth(letter);
+			context.drawString(mc.font, letter, x, top + (background.get() ? 4 : 0), colors.get().at(i, speed.getFloat(), color.get()));
+			x += mc.font.width(letter);
 		}
 	}
 }

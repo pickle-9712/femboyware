@@ -1,5 +1,6 @@
 package dev.femboyware.module.render;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
@@ -13,11 +14,10 @@ import dev.femboyware.util.ColorUtil;
 import dev.femboyware.util.EntityKind;
 import dev.femboyware.util.ProjectionUtil;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.entity.Entity;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.RotationAxis;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Lines from the crosshair to entities, or arrows at the screen edge pointing at them.
@@ -66,16 +66,16 @@ public class TracersModule extends Module {
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
-		if (!style.is(Style.LINES) || mc.options.hudHidden) return;
+		if (!style.is(Style.LINES) || Mc.hudHidden()) return;
 		count = 0;
-		float tickDelta = mc.getRenderTickCounter().getTickProgress(true);
-		Vec3d origin = RenderUtil.tracerOrigin(event);
-		for (Entity entity : mc.world.getEntities()) {
+		float tickDelta = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
+		Vec3 origin = RenderUtil.tracerOrigin(event);
+		for (Entity entity : mc.level.entitiesForRendering()) {
 			if (shouldSkip(entity)) continue;
 			int color = getColor(entity);
-			Vec3d feet = entity.getLerpedPos(tickDelta);
-			double height = entity.getBoundingBox().getLengthY();
-			Vec3d end = switch (target.get()) {
+			Vec3 feet = entity.getPosition(tickDelta);
+			double height = entity.getBoundingBox().getYsize();
+			Vec3 end = switch (target.get()) {
 				case HEAD -> feet.add(0, height, 0);
 				case BODY -> feet.add(0, height / 2, 0);
 				case FEET -> feet;
@@ -87,37 +87,37 @@ public class TracersModule extends Module {
 	}
 
 	@Override
-	public void onRender2D(DrawContext context, float tickDelta) {
-		if (!style.is(Style.OFFSCREEN) || mc.options.hudHidden) return;
+	public void onRender2D(GuiGraphics context, float tickDelta) {
+		if (!style.is(Style.OFFSCREEN) || Mc.hudHidden()) return;
 		count = 0;
-		int width = mc.getWindow().getScaledWidth();
-		int height = mc.getWindow().getScaledHeight();
-		float cameraYaw = mc.gameRenderer.getCamera().getYaw();
-		Vec3d camera = mc.gameRenderer.getCamera().getCameraPos();
+		int width = mc.getWindow().getGuiScaledWidth();
+		int height = mc.getWindow().getGuiScaledHeight();
+		float cameraYaw = Mc.camera().yRot();
+		Vec3 camera = Mc.camera().position();
 		int size = offscreenSize.getInt();
 
-		for (Entity entity : mc.world.getEntities()) {
+		for (Entity entity : mc.level.entitiesForRendering()) {
 			if (shouldSkip(entity)) continue;
-			Vec3d pos = entity.getLerpedPos(tickDelta).add(0, entity.getHeight() / 2, 0);
-			Vec3d screen = ProjectionUtil.toScreen(pos);
+			Vec3 pos = entity.getPosition(tickDelta).add(0, entity.getBbHeight() / 2, 0);
+			Vec3 screen = ProjectionUtil.toScreen(pos);
 			if (screen != null && screen.x > 0 && screen.x < width && screen.y > 0 && screen.y < height) continue;
 
 			// Angle around the crosshair, 0 pointing up, from the entity's direction relative to where we look
 			double worldYaw = Math.toDegrees(Math.atan2(pos.z - camera.z, pos.x - camera.x)) - 90;
-			float angle = (float) MathHelper.wrapDegrees(worldYaw - cameraYaw);
+			float angle = (float) Mth.wrapDegrees(worldYaw - cameraYaw);
 			int color = getColor(entity);
 			if (blink.get()) color = ColorUtil.withAlpha(color, (int) ((color >>> 24) * blinkAlpha()));
 
-			context.getMatrices().pushMatrix();
-			context.getMatrices().translate(width / 2f, height / 2f);
-			context.getMatrices().rotate((float) Math.toRadians(angle));
-			context.getMatrices().translate(0, -offscreenDistance.getFloat());
+			context.pose().pushMatrix();
+			context.pose().translate(width / 2f, height / 2f);
+			context.pose().rotate((float) Math.toRadians(angle));
+			context.pose().translate(0, -offscreenDistance.getFloat());
 			// Upward-pointing triangle, one row at a time
 			for (int row = 0; row < size * 2; row++) {
 				int half = row / 2;
 				context.fill(-half, -size + row, half + 1, -size + row + 1, color);
 			}
-			context.getMatrices().popMatrix();
+			context.pose().popMatrix();
 			count++;
 		}
 	}

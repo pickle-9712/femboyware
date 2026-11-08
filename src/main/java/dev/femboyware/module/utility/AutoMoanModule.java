@@ -4,13 +4,12 @@ import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.StringSetting;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.damage.DamageSource;
-import net.minecraft.entity.player.PlayerEntity;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
 
 /**
  * Moans in chat when you take damage, with a cooldown so a long fight doesn't flood chat or get you
@@ -41,7 +40,7 @@ public class AutoMoanModule extends Module {
 	/** Called for every entity the client sees take damage. Arrows and the like count as whoever fired them. */
 	public void onDamaged(LivingEntity victim, DamageSource source) {
 		if (!isEnabled() || victim != mc.player) return;
-		attacker = source.getAttacker() instanceof PlayerEntity player && player != mc.player ? player.getGameProfile().name() : null;
+		attacker = source.getEntity() instanceof Player player && player != mc.player ? player.getGameProfile().name() : null;
 		attackedAt = System.currentTimeMillis();
 	}
 
@@ -51,7 +50,7 @@ public class AutoMoanModule extends Module {
 		int hurtTime = mc.player.hurtTime;
 		boolean hit = hurtTime > lastHurtTime;
 		lastHurtTime = hurtTime;
-		if (!hit || mc.player.isDead()) return;
+		if (!hit || mc.player.isDeadOrDying()) return;
 		long now = System.currentTimeMillis();
 		if (now - lastSent < cooldown.get() * 1000 || random.nextInt(100) >= chance.getInt()) return;
 
@@ -60,7 +59,7 @@ public class AutoMoanModule extends Module {
 		if (name != null && random.nextInt(100) < playerChance.getInt()) message = pick(playerMessages.get(), name);
 		if (message == null) message = pick(messages.get(), name);
 		if (message == null) return;
-		mc.getNetworkHandler().sendChatMessage(message);
+		mc.getConnection().sendChat(message);
 		lastSent = now;
 	}
 

@@ -5,18 +5,18 @@ import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.effect.StatusEffectInstance;
-import net.minecraft.entity.effect.StatusEffects;
-import net.minecraft.entity.passive.StriderEntity;
-import net.minecraft.entity.vehicle.AbstractBoatEntity;
-import net.minecraft.fluid.FluidState;
-import net.minecraft.registry.tag.FluidTags;
-import net.minecraft.state.property.Properties;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.core.BlockPos;
+import net.minecraft.tags.FluidTags;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.monster.Strider;
+import net.minecraft.world.entity.vehicle.boat.AbstractBoat;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.material.FluidState;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Walk on water and lava.
@@ -49,19 +49,19 @@ public class JesusModule extends Module {
 	@Override
 	public void onTick() {
 		if (mc.player.isSwimming()) return;
-		if (mc.player.isTouchingWater() && !waterSolid()) return;
+		if (mc.player.isInWater() && !waterSolid()) return;
 		if (mc.player.isInLava() && !lavaSolid()) return;
 
-		Entity moving = mc.player.hasVehicle() ? mc.player.getVehicle() : mc.player;
-		if (moving.isTouchingWater() || moving.isInLava()) {
+		Entity moving = mc.player.isPassenger() ? mc.player.getVehicle() : mc.player;
+		if (moving.isInWater() || moving.isInLava()) {
 			// Float back up to the surface
 			setVerticalSpeed(moving, ASCEND_SPEED);
 			ascending = 0;
 			return;
 		}
 
-		BlockState below = mc.world.getBlockState(moving.getBlockPos().down());
-		boolean liquidBelow = below.isOf(Blocks.WATER) || below.isOf(Blocks.LAVA) || below.getOrEmpty(Properties.WATERLOGGED).orElse(false);
+		BlockState below = mc.level.getBlockState(moving.blockPosition().below());
+		boolean liquidBelow = below.is(Blocks.WATER) || below.is(Blocks.LAVA) || below.getOptionalValue(BlockStateProperties.WATERLOGGED).orElse(false);
 		// One more push to clear the surface, then settle on it
 		if (ascending == 0) setVerticalSpeed(moving, ASCEND_SPEED);
 		else if (ascending == 1 && liquidBelow) setVerticalSpeed(moving, 0);
@@ -76,25 +76,25 @@ public class JesusModule extends Module {
 		if (!isEnabled() || mc.player == null || mc.player.isSwimming()) return false;
 		FluidState fluid = state.getFluidState();
 		if (fluid.isEmpty()) return false;
-		if (fluid.isIn(FluidTags.WATER)) return !mc.player.isTouchingWater() && waterSolid() && pos.getY() <= mc.player.getY() - 1;
-		if (fluid.isIn(FluidTags.LAVA)) return !mc.player.isInLava() && lavaSolid() && (lavaDangerous() || pos.getY() <= mc.player.getY() - 1);
+		if (fluid.is(FluidTags.WATER)) return !mc.player.isInWater() && waterSolid() && pos.getY() <= mc.player.getY() - 1;
+		if (fluid.is(FluidTags.LAVA)) return !mc.player.isInLava() && lavaSolid() && (lavaDangerous() || pos.getY() <= mc.player.getY() - 1);
 		return false;
 	}
 
 	private boolean waterSolid() {
 		if (mc.player.isSpectator() || mc.player.getAbilities().flying) return false;
-		if (mc.player.getVehicle() instanceof AbstractBoatEntity) return false;
+		if (mc.player.getVehicle() instanceof AbstractBoat) return false;
 		if (dipIfBurning.get() && mc.player.isOnFire()) return false;
-		if (dipOnSneakWater.get() && mc.options.sneakKey.isPressed()) return false;
+		if (dipOnSneakWater.get() && mc.options.keyShift.isDown()) return false;
 		if (dipOnFallWater.get() && mc.player.fallDistance > dipFallHeightWater.get()) return false;
 		return waterMode.is(Mode.SOLID);
 	}
 
 	private boolean lavaSolid() {
 		if (mc.player.isSpectator() || mc.player.getAbilities().flying) return false;
-		if (mc.player.getVehicle() instanceof StriderEntity) return false;
+		if (mc.player.getVehicle() instanceof Strider) return false;
 		if (lavaDangerous() && lavaMode.is(Mode.SOLID)) return true;
-		if (dipOnSneakLava.get() && mc.options.sneakKey.isPressed()) return false;
+		if (dipOnSneakLava.get() && mc.options.keyShift.isDown()) return false;
 		if (dipOnFallLava.get() && mc.player.fallDistance > dipFallHeightLava.get()) return false;
 		return lavaMode.is(Mode.SOLID);
 	}
@@ -102,12 +102,12 @@ public class JesusModule extends Module {
 	/** Lava is dangerous unless Dip If Fire Resistant is on and Fire Resistance has 15+ seconds left. */
 	private boolean lavaDangerous() {
 		if (!dipIfFireResistant.get()) return true;
-		StatusEffectInstance resistance = mc.player.getStatusEffect(StatusEffects.FIRE_RESISTANCE);
+		MobEffectInstance resistance = mc.player.getEffect(MobEffects.FIRE_RESISTANCE);
 		return resistance == null || resistance.getDuration() <= 15 * 20;
 	}
 
 	private static void setVerticalSpeed(Entity entity, double y) {
-		Vec3d velocity = entity.getVelocity();
-		entity.setVelocity(velocity.x, y, velocity.z);
+		Vec3 velocity = entity.getDeltaMovement();
+		entity.setDeltaMovement(velocity.x, y, velocity.z);
 	}
 }

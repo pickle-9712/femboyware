@@ -9,17 +9,16 @@ import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.ChatUtil;
 import dev.femboyware.util.InventoryUtil;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.DyedColorComponent;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.DyedItemColor;
 
 /**
  * Cycles through the dyed leather armour in your inventory: in rainbow order by dye colour, or at
@@ -69,7 +68,7 @@ public class RainbowArmorModule extends Module {
 		long now = System.currentTimeMillis();
 		if (now < nextChange) return;
 		// Clicks go to the player inventory, which would desync any other open container
-		if (mc.player.currentScreenHandler != mc.player.playerScreenHandler) return;
+		if (mc.player.containerMenu != mc.player.inventoryMenu) return;
 
 		if (pieces.is(Pieces.WHOLE_SET)) {
 			for (EquipmentSlot slot : SLOTS) change(slot);
@@ -92,7 +91,7 @@ public class RainbowArmorModule extends Module {
 	private boolean change(EquipmentSlot slot) {
 		List<Piece> options = piecesFor(slot);
 		if (options.isEmpty()) return false;
-		ItemStack worn = mc.player.getEquippedStack(slot);
+		ItemStack worn = mc.player.getItemBySlot(slot);
 		Piece next;
 		if (order.is(Order.RANDOM) || !isLeather(worn)) {
 			next = options.get(random.nextInt(options.size()));
@@ -108,8 +107,8 @@ public class RainbowArmorModule extends Module {
 	/** Leather pieces for {@code slot} in the inventory, by hue. */
 	private List<Piece> piecesFor(EquipmentSlot slot) {
 		List<Piece> found = new ArrayList<>();
-		for (int i = 0; i < PlayerInventory.MAIN_SIZE; i++) {
-			ItemStack stack = mc.player.getInventory().getStack(i);
+		for (int i = 0; i < Inventory.INVENTORY_SIZE; i++) {
+			ItemStack stack = mc.player.getInventory().getItem(i);
 			if (isLeather(stack) && slotOf(stack) == slot) found.add(new Piece(i, hue(stack)));
 		}
 		found.sort(Comparator.comparingDouble(Piece::hue));
@@ -117,19 +116,19 @@ public class RainbowArmorModule extends Module {
 	}
 
 	private static boolean isLeather(ItemStack stack) {
-		return stack.isOf(Items.LEATHER_HELMET) || stack.isOf(Items.LEATHER_CHESTPLATE)
-			|| stack.isOf(Items.LEATHER_LEGGINGS) || stack.isOf(Items.LEATHER_BOOTS);
+		return stack.is(Items.LEATHER_HELMET) || stack.is(Items.LEATHER_CHESTPLATE)
+			|| stack.is(Items.LEATHER_LEGGINGS) || stack.is(Items.LEATHER_BOOTS);
 	}
 
 	private static EquipmentSlot slotOf(ItemStack stack) {
-		if (stack.isOf(Items.LEATHER_HELMET)) return EquipmentSlot.HEAD;
-		if (stack.isOf(Items.LEATHER_CHESTPLATE)) return EquipmentSlot.CHEST;
-		if (stack.isOf(Items.LEATHER_LEGGINGS)) return EquipmentSlot.LEGS;
+		if (stack.is(Items.LEATHER_HELMET)) return EquipmentSlot.HEAD;
+		if (stack.is(Items.LEATHER_CHESTPLATE)) return EquipmentSlot.CHEST;
+		if (stack.is(Items.LEATHER_LEGGINGS)) return EquipmentSlot.LEGS;
 		return EquipmentSlot.FEET;
 	}
 
 	private static float hue(ItemStack stack) {
-		DyedColorComponent dye = stack.get(DataComponentTypes.DYED_COLOR);
+		DyedItemColor dye = stack.get(DataComponents.DYED_COLOR);
 		int rgb = dye == null ? UNDYED_LEATHER : dye.rgb();
 		float r = ((rgb >> 16) & 0xFF) / 255f, g = ((rgb >> 8) & 0xFF) / 255f, b = (rgb & 0xFF) / 255f;
 		float max = Math.max(r, Math.max(g, b));

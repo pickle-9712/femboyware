@@ -6,15 +6,14 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.client.gl.RenderPipelines;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.network.PlayerListEntry;
-import net.minecraft.text.Text;
-import net.minecraft.util.math.MathHelper;
-
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.multiplayer.PlayerInfo;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
 
 /**
  * A slim bar: the time, then a pill with the album art, the current lyric or song with the word being
@@ -72,8 +71,8 @@ public class IslandModule extends HudElement {
 	}
 
 	private int latency() {
-		if (mc.player == null || mc.getNetworkHandler() == null) return 0;
-		PlayerListEntry entry = mc.getNetworkHandler().getPlayerListEntry(mc.player.getUuid());
+		if (mc.player == null || mc.getConnection() == null) return 0;
+		PlayerInfo entry = mc.getConnection().getPlayerInfo(mc.player.getUUID());
 		return entry == null ? 0 : entry.getLatency();
 	}
 
@@ -81,16 +80,16 @@ public class IslandModule extends HudElement {
 		return editing || MediaSource.track() != null || !hideIdle.get();
 	}
 
-	private Text info(String text) {
+	private Component info(String text) {
 		return font.get().text(text, 1, italic.get());
 	}
 
 	private int clockWidth() {
-		return clock.get() ? mc.textRenderer.getWidth(info(time())) + GAP : 0;
+		return clock.get() ? mc.font.width(info(time())) + GAP : 0;
 	}
 
 	private int pingWidth() {
-		return ping.get() ? mc.textRenderer.getWidth(info(Integer.toString(latency()))) + 13 + GAP : 0;
+		return ping.get() ? mc.font.width(info(Integer.toString(latency()))) + 13 + GAP : 0;
 	}
 
 	@Override
@@ -104,14 +103,14 @@ public class IslandModule extends HudElement {
 	}
 
 	@Override
-	protected void draw(DrawContext context, int left, int top, boolean editing) {
+	protected void draw(GuiGraphics context, int left, int top, boolean editing) {
 		long now = System.nanoTime();
 		float frame = lastFrame == 0 ? 0 : Math.min(0.25f, (now - lastFrame) / 1e9f);
 		lastFrame = now;
 		int x = left;
 		int textY = top + (HEIGHT - 8) / 2;
 		if (clock.get()) {
-			context.drawText(mc.textRenderer, info(time()), x, textY, infoColor.get(), false);
+			context.drawString(mc.font, info(time()), x, textY, infoColor.get(), false);
 			x += clockWidth();
 		}
 		if (pillShown(editing)) {
@@ -122,11 +121,11 @@ public class IslandModule extends HudElement {
 			int latency = latency();
 			int color = !pingColors.get() ? infoColor.get() : latency < 80 ? 0xFF7CF0A0 : latency < 180 ? 0xFFFFD36B : 0xFFFF6B7A;
 			signal(context, x, top + HEIGHT / 2 + 4, color);
-			context.drawText(mc.textRenderer, info(Integer.toString(latency)), x + 13, textY, infoColor.get(), false);
+			context.drawString(mc.font, info(Integer.toString(latency)), x + 13, textY, infoColor.get(), false);
 		}
 	}
 
-	private void drawPill(DrawContext context, int left, int top, boolean editing, float frame) {
+	private void drawPill(GuiGraphics context, int left, int top, boolean editing, float frame) {
 		int width = pillWidth.getInt();
 		Glass.draw(context, left, top, left + width, top + HEIGHT, HEIGHT / 2, pillColor.get(), true);
 		WindowsMedia.Track track = MediaSource.track();
@@ -135,7 +134,7 @@ public class IslandModule extends HudElement {
 		if (art.get()) {
 			int side = HEIGHT - 6;
 			if (track != null && MediaSource.prepareArt()) {
-				context.drawTexture(RenderPipelines.GUI_TEXTURED, MediaSource.ROUND_ART, left + 3, top + 3, 0, 0, side, side, side, side);
+				context.blit(RenderPipelines.GUI_TEXTURED, MediaSource.ROUND_ART, left + 3, top + 3, 0, 0, side, side, side, side);
 			} else Glass.rounded(context, left + 3, top + 3, left + 3 + side, top + 3 + side, side / 2, 0x40FFFFFF);
 			textLeft = left + 3 + side + 5;
 		}
@@ -174,11 +173,11 @@ public class IslandModule extends HudElement {
 			chipWidth = 0;
 			marquee = 0;
 		}
-		float reveal = MathHelper.clamp((System.currentTimeMillis() - lineChanged) / 180f, 0, 1);
+		float reveal = Mth.clamp((System.currentTimeMillis() - lineChanged) / 180f, 0, 1);
 
 		int area = textRight - textLeft;
-		Text whole = font.get().text(line, 1, false);
-		int total = mc.textRenderer.getWidth(whole);
+		Component whole = font.get().text(line, 1, false);
+		int total = mc.font.width(whole);
 		float wanted = 0;
 		int current = -1;
 		float wordX = 0, wordWidth = 0;
@@ -187,8 +186,8 @@ public class IslandModule extends HudElement {
 			if (current >= 0) {
 				StringBuilder before = new StringBuilder();
 				for (int i = 0; i < current; i++) before.append(words[i]).append(' ');
-				wordX = mc.textRenderer.getWidth(font.get().text(before.toString(), 1, false));
-				wordWidth = mc.textRenderer.getWidth(font.get().text(words[current], 1, false));
+				wordX = mc.font.width(font.get().text(before.toString(), 1, false));
+				wordWidth = mc.font.width(font.get().text(words[current], 1, false));
 				// Keep the word being sung in view on lines too long for the pill
 				wanted = wordX + wordWidth / 2 - area / 2f;
 			}
@@ -196,28 +195,28 @@ public class IslandModule extends HudElement {
 			// Slide slowly back and forth over a song name too long for the pill
 			wanted = (float) (0.5 - 0.5 * Math.cos(System.currentTimeMillis() / 4000.0 * Math.PI)) * (total - area);
 		}
-		wanted = MathHelper.clamp(wanted, 0, Math.max(0, total - area));
+		wanted = Mth.clamp(wanted, 0, Math.max(0, total - area));
 		float ease = 1 - (float) Math.exp(-12 * frame);
 		marquee += (wanted - marquee) * ease;
 
 		context.enableScissor(textLeft, top, textRight, top + HEIGHT);
-		context.getMatrices().pushMatrix();
-		context.getMatrices().translate(LyricFont.snap(textLeft - marquee), LyricFont.snap(top + (HEIGHT - 8) / 2f + (1 - reveal) * 4));
+		context.pose().pushMatrix();
+		context.pose().translate(LyricFont.snap(textLeft - marquee), LyricFont.snap(top + (HEIGHT - 8) / 2f + (1 - reveal) * 4));
 		if (isLyric && highlight.get() && current >= 0) {
 			chipX = chipWidth == 0 ? wordX : chipX + (wordX - chipX) * ease;
 			chipWidth = chipWidth == 0 ? wordWidth : chipWidth + (wordWidth - chipWidth) * ease;
-			context.getMatrices().pushMatrix();
-			context.getMatrices().translate(chipX - 3, -3.5f);
+			context.pose().pushMatrix();
+			context.pose().translate(chipX - 3, -3.5f);
 			Glass.rounded(context, 0, 0, Math.round(chipWidth) + 6, 14, 4, LyricFont.fade(chipColor.get(), reveal));
-			context.getMatrices().popMatrix();
+			context.pose().popMatrix();
 		}
-		context.drawText(mc.textRenderer, whole, 0, 0, LyricFont.fade(textColor.get(), reveal), false);
-		context.getMatrices().popMatrix();
+		context.drawString(mc.font, whole, 0, 0, LyricFont.fade(textColor.get(), reveal), false);
+		context.pose().popMatrix();
 		context.disableScissor();
 	}
 
 	/** Four bars bobbing out of step, settling low while paused. */
-	private void equalizer(DrawContext context, int left, int middle) {
+	private void equalizer(GuiGraphics context, int left, int middle) {
 		double clock = System.currentTimeMillis() / 1000.0;
 		for (int i = 0; i < 4; i++) {
 			float wave = (float) (0.55 + 0.45 * Math.sin(clock * (5.1 + i * 1.7) + i * 1.9));
@@ -227,7 +226,7 @@ public class IslandModule extends HudElement {
 	}
 
 	/** Three rising bars. */
-	private void signal(DrawContext context, int left, int bottom, int color) {
+	private void signal(GuiGraphics context, int left, int bottom, int color) {
 		for (int i = 0; i < 3; i++) {
 			float tall = 3 + i * 2.5f;
 			bar(context, left + i * 3, bottom - tall, 2, tall, color);
@@ -235,11 +234,11 @@ public class IslandModule extends HudElement {
 	}
 
 	/** A bar that can land between GUI units, so it moves smoothly. */
-	private void bar(DrawContext context, float x, float y, float width, float height, int color) {
+	private void bar(GuiGraphics context, float x, float y, float width, float height, int color) {
 		int density = dev.femboyware.gui.UiScale.density();
-		context.getMatrices().pushMatrix();
-		context.getMatrices().scale(1f / density, 1f / density);
+		context.pose().pushMatrix();
+		context.pose().scale(1f / density, 1f / density);
 		context.fill(Math.round(x * density), Math.round(y * density), Math.round((x + width) * density), Math.round((y + height) * density), color);
-		context.getMatrices().popMatrix();
+		context.pose().popMatrix();
 	}
 }

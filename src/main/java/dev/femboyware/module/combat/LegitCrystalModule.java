@@ -1,20 +1,20 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.mixin.MinecraftClientAccessor;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.entity.decoration.EndCrystalEntity;
-import net.minecraft.item.Items;
-import net.minecraft.util.Hand;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.hit.EntityHitResult;
-import net.minecraft.util.math.BlockPos;
-
 import java.util.Random;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.EntityHitResult;
 
 /**
  * While you hold right click with end crystals, clicks for you as fast as you like: a right
@@ -39,15 +39,15 @@ public class LegitCrystalModule extends Module {
 	public void onTick() {
 		if (placeWait > 0) placeWait--;
 		if (breakWait > 0) breakWait--;
-		if (mc.currentScreen != null || !mc.options.useKey.isPressed() || crystalHand() == null) return;
+		if (Mc.screen() != null || !mc.options.keyUse.isDown() || crystalHand() == null) return;
 
 		MinecraftClientAccessor clicks = (MinecraftClientAccessor) mc;
-		if (mc.crosshairTarget instanceof EntityHitResult hit && hit.getEntity() instanceof EndCrystalEntity) {
+		if (mc.hitResult instanceof EntityHitResult hit && hit.getEntity() instanceof EndCrystal) {
 			if (breakWait == 0) {
 				clicks.femboyware$leftClick();
 				breakWait = breakDelay.getInt() + jitter();
 			}
-		} else if (mc.crosshairTarget instanceof BlockHitResult hit && canPlaceOn(hit.getBlockPos())) {
+		} else if (mc.hitResult instanceof BlockHitResult hit && canPlaceOn(hit.getBlockPos())) {
 			if (placeWait == 0) {
 				clicks.femboyware$rightClick();
 				placeWait = placeDelay.getInt() + jitter();
@@ -61,15 +61,15 @@ public class LegitCrystalModule extends Module {
 	}
 
 	/** The hand holding end crystals, or null if neither is. */
-	private Hand crystalHand() {
-		if (mc.player.getMainHandStack().isOf(Items.END_CRYSTAL)) return Hand.MAIN_HAND;
-		if (mc.player.getOffHandStack().isOf(Items.END_CRYSTAL)) return Hand.OFF_HAND;
+	private InteractionHand crystalHand() {
+		if (mc.player.getMainHandItem().is(Items.END_CRYSTAL)) return InteractionHand.MAIN_HAND;
+		if (mc.player.getOffhandItem().is(Items.END_CRYSTAL)) return InteractionHand.OFF_HAND;
 		return null;
 	}
 
 	/** Crystals go on obsidian or bedrock with air above. */
 	private boolean canPlaceOn(BlockPos pos) {
-		BlockState state = mc.world.getBlockState(pos);
-		return (state.isOf(Blocks.OBSIDIAN) || state.isOf(Blocks.BEDROCK)) && mc.world.isAir(pos.up());
+		BlockState state = mc.level.getBlockState(pos);
+		return (state.is(Blocks.OBSIDIAN) || state.is(Blocks.BEDROCK)) && mc.level.isEmptyBlock(pos.above());
 	}
 }

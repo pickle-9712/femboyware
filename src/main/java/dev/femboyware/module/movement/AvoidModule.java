@@ -3,10 +3,10 @@ package dev.femboyware.module.movement;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.block.FireBlock;
-import net.minecraft.block.SoulFireBlock;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.FireBlock;
+import net.minecraft.world.level.block.SoulFireBlock;
+import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * Gives harmful blocks a solid collision box for you only, so you can't walk into them. Applied
@@ -26,13 +26,13 @@ public class AvoidModule extends Module {
 	}
 
 	public boolean shouldBlock(BlockState state) {
-		if (state.isOf(Blocks.CACTUS)) return cactus.get();
+		if (state.is(Blocks.CACTUS)) return cactus.get();
 		if (state.getBlock() instanceof FireBlock || state.getBlock() instanceof SoulFireBlock) return fire.get();
-		if (state.isOf(Blocks.LAVA)) return lava.get();
-		if (state.isOf(Blocks.SWEET_BERRY_BUSH)) return berryBush.get();
-		if (state.isOf(Blocks.WITHER_ROSE)) return witherRose.get();
-		if (state.isOf(Blocks.POWDER_SNOW)) return powderSnow.get();
-		if (state.isOf(Blocks.COBWEB)) return cobweb.get();
+		if (state.is(Blocks.LAVA)) return lava.get();
+		if (state.is(Blocks.SWEET_BERRY_BUSH)) return berryBush.get();
+		if (state.is(Blocks.WITHER_ROSE)) return witherRose.get();
+		if (state.is(Blocks.POWDER_SNOW)) return powderSnow.get();
+		if (state.is(Blocks.COBWEB)) return cobweb.get();
 		return false;
 	}
 }

@@ -1,17 +1,17 @@
 package dev.femboyware.manager;
 
 import dev.femboyware.FemboyWare;
+import dev.femboyware.module.client.FakePlayerModule;
 import dev.femboyware.module.combat.GuardCommandModule;
 import dev.femboyware.module.utility.NameProtectModule;
 import dev.femboyware.util.ChatUtil;
-import net.minecraft.client.MinecraftClient;
-
 import java.util.List;
 import java.util.Locale;
+import net.minecraft.client.Minecraft;
 
 /**
  * Chat commands starting with {@value #PREFIX}, handled by the client and never sent to the
- * server: {@code .friend}, {@code .waypoint}, {@code .g}, {@code .np} and {@code .help}.
+ * server: {@code .friend}, {@code .waypoint}, {@code .g}, {@code .np}, {@code .fp} and {@code .help}.
  */
 public class CommandManager {
 	public static final String PREFIX = ".";
@@ -25,6 +25,7 @@ public class CommandManager {
 			case "waypoint", "waypoints", "wp" -> waypoint(args);
 			case "guard", "g" -> FemboyWare.getModules().get(GuardCommandModule.class).command(message.substring(PREFIX.length()).trim().substring(args[0].length()).trim());
 			case "nameprotect", "np" -> FemboyWare.getModules().get(NameProtectModule.class).command(args);
+			case "fakeplayer", "fp" -> FemboyWare.getModules().get(FakePlayerModule.class).command(args);
 			case "help" -> help();
 			default -> ChatUtil.info("Unknown command. Try " + PREFIX + "help");
 		}
@@ -55,13 +56,13 @@ public class CommandManager {
 
 	private void waypoint(String[] args) {
 		WaypointManager waypoints = FemboyWare.getWaypoints();
-		MinecraftClient mc = MinecraftClient.getInstance();
+		Minecraft mc = Minecraft.getInstance();
 		String action = args.length > 1 ? args[1].toLowerCase(Locale.ROOT) : "list";
 		switch (action) {
 			case "add", "set" -> {
 				if (mc.player == null) return;
 				String name = args.length > 2 ? String.join(" ", List.of(args).subList(2, args.length)) : "Waypoint " + (waypoints.onThisWorld().size() + 1);
-				var waypoint = waypoints.add(name, mc.player.getBlockPos(), false);
+				var waypoint = waypoints.add(name, mc.player.blockPosition(), false);
 				ChatUtil.info("Saved waypoint \"" + waypoint.name() + "\" at " + ChatUtil.coords(waypoint.pos()));
 			}
 			case "remove", "del", "delete" -> {
@@ -85,6 +86,13 @@ public class CommandManager {
 		ChatUtil.info(PREFIX + "friend <add|remove|list|clear> [name]  (or middle click a player)");
 		ChatUtil.info(PREFIX + "waypoint <add|remove|list|clear> [name]  (" + PREFIX + "wp for short)");
 		ChatUtil.info(PREFIX + "g <order>  (privately order your bodyguards, like " + PREFIX + "g pause, " + PREFIX + "g rally or " + PREFIX + "g here; needs Guard Command on)");
+		ChatUtil.info(PREFIX + "g arena [first to] [radius]  (your guards fight in two teams where you're standing; " + PREFIX + "g bet <pink|blue> <coins>, " + PREFIX + "g arena stop)");
 		ChatUtil.info(PREFIX + "np <add|remove|list|clear> [name] [fake name]  (hide other players' names)");
+		ChatUtil.info(PREFIX + "fp <add|remove|list|clear> [names]  (spawn fake players wearing those accounts' skins)");
+		ChatUtil.info(PREFIX + "fp random [how many|all]  (fake players with real accounts' names and skins, from Name Protect's Fake Names and then checked guesses)");
+		ChatUtil.info(PREFIX + "fp crowd [on|off]  (fake players wander, jump, crouch and talk near where they spawned)");
+		ChatUtil.info(PREFIX + "fp formation <name|off|here|list>  (fake players stand in a shape, built in or one you made)");
+		ChatUtil.info(PREFIX + "fp maker  (draw and save your own formations)");
+		ChatUtil.info(PREFIX + "fp text <words>  (fake players spell it out, adding as many as it takes; / starts a new line)");
 	}
 }

@@ -10,12 +10,12 @@ import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.DamageCalculator;
 import dev.femboyware.util.InventoryUtil;
 import dev.femboyware.util.Timer;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.decoration.EndCrystalEntity;
-import net.minecraft.item.Item;
-import net.minecraft.item.Items;
-import net.minecraft.network.packet.s2c.play.EntityStatusS2CPacket;
-import net.minecraft.util.math.Box;
+import net.minecraft.network.protocol.game.ClientboundEntityEventPacket;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.AABB;
 
 /**
  * Keeps a totem in your offhand. Smart mode holds crystals instead and only falls back to a totem
@@ -44,7 +44,7 @@ public class AutoTotemModule extends Module {
 	@Override
 	public String getInfo() {
 		if (nullCheck()) return null;
-		return String.valueOf(InventoryUtil.count(stack -> stack.isOf(Items.TOTEM_OF_UNDYING)));
+		return String.valueOf(InventoryUtil.count(stack -> stack.is(Items.TOTEM_OF_UNDYING)));
 	}
 
 	@Override
@@ -57,11 +57,11 @@ public class AutoTotemModule extends Module {
 	public void onTick() {
 		if (!canSwap() || !timer.passed(delay.get())) return;
 		Item wanted = desired();
-		if (mc.player.getOffHandStack().isOf(wanted)) return;
+		if (mc.player.getOffhandItem().is(wanted)) return;
 
 		int slot = find(wanted);
 		// Out of crystals: a totem is always the safe fallback
-		if (slot < 0 && wanted != Items.TOTEM_OF_UNDYING && !mc.player.getOffHandStack().isOf(Items.TOTEM_OF_UNDYING)) {
+		if (slot < 0 && wanted != Items.TOTEM_OF_UNDYING && !mc.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING)) {
 			slot = find(Items.TOTEM_OF_UNDYING);
 		}
 		if (slot < 0) return;
@@ -71,9 +71,9 @@ public class AutoTotemModule extends Module {
 
 	@Override
 	public void onPacketReceive(PacketEvent event) {
-		if (!instantRefill.get() || !(event.getPacket() instanceof EntityStatusS2CPacket packet) || packet.getStatus() != TOTEM_POP) return;
+		if (!instantRefill.get() || !(event.getPacket() instanceof ClientboundEntityEventPacket packet) || packet.getEventId() != TOTEM_POP) return;
 		mc.execute(() -> {
-			if (!isEnabled() || nullCheck() || packet.getEntity(mc.world) != mc.player || !canSwap()) return;
+			if (!isEnabled() || nullCheck() || packet.getEntity(mc.level) != mc.player || !canSwap()) return;
 			// The offhand still shows the used totem until the inventory update arrives, so swap regardless
 			int slot = find(Items.TOTEM_OF_UNDYING);
 			if (slot < 0) return;
@@ -83,13 +83,13 @@ public class AutoTotemModule extends Module {
 	}
 
 	private boolean canSwap() {
-		return mc.player.currentScreenHandler == mc.player.playerScreenHandler && !FemboyWare.getModules().get(QuiverModule.class).isBusy();
+		return mc.player.containerMenu == mc.player.inventoryMenu && !FemboyWare.getModules().get(QuiverModule.class).isBusy();
 	}
 
 	/** Prefers the main inventory, so hotbar totems stay put for Mainhand Totem. */
 	private int find(Item item) {
-		int slot = InventoryUtil.findMain(stack -> stack.isOf(item));
-		return slot >= 0 ? slot : InventoryUtil.findInventory(stack -> stack.isOf(item));
+		int slot = InventoryUtil.findMain(stack -> stack.is(item));
+		return slot >= 0 ? slot : InventoryUtil.findInventory(stack -> stack.is(item));
 	}
 
 	private Item desired() {
@@ -100,12 +100,12 @@ public class AutoTotemModule extends Module {
 	private boolean inDanger() {
 		float hp = mc.player.getHealth() + mc.player.getAbsorptionAmount();
 		if (hp <= health.get()) return true;
-		if (elytraCheck.get() && mc.player.isGliding()) return true;
-		if (fallCheck.get() && mc.player.fallDistance > 10 && !mc.player.isGliding()) return true;
+		if (elytraCheck.get() && mc.player.isFallFlying()) return true;
+		if (fallCheck.get() && mc.player.fallDistance > 10 && !mc.player.isFallFlying()) return true;
 		if (!crystalCheck.get()) return false;
-		for (Entity entity : mc.world.getOtherEntities(mc.player, new Box(mc.player.getBlockPos()).expand(12))) {
-			if (!(entity instanceof EndCrystalEntity crystal) || !crystal.isAlive()) continue;
-			if (DamageCalculator.crystalDamage(mc.player, crystal.getEntityPos(), false, false) >= hp - 0.5f) return true;
+		for (Entity entity : mc.level.getEntities(mc.player, new AABB(mc.player.blockPosition()).inflate(12))) {
+			if (!(entity instanceof EndCrystal crystal) || !crystal.isAlive()) continue;
+			if (DamageCalculator.crystalDamage(mc.player, crystal.position(), false, false) >= hp - 0.5f) return true;
 		}
 		return false;
 	}

@@ -5,9 +5,9 @@ import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.MoveUtil;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.vehicle.AbstractBoatEntity;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.vehicle.boat.AbstractBoat;
+import net.minecraft.world.phys.Vec3;
 
 /** Makes horses, pigs, striders and other rideable mobs as fast as you want. */
 public class EntitySpeedModule extends Module {
@@ -21,9 +21,9 @@ public class EntitySpeedModule extends Module {
 	@Override
 	public void onTick() {
 		Entity vehicle = mc.player.getVehicle();
-		if (vehicle == null || vehicle instanceof AbstractBoatEntity || !MoveUtil.isMoving()) return;
-		if (onlyOnGround.get() && !vehicle.isOnGround()) return;
-		Vec3d horizontal = MoveUtil.strafe(speed.get());
-		vehicle.setVelocity(horizontal.x, vehicle.getVelocity().y, horizontal.z);
+		if (vehicle == null || vehicle instanceof AbstractBoat || !MoveUtil.isMoving()) return;
+		if (onlyOnGround.get() && !vehicle.onGround()) return;
+		Vec3 horizontal = MoveUtil.strafe(speed.get());
+		vehicle.setDeltaMovement(horizontal.x, vehicle.getDeltaMovement().y, horizontal.z);
 	}
 }

@@ -3,8 +3,8 @@ package dev.femboyware.module.movement;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.entity.attribute.EntityAttributeInstance;
-import net.minecraft.entity.attribute.EntityAttributes;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 
 /** Walk up full blocks (or higher) without jumping, by raising your step height attribute. */
 public class StepModule extends Module {
@@ -23,16 +23,16 @@ public class StepModule extends Module {
 
 	@Override
 	public void onTick() {
-		EntityAttributeInstance step = mc.player.getAttributeInstance(EntityAttributes.STEP_HEIGHT);
+		AttributeInstance step = mc.player.getAttribute(Attributes.STEP_HEIGHT);
 		// Sneaking keeps vanilla behaviour so you can still edge along without climbing
-		double wanted = mc.player.isSneaking() ? VANILLA_STEP : height.get();
+		double wanted = mc.player.isShiftKeyDown() ? VANILLA_STEP : height.get();
 		if (step != null && step.getBaseValue() != wanted) step.setBaseValue(wanted);
 	}
 
 	@Override
 	protected void onDisable() {
 		if (nullCheck()) return;
-		EntityAttributeInstance step = mc.player.getAttributeInstance(EntityAttributes.STEP_HEIGHT);
+		AttributeInstance step = mc.player.getAttribute(Attributes.STEP_HEIGHT);
 		if (step != null) step.setBaseValue(VANILLA_STEP);
 	}
 }

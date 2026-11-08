@@ -4,7 +4,7 @@ import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.MoveUtil;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.phys.Vec3;
 
 /** Swim faster, horizontally and vertically. */
 public class WaterSpeedModule extends Module {
@@ -17,9 +17,9 @@ public class WaterSpeedModule extends Module {
 
 	@Override
 	public void onPreMotion() {
-		if (!mc.player.isTouchingWater() || mc.player.hasVehicle() || mc.player.getAbilities().flying) return;
-		Vec3d horizontal = MoveUtil.isMoving() ? MoveUtil.strafe(speed.get()) : mc.player.getVelocity().multiply(1, 0, 1);
+		if (!mc.player.isInWater() || mc.player.isPassenger() || mc.player.getAbilities().flying) return;
+		Vec3 horizontal = MoveUtil.isMoving() ? MoveUtil.strafe(speed.get()) : mc.player.getDeltaMovement().multiply(1, 0, 1);
 		double y = MoveUtil.vertical(verticalSpeed.get());
-		mc.player.setVelocity(horizontal.x, y == 0 ? mc.player.getVelocity().y : y, horizontal.z);
+		mc.player.setDeltaMovement(horizontal.x, y == 0 ? mc.player.getDeltaMovement().y : y, horizontal.z);
 	}
 }

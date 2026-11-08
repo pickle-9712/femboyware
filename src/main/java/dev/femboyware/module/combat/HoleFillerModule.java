@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import net.minecraft.world.phys.Vec3;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
@@ -12,16 +13,15 @@ import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.PlaceUtil;
 import dev.femboyware.util.RenderUtil;
 import dev.femboyware.util.TargetUtil;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Predicate;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.AABB;
 
 /** Fills safe holes near the target so they have nowhere to hide from crystals. */
 public class HoleFillerModule extends Module {
@@ -45,24 +45,24 @@ public class HoleFillerModule extends Module {
 
 	@Override
 	public void onTick() {
-		PlayerEntity target = TargetUtil.closestPlayer(targetRange.get());
+		Player target = TargetUtil.closestPlayer(targetRange.get());
 		if (target == null) {
 			holes = List.of();
 			return;
 		}
-		BlockPos center = target.getBlockPos();
-		BlockPos own = mc.player.getBlockPos();
+		BlockPos center = target.blockPosition();
+		BlockPos own = mc.player.blockPosition();
 		int radius = (int) Math.ceil(holeRange.get());
 		List<BlockPos> found = new ArrayList<>();
-		for (BlockPos pos : BlockPos.iterate(center.add(-radius, -2, -radius), center.add(radius, 1, radius))) {
+		for (BlockPos pos : BlockPos.betweenClosed(center.offset(-radius, -2, -radius), center.offset(radius, 1, radius))) {
 			if (pos.equals(own) || pos.equals(center)) continue;
-			if (target.squaredDistanceTo(pos.toCenterPos()) > holeRange.get() * holeRange.get()) continue;
-			if (HoleUtil.isHole(pos)) found.add(pos.toImmutable());
+			if (target.distanceToSqr(Vec3.atCenterOf(pos)) > holeRange.get() * holeRange.get()) continue;
+			if (HoleUtil.isHole(pos)) found.add(pos.immutable());
 		}
-		found.sort(Comparator.comparingDouble(pos -> target.squaredDistanceTo(pos.toCenterPos())));
+		found.sort(Comparator.comparingDouble(pos -> target.distanceToSqr(Vec3.atCenterOf(pos))));
 		holes = found;
 
-		Predicate<ItemStack> item = fill.is(Fill.WEB) ? stack -> stack.isOf(Items.COBWEB) : PlaceUtil.OBSIDIAN;
+		Predicate<ItemStack> item = fill.is(Fill.WEB) ? stack -> stack.is(Items.COBWEB) : PlaceUtil.OBSIDIAN;
 		int placed = 0;
 		for (BlockPos hole : found) {
 			if (placed >= blocksPerTick.getInt()) break;
@@ -74,7 +74,7 @@ public class HoleFillerModule extends Module {
 	public void onRender3D(Render3DEvent event) {
 		if (!render.get()) return;
 		for (BlockPos hole : holes) {
-			RenderUtil.drawBox(event, new Box(hole).withMaxY(hole.getY() + 0.1), color.get(), color.withAlpha(255), 1.5f);
+			RenderUtil.drawBox(event, new AABB(hole).setMaxY(hole.getY() + 0.1), color.get(), color.withAlpha(255), 1.5f);
 		}
 	}
 }

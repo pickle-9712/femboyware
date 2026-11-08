@@ -3,7 +3,7 @@ package dev.femboyware.module.movement;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.util.math.Box;
+import net.minecraft.world.phys.AABB;
 
 /** Snaps you down ledges instead of falling slowly off them. */
 public class ReverseStepModule extends Module {
@@ -18,14 +18,14 @@ public class ReverseStepModule extends Module {
 
 	@Override
 	public void onTick() {
-		boolean onGround = mc.player.isOnGround();
-		boolean walkedOff = wasOnGround && !onGround && mc.player.getVelocity().y <= 0;
+		boolean onGround = mc.player.onGround();
+		boolean walkedOff = wasOnGround && !onGround && mc.player.getDeltaMovement().y <= 0;
 		wasOnGround = onGround;
-		if (!walkedOff || mc.options.jumpKey.isPressed() || mc.player.isTouchingWater() || mc.player.isInLava() || mc.player.isGliding()) return;
+		if (!walkedOff || mc.options.keyJump.isDown() || mc.player.isInWater() || mc.player.isInLava() || mc.player.isFallFlying()) return;
 
 		// Only snap when there's ground within range, otherwise you'd slam into a long fall
-		Box below = mc.player.getBoundingBox().offset(0, -height.get(), 0).union(mc.player.getBoundingBox());
-		if (!mc.world.getBlockCollisions(mc.player, below).iterator().hasNext()) return;
-		mc.player.setVelocity(mc.player.getVelocity().x, -speed.get(), mc.player.getVelocity().z);
+		AABB below = mc.player.getBoundingBox().move(0, -height.get(), 0).minmax(mc.player.getBoundingBox());
+		if (!mc.level.getBlockCollisions(mc.player, below).iterator().hasNext()) return;
+		mc.player.setDeltaMovement(mc.player.getDeltaMovement().x, -speed.get(), mc.player.getDeltaMovement().z);
 	}
 }

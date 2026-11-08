@@ -9,10 +9,9 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.client.gui.DrawContext;
-
 import java.util.Comparator;
 import java.util.List;
+import net.minecraft.client.gui.GuiGraphics;
 
 /**
  * Every module you have on, longest first, each in a little glass box. Lines up against whichever
@@ -36,7 +35,7 @@ public class ModuleListModule extends HudElement {
 		return FemboyWare.getModules().getModules().stream()
 			.filter(module -> module.isEnabled() && module.getCategory() != Category.MISC && module.getCategory() != Category.THEME
 				&& module.getCategory() != Category.ELEMENTS)
-			.sorted(Comparator.comparingInt((Module module) -> mc.textRenderer.getWidth(label(module))).reversed())
+			.sorted(Comparator.comparingInt((Module module) -> mc.font.width(label(module))).reversed())
 			.toList();
 	}
 
@@ -48,8 +47,8 @@ public class ModuleListModule extends HudElement {
 	@Override
 	public int width(boolean editing) {
 		List<Module> modules = shown();
-		if (modules.isEmpty()) return editing ? mc.textRenderer.getWidth("Module List") + 8 : 0;
-		return mc.textRenderer.getWidth(label(modules.getFirst())) + 8;
+		if (modules.isEmpty()) return editing ? mc.font.width("Module List") + 8 : 0;
+		return mc.font.width(label(modules.getFirst())) + 8;
 	}
 
 	@Override
@@ -58,25 +57,25 @@ public class ModuleListModule extends HudElement {
 	}
 
 	@Override
-	protected void draw(DrawContext context, int left, int top, boolean editing) {
+	protected void draw(GuiGraphics context, int left, int top, boolean editing) {
 		List<Module> modules = shown();
 		int width = width(editing);
 		if (modules.isEmpty()) {
-			if (editing) context.drawTextWithShadow(mc.textRenderer, "Module List", left + 4, top + 2, mutedColor());
+			if (editing) context.drawString(mc.font, "Module List", left + 4, top + 2, mutedColor());
 			return;
 		}
 		for (int i = 0; i < modules.size(); i++) {
 			Module module = modules.get(i);
 			String name = module.getName();
 			String extra = info.get() ? module.getInfo() : null;
-			int textWidth = mc.textRenderer.getWidth(label(module));
+			int textWidth = mc.font.width(label(module));
 			// Near the bottom the list grows upwards, so the longest name stays next to the edge
 			int y = onBottom() ? top + height(editing) - (i + 1) * LINE : top + i * LINE;
 			int x = onRight() ? left + width - textWidth - 4 : left + 4;
 			if (boxes.get()) Glass.draw(context, x - 4, y, x + textWidth + 4, y + LINE - 1, 4, backgroundColor(Theme.list()), false);
 			int tint = colors.get().at(i, speed.getFloat(), color.get());
-			context.drawTextWithShadow(mc.textRenderer, name, x, y + 2, tint);
-			if (extra != null) context.drawTextWithShadow(mc.textRenderer, " " + extra, x + mc.textRenderer.getWidth(name), y + 2, mutedColor());
+			context.drawString(mc.font, name, x, y + 2, tint);
+			if (extra != null) context.drawString(mc.font, " " + extra, x + mc.font.width(name), y + 2, mutedColor());
 		}
 	}
 }

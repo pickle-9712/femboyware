@@ -6,11 +6,10 @@ import dev.femboyware.module.Module;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.World;
-
 import java.util.ArrayDeque;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Leaves a trail behind where you've been.
@@ -21,8 +20,8 @@ public class BreadcrumbsModule extends Module {
 	private final NumberSetting maxSections = add(new NumberSetting("Max Sections", "Longest trail, in sections", 1000, 1, 5000, 10));
 	private final NumberSetting sectionLength = add(new NumberSetting("Section Length", "Blocks moved before a new point is added", 0.5, 0.1, 2, 0.05));
 
-	private final ArrayDeque<Vec3d> points = new ArrayDeque<>();
-	private RegistryKey<World> dimension;
+	private final ArrayDeque<Vec3> points = new ArrayDeque<>();
+	private ResourceKey<Level> dimension;
 
 	public BreadcrumbsModule() {
 		super("Breadcrumbs", "Shows a trail of where you've walked", Category.COSMETIC);
@@ -36,12 +35,12 @@ public class BreadcrumbsModule extends Module {
 
 	@Override
 	public void onTick() {
-		if (mc.world.getRegistryKey() != dimension) {
+		if (mc.level.dimension() != dimension) {
 			points.clear();
-			dimension = mc.world.getRegistryKey();
+			dimension = mc.level.dimension();
 		}
-		Vec3d pos = mc.player.getEntityPos();
-		Vec3d last = points.peekLast();
+		Vec3 pos = mc.player.position();
+		Vec3 last = points.peekLast();
 		double length = sectionLength.get();
 		if (last != null && Math.abs(pos.x - last.x) < length && Math.abs(pos.y - last.y) < length && Math.abs(pos.z - last.z) < length) return;
 		points.addLast(pos);
@@ -50,8 +49,8 @@ public class BreadcrumbsModule extends Module {
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
-		Vec3d previous = null;
-		for (Vec3d point : points) {
+		Vec3 previous = null;
+		for (Vec3 point : points) {
 			if (previous != null) RenderUtil.drawLine(event, previous, point, color.get(), 2f);
 			previous = point;
 		}

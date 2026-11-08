@@ -3,8 +3,8 @@ package dev.femboyware.module.movement;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 
 /** Removes the slowdown from cobwebs and similar blocks. Applied by the entity mixin. */
 public class AntiWebModule extends Module {
@@ -18,9 +18,9 @@ public class AntiWebModule extends Module {
 
 	public boolean ignores(BlockState state) {
 		if (!isEnabled()) return false;
-		if (state.isOf(Blocks.COBWEB)) return cobweb.get();
-		if (state.isOf(Blocks.SWEET_BERRY_BUSH)) return berryBush.get();
-		if (state.isOf(Blocks.POWDER_SNOW)) return powderSnow.get();
+		if (state.is(Blocks.COBWEB)) return cobweb.get();
+		if (state.is(Blocks.SWEET_BERRY_BUSH)) return berryBush.get();
+		if (state.is(Blocks.POWDER_SNOW)) return powderSnow.get();
 		return false;
 	}
 }

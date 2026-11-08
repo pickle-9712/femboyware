@@ -1,63 +1,90 @@
 package dev.femboyware.mixin;
 
+import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import dev.femboyware.FemboyWare;
+import dev.femboyware.module.client.FakePlayerModule;
 import dev.femboyware.module.hud.PotionEffectsModule;
 import dev.femboyware.module.render.CrosshairModule;
 import dev.femboyware.module.utility.NoRenderModule;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.hud.InGameHud;
-import net.minecraft.client.render.RenderTickCounter;
-import net.minecraft.entity.Entity;
-import net.minecraft.util.Identifier;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.util.Collection;
+import net.minecraft.client.DeltaTracker;
+//? if >=26.1 {
+/*import net.minecraft.client.gui.Hud;
+*///?} else {
+import net.minecraft.client.gui.Gui;
+//?}
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.multiplayer.PlayerInfo;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.entity.Entity;
+
 /** No Render toggles for HUD overlays. */
-@Mixin(InGameHud.class)
+//? if >=26.1 {
+/*@Mixin(Hud.class)
+*///?} else {
+@Mixin(Gui.class)
+//?}
 public class InGameHudMixin {
+	//? if >=26.1 {
+	/*private static final String TAB = "extractTabList", CROSSHAIR = "extractCrosshair", EFFECTS = "extractEffects", TITLE = "extractTitle", TEXTURE_OVERLAY = "extractTextureOverlay", VIGNETTE = "extractVignette", PORTAL = "extractPortalOverlay", CONFUSION = "extractConfusionOverlay", BOSS = "extractBossOverlay",
+		SCOREBOARD = "extractScoreboardSidebar(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V";
+	*///?} else {
+	private static final String TAB = "renderTabList", CROSSHAIR = "renderCrosshair", EFFECTS = "renderEffects", TITLE = "renderTitle", TEXTURE_OVERLAY = "renderTextureOverlay", VIGNETTE = "renderVignette", PORTAL = "renderPortalOverlay", CONFUSION = "renderConfusionOverlay", BOSS = "renderBossOverlay",
+		SCOREBOARD = "renderScoreboardSidebar(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/DeltaTracker;)V";
+	//?}
+
+	/** Singleplayer hides the tab list when you're alone, and fake players count as company. */
+	@ModifyExpressionValue(method = TAB, at = @At(value = "INVOKE", target = "Lnet/minecraft/client/multiplayer/ClientPacketListener;getListedOnlinePlayers()Ljava/util/Collection;"))
+	private Collection<PlayerInfo> femboyware$fakePlayers(Collection<PlayerInfo> entries) {
+		return FemboyWare.getModules().get(FakePlayerModule.class).withTabEntries(entries);
+	}
+
 	/** Crosshair: our own in place of Minecraft's. */
-	@Inject(method = "renderCrosshair", at = @At("HEAD"), cancellable = true)
-	private void femboyware$crosshair(DrawContext context, RenderTickCounter tickCounter, CallbackInfo ci) {
+	@Inject(method = CROSSHAIR, at = @At("HEAD"), cancellable = true)
+	private void femboyware$crosshair(GuiGraphics context, DeltaTracker tickCounter, CallbackInfo ci) {
 		if (!FemboyWare.isEnabled(CrosshairModule.class)) return;
 		ci.cancel();
 		FemboyWare.getModules().get(CrosshairModule.class).render(context);
 	}
 
 	/** Potion Effects: its own list in place of the vanilla icons in the corner. */
-	@Inject(method = "renderStatusEffectOverlay", at = @At("HEAD"), cancellable = true)
-	private void femboyware$hideEffects(DrawContext context, RenderTickCounter tickCounter, CallbackInfo ci) {
+	@Inject(method = EFFECTS, at = @At("HEAD"), cancellable = true)
+	private void femboyware$hideEffects(GuiGraphics context, DeltaTracker tickCounter, CallbackInfo ci) {
 		if (FemboyWare.getModules().get(PotionEffectsModule.class).hidesVanilla()) ci.cancel();
 	}
 
-	@Inject(method = "renderTitleAndSubtitle", at = @At("HEAD"), cancellable = true)
-	private void femboyware$noTitles(DrawContext context, RenderTickCounter tickCounter, CallbackInfo ci) {
+	@Inject(method = TITLE, at = @At("HEAD"), cancellable = true)
+	private void femboyware$noTitles(GuiGraphics context, DeltaTracker tickCounter, CallbackInfo ci) {
 		if (FemboyWare.getModules().get(NoRenderModule.class).titles()) ci.cancel();
 	}
 
-	@Inject(method = "renderOverlay", at = @At("HEAD"), cancellable = true)
-	private void femboyware$noPumpkin(DrawContext context, Identifier texture, float opacity, CallbackInfo ci) {
+	@Inject(method = TEXTURE_OVERLAY, at = @At("HEAD"), cancellable = true)
+	private void femboyware$noPumpkin(GuiGraphics context, Identifier texture, float opacity, CallbackInfo ci) {
 		if (noRender().pumpkin()) ci.cancel();
 	}
 
-	@Inject(method = "renderVignetteOverlay", at = @At("HEAD"), cancellable = true)
-	private void femboyware$noVignette(DrawContext context, Entity entity, CallbackInfo ci) {
+	@Inject(method = VIGNETTE, at = @At("HEAD"), cancellable = true)
+	private void femboyware$noVignette(GuiGraphics context, Entity entity, CallbackInfo ci) {
 		if (noRender().vignette()) ci.cancel();
 	}
 
-	@Inject(method = {"renderPortalOverlay", "renderNauseaOverlay"}, at = @At("HEAD"), cancellable = true)
-	private void femboyware$noPortal(DrawContext context, float strength, CallbackInfo ci) {
+	@Inject(method = {PORTAL, CONFUSION}, at = @At("HEAD"), cancellable = true)
+	private void femboyware$noPortal(GuiGraphics context, float strength, CallbackInfo ci) {
 		if (noRender().portal()) ci.cancel();
 	}
 
-	@Inject(method = "renderBossBarHud", at = @At("HEAD"), cancellable = true)
-	private void femboyware$noBossBar(DrawContext context, RenderTickCounter tickCounter, CallbackInfo ci) {
+	@Inject(method = BOSS, at = @At("HEAD"), cancellable = true)
+	private void femboyware$noBossBar(GuiGraphics context, DeltaTracker tickCounter, CallbackInfo ci) {
 		if (noRender().bossBar()) ci.cancel();
 	}
 
-	@Inject(method = "renderScoreboardSidebar(Lnet/minecraft/client/gui/DrawContext;Lnet/minecraft/client/render/RenderTickCounter;)V", at = @At("HEAD"), cancellable = true)
-	private void femboyware$noScoreboard(DrawContext context, RenderTickCounter tickCounter, CallbackInfo ci) {
+	@Inject(method = SCOREBOARD, at = @At("HEAD"), cancellable = true)
+	private void femboyware$noScoreboard(GuiGraphics context, DeltaTracker tickCounter, CallbackInfo ci) {
 		if (noRender().scoreboard()) ci.cancel();
 	}
 

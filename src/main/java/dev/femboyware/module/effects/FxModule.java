@@ -18,7 +18,7 @@ public abstract class FxModule extends Module {
 	}
 
 	protected static float tickDelta() {
-		return mc.getRenderTickCounter().getTickProgress(true);
+		return mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
 	}
 
 	/** Adds the colour settings at this point in the settings list. */

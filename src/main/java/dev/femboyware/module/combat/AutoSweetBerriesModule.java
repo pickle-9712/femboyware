@@ -9,20 +9,19 @@ import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.PlaceUtil;
 import dev.femboyware.util.TargetUtil;
 import dev.femboyware.util.Timer;
-import net.minecraft.block.Blocks;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.function.Predicate;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 
 /** Plants sweet berry bushes in the target's feet, which slow and hurt them while they move. */
 public class AutoSweetBerriesModule extends Module {
-	private static final Predicate<ItemStack> BERRIES = stack -> stack.isOf(Items.SWEET_BERRIES);
+	private static final Predicate<ItemStack> BERRIES = stack -> stack.is(Items.SWEET_BERRIES);
 
 	private final NumberSetting targetRange = add(new NumberSetting("Target Range", "How far away targets can be", 5, 2, 8, 0.5));
 	private final NumberSetting delay = add(new NumberSetting("Delay", "Milliseconds between placements", 200, 0, 1000, 10));
@@ -38,17 +37,17 @@ public class AutoSweetBerriesModule extends Module {
 	@Override
 	public void onTick() {
 		if (!timer.passed(delay.get())) return;
-		PlayerEntity target = TargetUtil.closestPlayer(targetRange.get());
+		Player target = TargetUtil.closestPlayer(targetRange.get());
 		if (target == null) return;
 
-		BlockPos feet = target.getBlockPos();
-		if (!mc.world.getBlockState(feet).isReplaceable() || mc.world.getBlockState(feet).isOf(Blocks.SWEET_BERRY_BUSH)) return;
-		if (!Blocks.SWEET_BERRY_BUSH.getDefaultState().canPlaceAt(mc.world, feet)) return;
+		BlockPos feet = target.blockPosition();
+		if (!mc.level.getBlockState(feet).canBeReplaced() || mc.level.getBlockState(feet).is(Blocks.SWEET_BERRY_BUSH)) return;
+		if (!Blocks.SWEET_BERRY_BUSH.defaultBlockState().canSurvive(mc.level, feet)) return;
 
 		// Bushes have no collision box, so the target standing there doesn't block the placement
-		BlockPos ground = feet.down();
-		Vec3d hitVec = Vec3d.ofCenter(ground).add(0, 0.5, 0);
-		if (mc.player.getEyePos().squaredDistanceTo(hitVec) > PlaceUtil.RANGE * PlaceUtil.RANGE) return;
+		BlockPos ground = feet.below();
+		Vec3 hitVec = Vec3.atCenterOf(ground).add(0, 0.5, 0);
+		if (mc.player.getEyePosition().distanceToSqr(hitVec) > PlaceUtil.RANGE * PlaceUtil.RANGE) return;
 		if (PlaceUtil.interact(new BlockHitResult(hitVec, Direction.UP, ground, false), BERRIES, switchMode.get(), rotate.get())) {
 			timer.reset();
 		}

@@ -9,20 +9,19 @@ import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.ChatUtil;
 import dev.femboyware.util.ChunkScanner;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.block.Block;
-import net.minecraft.block.Blocks;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.entity.MobSpawnerBlockEntity;
-import net.minecraft.entity.Entity;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.chunk.WorldChunk;
-
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.SpawnerBlockEntity;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Finds spawners players have placed. Natural spawners always sit in a structure: dungeon
@@ -82,21 +81,21 @@ public class SpawnerEspModule extends Module {
 		}
 	}
 
-	private List<Spawner> scan(WorldChunk chunk) {
+	private List<Spawner> scan(LevelChunk chunk) {
 		List<Spawner> spawners = new ArrayList<>();
 		for (BlockEntity blockEntity : chunk.getBlockEntities().values()) {
-			if (!(blockEntity instanceof MobSpawnerBlockEntity spawner)) continue;
-			BlockPos pos = spawner.getPos();
-			Entity mob = spawner.getLogic().getRenderedEntity(mc.world, pos);
-			String name = mob == null ? "empty" : mob.getType().getName().getString();
+			if (!(blockEntity instanceof SpawnerBlockEntity spawner)) continue;
+			BlockPos pos = spawner.getBlockPos();
+			Entity mob = spawner.getSpawner().getOrCreateDisplayEntity(mc.level, pos);
+			String name = mob == null ? "empty" : mob.getType().getDescription().getString();
 			spawners.add(new Spawner(pos, name, inStructure(pos)));
 		}
 		return spawners.isEmpty() ? null : spawners;
 	}
 
 	private boolean inStructure(BlockPos spawner) {
-		for (BlockPos pos : BlockPos.iterate(spawner.add(-STRUCTURE_RADIUS, -STRUCTURE_RADIUS, -STRUCTURE_RADIUS), spawner.add(STRUCTURE_RADIUS, STRUCTURE_RADIUS, STRUCTURE_RADIUS))) {
-			if (STRUCTURE_BLOCKS.contains(mc.world.getBlockState(pos).getBlock())) return true;
+		for (BlockPos pos : BlockPos.betweenClosed(spawner.offset(-STRUCTURE_RADIUS, -STRUCTURE_RADIUS, -STRUCTURE_RADIUS), spawner.offset(STRUCTURE_RADIUS, STRUCTURE_RADIUS, STRUCTURE_RADIUS))) {
+			if (STRUCTURE_BLOCKS.contains(mc.level.getBlockState(pos).getBlock())) return true;
 		}
 		return false;
 	}
@@ -114,13 +113,13 @@ public class SpawnerEspModule extends Module {
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
-		Vec3d tracerStart = RenderUtil.tracerOrigin(event);
+		Vec3 tracerStart = RenderUtil.tracerOrigin(event);
 		for (List<Spawner> spawners : scanner.results().values()) {
 			for (Spawner spawner : spawners) {
 				if (spawner.natural && !showNatural.get()) continue;
 				int color = spawner.natural ? naturalColor.get() : placedColor.get();
-				Vec3d center = Vec3d.ofCenter(spawner.pos);
-				RenderUtil.drawBox(event, new Box(spawner.pos), (color & 0x00FFFFFF) | 0x30000000, color, 1.5f, throughWalls.get());
+				Vec3 center = Vec3.atCenterOf(spawner.pos);
+				RenderUtil.drawBox(event, new AABB(spawner.pos), (color & 0x00FFFFFF) | 0x30000000, color, 1.5f, throughWalls.get());
 				if (!spawner.natural && tracers.get()) RenderUtil.drawLine(event, tracerStart, center, color, 1.5f, throughWalls.get());
 				RenderUtil.drawText(event, spawner.mob + (spawner.natural ? "" : " (placed)"), center.add(0, 1, 0), color | 0xFF000000, 0.5f);
 			}

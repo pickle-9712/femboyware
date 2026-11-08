@@ -8,14 +8,13 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.network.packet.Packet;
-import net.minecraft.network.packet.c2s.common.CommonPongC2SPacket;
-import net.minecraft.network.packet.c2s.common.KeepAliveC2SPacket;
-import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
-import net.minecraft.util.math.Box;
-
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.common.ServerboundKeepAlivePacket;
+import net.minecraft.network.protocol.common.ServerboundPongPacket;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.world.phys.AABB;
 
 /**
  * Holds back your movement packets so the server sees you frozen, then sends them all at once
@@ -28,7 +27,7 @@ public class BlinkModule extends Module {
 	private final ColorSetting color = add(new ColorSetting("Color", "Server position colour", 0x40FF77C8)).visibleWhen(render::get);
 
 	private final List<Packet<?>> queue = new ArrayList<>();
-	private Box serverBox;
+	private AABB serverBox;
 	private boolean flushing;
 
 	public BlinkModule() {
@@ -57,8 +56,8 @@ public class BlinkModule extends Module {
 		if (flushing) return;
 		Packet<?> packet = event.getPacket();
 		// Keep-alives must keep flowing or the server times us out
-		if (packet instanceof KeepAliveC2SPacket || packet instanceof CommonPongC2SPacket) return;
-		if (!allPackets.get() && !(packet instanceof PlayerMoveC2SPacket)) return;
+		if (packet instanceof ServerboundKeepAlivePacket || packet instanceof ServerboundPongPacket) return;
+		if (!allPackets.get() && !(packet instanceof ServerboundMovePlayerPacket)) return;
 		event.cancel();
 		queue.add(packet);
 		if (autoFlush.getInt() > 0 && queue.size() >= autoFlush.getInt()) {
@@ -73,12 +72,12 @@ public class BlinkModule extends Module {
 	}
 
 	private void flush() {
-		if (mc.getNetworkHandler() == null) {
+		if (mc.getConnection() == null) {
 			queue.clear();
 			return;
 		}
 		flushing = true;
-		for (Packet<?> packet : queue) mc.getNetworkHandler().sendPacket(packet);
+		for (Packet<?> packet : queue) mc.getConnection().send(packet);
 		flushing = false;
 		queue.clear();
 	}

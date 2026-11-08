@@ -1,18 +1,17 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * A glowing summoning circle under your feet: two rings with runes between them and a star inside,
@@ -48,7 +47,7 @@ public class MagicCircleModule extends PlayerFxModule {
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
-		List<PlayerEntity> wearers = wearers(true);
+		List<Player> wearers = wearers(true);
 		long now = System.nanoTime();
 		float delta = lastFrame == 0 ? 0 : Math.min(0.1f, (now - lastFrame) / 1e9f);
 		lastFrame = now;
@@ -56,14 +55,14 @@ public class MagicCircleModule extends PlayerFxModule {
 
 		float tickDelta = tickDelta();
 		double time = time() * speed.get();
-		Vec3d cam = event.camera().pos;
-		MatrixStack matrices = event.matrices();
+		Vec3 cam = event.camera().pos;
+		PoseStack matrices = event.matrices();
 		float r = radius.getFloat();
 		float pulse = 0.8f + 0.2f * (float) Math.sin(time() * 2.5);
 
 		VertexConsumer light = FxRender.quads(event, true, false);
-		for (PlayerEntity player : wearers) {
-			boolean moving = player.getVelocity().horizontalLengthSquared() > 0.003;
+		for (Player player : wearers) {
+			boolean moving = player.getDeltaMovement().horizontalDistanceSqr() > 0.003;
 			float target = hideMoving.get() && moving ? 0 : 1;
 			float visible = shown.getOrDefault(player.getId(), 0f);
 			visible += Math.signum(target - visible) * Math.min(Math.abs(target - visible), delta * 3);
@@ -71,10 +70,10 @@ public class MagicCircleModule extends PlayerFxModule {
 			if (visible <= 0.01f) continue;
 			float alpha = opacity.getFloat() * pulse * visible;
 
-			Vec3d feet = player.getLerpedPos(tickDelta);
-			matrices.push();
+			Vec3 feet = player.getPosition(tickDelta);
+			matrices.pushPose();
 			matrices.translate((float) (feet.x - cam.x), (float) (feet.y - cam.y) + 0.02f, (float) (feet.z - cam.z));
-			MatrixStack.Entry pose = matrices.peek();
+			PoseStack.Pose pose = matrices.last();
 			// Soft light filling the circle
 			FxRender.ring(light, pose, 0, r, 0, SEGMENTS, (t, inner) -> FxRender.fade(palette.at(t), inner ? alpha * 0.18f : alpha * 0.05f));
 			FxRender.ring(light, pose, r * 0.97f, r, 0, SEGMENTS, (t, inner) -> FxRender.fade(palette.at(t), alpha));
@@ -115,15 +114,15 @@ public class MagicCircleModule extends PlayerFxModule {
 			// Small rings on each point of the star
 			for (int i = 0; i < points; i++) {
 				double a = turn + Math.PI * 2 * i / points;
-				matrices.push();
+				matrices.pushPose();
 				matrices.translate((float) Math.cos(a) * star, 0, (float) Math.sin(a) * star);
 				float dot = 0.07f * r;
 				int color = palette.at((float) i / points);
-				FxRender.ring(light, matrices.peek(), dot * 0.6f, dot, 0, 16, (t, inner) -> FxRender.fade(color, alpha));
-				matrices.pop();
+				FxRender.ring(light, matrices.last(), dot * 0.6f, dot, 0, 16, (t, inner) -> FxRender.fade(color, alpha));
+				matrices.popPose();
 			}
-			matrices.pop();
+			matrices.popPose();
 		}
-		shown.keySet().removeIf(id -> mc.world.getEntityById(id) == null);
+		shown.keySet().removeIf(id -> mc.level.getEntity(id) == null);
 	}
 }

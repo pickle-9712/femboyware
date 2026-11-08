@@ -1,13 +1,14 @@
 package dev.femboyware.module.movement;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.util.InventoryUtil;
 import dev.femboyware.util.InventoryUtil.SwitchMode;
-import net.minecraft.item.Items;
-import net.minecraft.util.Hand;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.item.Items;
 
 /** Fires a wind charge at your feet whenever you jump, launching you much higher. */
 public class WindHopModule extends Module {
@@ -22,23 +23,23 @@ public class WindHopModule extends Module {
 
 	@Override
 	public void onTick() {
-		boolean jumping = mc.options.jumpKey.isPressed();
+		boolean jumping = mc.options.keyJump.isDown();
 		boolean pressed = jumping && !wasJumping;
 		wasJumping = jumping;
-		if (!pressed || !mc.player.isOnGround() || mc.currentScreen != null) return;
-		if (onlySneaking.get() && !mc.options.sneakKey.isPressed()) return;
+		if (!pressed || !mc.player.onGround() || Mc.screen() != null) return;
+		if (onlySneaking.get() && !mc.options.keyShift.isDown()) return;
 
-		int slot = InventoryUtil.findHotbar(stack -> stack.isOf(Items.WIND_CHARGE));
-		if (slot < 0 || mc.player.getItemCooldownManager().isCoolingDown(mc.player.getInventory().getStack(slot))) return;
+		int slot = InventoryUtil.findHotbar(stack -> stack.is(Items.WIND_CHARGE));
+		if (slot < 0 || mc.player.getCooldowns().isOnCooldown(mc.player.getInventory().getItem(slot))) return;
 
 		// The use packet carries our rotation, so look straight down just for it
-		float pitch = mc.player.getPitch();
+		float pitch = mc.player.getXRot();
 		InventoryUtil.withSlot(slot, switchMode.get(), () -> {
-			mc.player.setPitch(90f);
-			mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
-			mc.player.swingHand(Hand.MAIN_HAND);
-			mc.player.setPitch(pitch);
+			mc.player.setXRot(90f);
+			mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
+			mc.player.swing(InteractionHand.MAIN_HAND);
+			mc.player.setXRot(pitch);
 		});
-		mc.player.jump();
+		mc.player.jumpFromGround();
 	}
 }

@@ -1,19 +1,19 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.math.Axis;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.RotationAxis;
-import net.minecraft.util.math.Vec3d;
 import org.joml.Vector3f;
 
 import java.util.List;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Animal ears on your head and a tail behind you: cat, fox or bunny. Ears twitch now and then and
@@ -46,48 +46,48 @@ public class NekoModule extends PlayerFxModule {
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
-		List<PlayerEntity> wearers = wearers(false);
+		List<Player> wearers = wearers(false);
 		if (wearers.isEmpty()) return;
 		float tickDelta = tickDelta();
-		Vec3d cam = event.camera().pos;
-		MatrixStack matrices = event.matrices();
+		Vec3 cam = event.camera().pos;
+		PoseStack matrices = event.matrices();
 		VertexConsumer consumer = FxRender.solidQuads(event);
 		float s = size.getFloat();
-		for (PlayerEntity player : wearers) {
+		for (Player player : wearers) {
 			double time = time() + player.getId() * 3.1;
 			if (ears.get()) {
-				matrices.push();
+				matrices.pushPose();
 				toHead(matrices, player, cam.x, cam.y, cam.z, tickDelta);
 				matrices.scale(s, s, s);
 				for (int side = -1; side <= 1; side += 2) {
-					matrices.push();
+					matrices.pushPose();
 					matrices.translate(side * (style.is(Style.BUNNY) ? 0.1f : 0.15f), -0.01f, -0.02f);
 					// An occasional quick twitch, each ear on its own beat
 					float twitch = (float) Math.pow(Math.max(0, Math.sin(time * 1.3 + side * 2.1)), 30) * 18;
-					matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(side * (12 + twitch)));
-					if (player.isInSneakingPose()) matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(-30));
+					matrices.mulPose(Axis.ZP.rotationDegrees(side * (12 + twitch)));
+					if (player.isCrouching()) matrices.mulPose(Axis.XP.rotationDegrees(-30));
 					ear(consumer, matrices, side, time);
-					matrices.pop();
+					matrices.popPose();
 				}
-				matrices.pop();
+				matrices.popPose();
 			}
 			if (tail.get()) {
-				matrices.push();
+				matrices.pushPose();
 				toBody(matrices, player, cam.x, cam.y, cam.z, tickDelta);
 				matrices.translate(0, 0.72f, -0.2f);
 				matrices.scale(s, s, s);
-				float speed = (float) Math.min(1, player.getVelocity().horizontalLength() * 6);
-				tail(consumer, matrices.peek(), time * wag.get() * (1.6 + speed * 3), 0.6f + speed * 0.4f);
-				matrices.pop();
+				float speed = (float) Math.min(1, player.getDeltaMovement().horizontalDistance() * 6);
+				tail(consumer, matrices.last(), time * wag.get() * (1.6 + speed * 3), 0.6f + speed * 0.4f);
+				matrices.popPose();
 			}
 		}
 	}
 
-	private void ear(VertexConsumer consumer, MatrixStack matrices, int side, double time) {
+	private void ear(VertexConsumer consumer, PoseStack matrices, int side, double time) {
 		int outer = FxRender.opaque(fur.get());
 		int innerColor = FxRender.opaque(inner.get());
 		int shade = FxRender.darken(outer, 0.15f);
-		MatrixStack.Entry pose = matrices.peek();
+		PoseStack.Pose pose = matrices.last();
 		switch (style.get()) {
 			case CAT -> {
 				prism(consumer, pose, -0.12f, 0, 0.12f, 0, 0.015f * side, 0.27f, 0.03f, outer, shade);
@@ -103,17 +103,17 @@ public class NekoModule extends PlayerFxModule {
 			case BUNNY -> {
 				// Long ears in two halves; the top half flops back and sways
 				box(consumer, pose, -0.05f, 0, 0.05f, 0.22f, 0.025f, outer, shade, innerColor);
-				matrices.push();
+				matrices.pushPose();
 				matrices.translate(0, 0.22f, 0);
-				matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(-25 - 10 * (float) Math.sin(time * 1.1 + side)));
-				box(consumer, matrices.peek(), -0.05f, 0, 0.05f, 0.2f, 0.025f, outer, shade, innerColor);
-				matrices.pop();
+				matrices.mulPose(Axis.XP.rotationDegrees(-25 - 10 * (float) Math.sin(time * 1.1 + side)));
+				box(consumer, matrices.last(), -0.05f, 0, 0.05f, 0.2f, 0.025f, outer, shade, innerColor);
+				matrices.popPose();
 			}
 		}
 	}
 
 	/** A triangular slab: base corners and a peak in the XY plane, {@code depth} thick either side of Z = 0. */
-	private static void prism(VertexConsumer consumer, MatrixStack.Entry pose, float ax, float ay, float bx, float by, float px, float py, float depth, int face, int side) {
+	private static void prism(VertexConsumer consumer, PoseStack.Pose pose, float ax, float ay, float bx, float by, float px, float py, float depth, int face, int side) {
 		FxRender.triangle(consumer, pose, ax, ay, depth, face, bx, by, depth, face, px, py, depth, FxRender.lighten(face, 0.1f));
 		FxRender.triangle(consumer, pose, ax, ay, -depth, side, bx, by, -depth, side, px, py, -depth, side);
 		FxRender.quad(consumer, pose, ax, ay, depth, side, px, py, depth, side, px, py, -depth, side, ax, ay, -depth, side);
@@ -122,12 +122,12 @@ public class NekoModule extends PlayerFxModule {
 	}
 
 	/** The pink inside of an ear, just in front of its face. */
-	private static void triangle(VertexConsumer consumer, MatrixStack.Entry pose, float ax, float ay, float bx, float by, float px, float py, float z, int color) {
+	private static void triangle(VertexConsumer consumer, PoseStack.Pose pose, float ax, float ay, float bx, float by, float px, float py, float z, int color) {
 		FxRender.triangle(consumer, pose, ax, ay, z, color, bx, by, z, color, px, py, z, color);
 	}
 
 	/** A slab from x1 to x2 and 0 to {@code height}, with a lighter inner panel on the front. */
-	private static void box(VertexConsumer consumer, MatrixStack.Entry pose, float x1, float y1, float x2, float height, float depth, int face, int side, int innerColor) {
+	private static void box(VertexConsumer consumer, PoseStack.Pose pose, float x1, float y1, float x2, float height, float depth, int face, int side, int innerColor) {
 		float y2 = y1 + height;
 		FxRender.quad(consumer, pose, x1, y1, depth, face, x2, y1, depth, face, x2, y2, depth, face, x1, y2, depth, face);
 		FxRender.quad(consumer, pose, x1, y1, -depth, side, x2, y1, -depth, side, x2, y2, -depth, side, x1, y2, -depth, side);
@@ -140,7 +140,7 @@ public class NekoModule extends PlayerFxModule {
 	}
 
 	/** A tapering tube along a curve that sways from side to side, lit from above. */
-	private void tail(VertexConsumer consumer, MatrixStack.Entry pose, double phase, float amount) {
+	private void tail(VertexConsumer consumer, PoseStack.Pose pose, double phase, float amount) {
 		Vector3f[] joints = new Vector3f[TAIL_JOINTS + 1];
 		float[] radii = new float[TAIL_JOINTS + 1];
 		joints[0] = new Vector3f();

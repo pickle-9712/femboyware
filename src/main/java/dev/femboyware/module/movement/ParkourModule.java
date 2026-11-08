@@ -3,7 +3,7 @@ package dev.femboyware.module.movement;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.util.math.Box;
+import net.minecraft.world.phys.AABB;
 
 /**
  * Jumps for you right at the edge of a block.
@@ -19,10 +19,10 @@ public class ParkourModule extends Module {
 	/** After moving this tick, so the jump goes out with the next movement. */
 	@Override
 	public void onPreMotion() {
-		if (!mc.player.isOnGround() || mc.options.jumpKey.isPressed()) return;
-		if (mc.player.isSneaking() || mc.options.sneakKey.isPressed()) return;
-		Box below = mc.player.getBoundingBox().offset(0, -0.5, 0).expand(-edgeDistance.get(), 0, -edgeDistance.get());
-		if (mc.world.getBlockCollisions(mc.player, below).iterator().hasNext()) return;
-		mc.player.jump();
+		if (!mc.player.onGround() || mc.options.keyJump.isDown()) return;
+		if (mc.player.isShiftKeyDown() || mc.options.keyShift.isDown()) return;
+		AABB below = mc.player.getBoundingBox().move(0, -0.5, 0).inflate(-edgeDistance.get(), 0, -edgeDistance.get());
+		if (mc.level.getBlockCollisions(mc.player, below).iterator().hasNext()) return;
+		mc.player.jumpFromGround();
 	}
 }

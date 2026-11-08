@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
@@ -17,25 +18,6 @@ import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.RenderUtil;
 import dev.femboyware.util.Rotation;
 import dev.femboyware.util.Timer;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.block.RespawnAnchorBlock;
-import net.minecraft.client.gui.screen.ingame.HandledScreen;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.util.Hand;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.hit.HitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.RaycastContext;
-import net.minecraft.world.World;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -43,6 +25,24 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.RespawnAnchorBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Places a respawn anchor where it hurts the target most, charges it with one glowstone and
@@ -110,7 +110,7 @@ public class AutoAnchorModule extends Module {
 	private final ColorSetting lineColor = add(new ColorSetting("Line", "Box outline colour", 0xFFAA44FF)).visibleWhen(() -> page.is(Page.RENDER) && render.get());
 
 	private final Timer timer = new Timer();
-	private final Map<PlayerEntity, Box> predictedBoxes = new HashMap<>();
+	private final Map<Player, AABB> predictedBoxes = new HashMap<>();
 	/**
 	 * The anchor we last detonated. The next one waits until the server's update removes it: the
 	 * explosion's terrain changes arrive with that update, and planning against the old terrain
@@ -119,7 +119,7 @@ public class AutoAnchorModule extends Module {
 	private BlockPos awaiting;
 	private long awaitingSince;
 	private AnchorPlan pending;
-	private PlayerEntity target;
+	private Player target;
 	private BlockPos renderPos;
 	private float renderDamage;
 	private long renderTime;
@@ -131,7 +131,7 @@ public class AutoAnchorModule extends Module {
 	}
 
 	/** The player currently being anchored, or null. */
-	public PlayerEntity getTarget() {
+	public Player getTarget() {
 		return target;
 	}
 
@@ -154,12 +154,12 @@ public class AutoAnchorModule extends Module {
 	public void onPreMotion() {
 		pending = null;
 		if (awaiting != null) {
-			boolean gone = !mc.world.getBlockState(awaiting).isOf(Blocks.RESPAWN_ANCHOR);
+			boolean gone = !mc.level.getBlockState(awaiting).is(Blocks.RESPAWN_ANCHOR);
 			if (!gone && System.currentTimeMillis() - awaitingSince < CONFIRM_TIMEOUT) return;
 			awaiting = null;
 		}
 		if (shouldPause()) return;
-		List<PlayerEntity> targets = findTargets();
+		List<Player> targets = findTargets();
 		if (targets.isEmpty()) {
 			target = null;
 			return;
@@ -174,18 +174,18 @@ public class AutoAnchorModule extends Module {
 	public void onPostMotion() {
 		if (pending == null || !timer.passed(delay.get())) return;
 		AnchorPlan plan = pending;
-		Box anchorBox = new Box(plan.pos);
-		if (!canHit(anchorBox, Vec3d.ofCenter(plan.pos))) return;
+		AABB anchorBox = new AABB(plan.pos);
+		if (!canHit(anchorBox, Vec3.atCenterOf(plan.pos))) return;
 
-		int anchorSlot = InventoryUtil.find(stack -> stack.isOf(Items.RESPAWN_ANCHOR), switchMode.get());
-		int glowstoneSlot = InventoryUtil.find(stack -> stack.isOf(Items.GLOWSTONE), switchMode.get());
+		int anchorSlot = InventoryUtil.find(stack -> stack.is(Items.RESPAWN_ANCHOR), switchMode.get());
+		int glowstoneSlot = InventoryUtil.find(stack -> stack.is(Items.GLOWSTONE), switchMode.get());
 		// Place, charge once and detonate, one packet each, so the server does it all this tick
 		if (plan.placeHit != null && !InventoryUtil.withSlot(anchorSlot, switchMode.get(), () -> interactBlock(plan.placeHit))) return;
-		boolean charged = mc.world.getBlockState(plan.pos).isOf(Blocks.RESPAWN_ANCHOR)
-			&& mc.world.getBlockState(plan.pos).get(RespawnAnchorBlock.CHARGES) > 0;
+		boolean charged = mc.level.getBlockState(plan.pos).is(Blocks.RESPAWN_ANCHOR)
+			&& mc.level.getBlockState(plan.pos).getValue(RespawnAnchorBlock.CHARGE) > 0;
 		if (!charged && !InventoryUtil.withSlot(glowstoneSlot, switchMode.get(), () -> interactBlock(plan.useHit))) return;
 		// Anything but glowstone in hand detonates it
-		int detonateSlot = mc.player.getMainHandStack().isOf(Items.GLOWSTONE) ? anchorSlot : mc.player.getInventory().getSelectedSlot();
+		int detonateSlot = mc.player.getMainHandItem().is(Items.GLOWSTONE) ? anchorSlot : mc.player.getInventory().getSelectedSlot();
 		if (!InventoryUtil.withSlot(detonateSlot, switchMode.get(), () -> interactBlock(plan.useHit))) return;
 
 		awaiting = plan.pos;
@@ -198,8 +198,8 @@ public class AutoAnchorModule extends Module {
 	}
 
 	private void interactBlock(BlockHitResult hit) {
-		mc.interactionManager.interactBlock(mc.player, Hand.MAIN_HAND, hit);
-		mc.player.swingHand(Hand.MAIN_HAND);
+		mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, hit);
+		mc.player.swing(InteractionHand.MAIN_HAND);
 	}
 
 	@Override
@@ -211,17 +211,17 @@ public class AutoAnchorModule extends Module {
 			return;
 		}
 		float fade = 1f - Math.max(0f, (age - 500) / 500f);
-		RenderUtil.drawBox(event, new Box(renderPos), fillColor.withAlpha((int) (fillColor.getAlpha() * fade)), lineColor.withAlpha((int) (lineColor.getAlpha() * fade)), 2f);
-		RenderUtil.drawText(event, String.format("%.1f", renderDamage), Vec3d.ofCenter(renderPos), 0xFFFFFFFF, 0.4f);
+		RenderUtil.drawBox(event, new AABB(renderPos), fillColor.withAlpha((int) (fillColor.getAlpha() * fade)), lineColor.withAlpha((int) (lineColor.getAlpha() * fade)), 2f);
+		RenderUtil.drawText(event, String.format("%.1f", renderDamage), Vec3.atCenterOf(renderPos), 0xFFFFFFFF, 0.4f);
 	}
 
 	// ---------------------------------------------------------------- planning
 
 	private boolean shouldPause() {
 		// In the Nether a charged anchor sets your spawn instead of exploding
-		if (mc.world.getRegistryKey() == World.NETHER) return true;
-		if (mc.player.isSneaking()) return true;
-		if (mc.player.getOffHandStack().isOf(Items.GLOWSTONE)) {
+		if (mc.level.dimension() == Level.NETHER) return true;
+		if (mc.player.isShiftKeyDown()) return true;
+		if (mc.player.getOffhandItem().is(Items.GLOWSTONE)) {
 			// The server charges with offhand glowstone instead of detonating, so nothing would explode
 			if (!warned) ChatUtil.info("Auto Anchor: take the glowstone out of your offhand");
 			warned = true;
@@ -229,53 +229,53 @@ public class AutoAnchorModule extends Module {
 		}
 		warned = false;
 		if (!hasItems()) return true;
-		if (pauseMining.get() && mc.interactionManager.isBreakingBlock()) return true;
-		if (pauseEating.get() && mc.player.isUsingItem() && mc.player.getActiveItem().contains(DataComponentTypes.FOOD)) return true;
+		if (pauseMining.get() && mc.gameMode.isDestroying()) return true;
+		if (pauseEating.get() && mc.player.isUsingItem() && mc.player.getUseItem().has(DataComponents.FOOD)) return true;
 		if (pauseHealth.get() > 0 && mc.player.getHealth() + mc.player.getAbsorptionAmount() < pauseHealth.get()) return true;
-		return pauseInventory.get() && mc.currentScreen instanceof HandledScreen<?>;
+		return pauseInventory.get() && Mc.screen() instanceof AbstractContainerScreen<?>;
 	}
 
 	private boolean hasItems() {
 		if (switchMode.is(SwitchMode.NONE)) return false;
-		return InventoryUtil.find(stack -> stack.isOf(Items.RESPAWN_ANCHOR), switchMode.get()) != -1
-			&& InventoryUtil.find(stack -> stack.isOf(Items.GLOWSTONE), switchMode.get()) != -1;
+		return InventoryUtil.find(stack -> stack.is(Items.RESPAWN_ANCHOR), switchMode.get()) != -1
+			&& InventoryUtil.find(stack -> stack.is(Items.GLOWSTONE), switchMode.get()) != -1;
 	}
 
-	private List<PlayerEntity> findTargets() {
-		List<PlayerEntity> targets = new ArrayList<>();
-		for (PlayerEntity player : mc.world.getPlayers()) {
+	private List<Player> findTargets() {
+		List<Player> targets = new ArrayList<>();
+		for (Player player : mc.level.players()) {
 			if (player == mc.player || !player.isAlive() || player.isSpectator() || player.isCreative() || FriendsModule.protects(player)) continue;
-			if (player.squaredDistanceTo(mc.player) > targetRange.get() * targetRange.get()) continue;
+			if (player.distanceToSqr(mc.player) > targetRange.get() * targetRange.get()) continue;
 			targets.add(player);
 		}
 		switch (targetSort.get()) {
-			case DISTANCE, DAMAGE -> targets.sort(Comparator.comparingDouble(p -> p.squaredDistanceTo(mc.player)));
+			case DISTANCE, DAMAGE -> targets.sort(Comparator.comparingDouble(p -> p.distanceToSqr(mc.player)));
 			case HEALTH -> targets.sort(Comparator.comparingDouble(p -> p.getHealth() + p.getAbsorptionAmount()));
 		}
 		// Only DAMAGE sort weighs every target; the others commit to the first one
 		if (!targetSort.is(TargetSort.DAMAGE) && targets.size() > 1) targets = targets.subList(0, 1);
 		predictedBoxes.clear();
-		for (PlayerEntity player : targets) predictedBoxes.put(player, predictBox(player));
+		for (Player player : targets) predictedBoxes.put(player, predictBox(player));
 		return targets;
 	}
 
-	private AnchorPlan findAnchor(List<PlayerEntity> targets) {
+	private AnchorPlan findAnchor(List<Player> targets) {
 		AnchorPlan best = null;
-		PlayerEntity bestTarget = null;
+		Player bestTarget = null;
 		Set<BlockPos> checked = new HashSet<>();
 		int r = radius.getInt();
-		for (PlayerEntity player : targets) {
-			Box box = predictedBoxes.getOrDefault(player, player.getBoundingBox());
-			BlockPos feet = BlockPos.ofFloored(box.getCenter().x, box.minY, box.getCenter().z);
+		for (Player player : targets) {
+			AABB box = predictedBoxes.getOrDefault(player, player.getBoundingBox());
+			BlockPos feet = BlockPos.containing(box.getCenter().x, box.minY, box.getCenter().z);
 			// From the floor up to above their head, where anchors hit hardest
-			for (BlockPos candidate : BlockPos.iterate(feet.add(-r, -1, -r), feet.add(r, 2, r))) {
-				BlockPos pos = candidate.toImmutable();
+			for (BlockPos candidate : BlockPos.betweenClosed(feet.offset(-r, -1, -r), feet.offset(r, 2, r))) {
+				BlockPos pos = candidate.immutable();
 				if (!checked.add(pos)) continue;
 				AnchorPlan plan = planAt(pos, targets);
 				if (plan == null) continue;
 				if (best == null || plan.damage > best.damage || (plan.damage == best.damage && plan.self < best.self)) {
 					best = plan;
-					bestTarget = bestTarget(targets, Vec3d.ofCenter(pos));
+					bestTarget = bestTarget(targets, Vec3.atCenterOf(pos));
 				}
 			}
 		}
@@ -284,23 +284,23 @@ public class AutoAnchorModule extends Module {
 	}
 
 	/** An anchor at {@code pos}, already there or placed now, or null if it can't be done or isn't worth it. */
-	private AnchorPlan planAt(BlockPos pos, List<PlayerEntity> targets) {
-		BlockState state = mc.world.getBlockState(pos);
-		boolean existing = state.isOf(Blocks.RESPAWN_ANCHOR);
-		Vec3d eyes = mc.player.getEyePos();
-		Vec3d center = Vec3d.ofCenter(pos);
+	private AnchorPlan planAt(BlockPos pos, List<Player> targets) {
+		BlockState state = mc.level.getBlockState(pos);
+		boolean existing = state.is(Blocks.RESPAWN_ANCHOR);
+		Vec3 eyes = mc.player.getEyePosition();
+		Vec3 center = Vec3.atCenterOf(pos);
 		double distance = eyes.distanceTo(center);
 		if (distance > placeRange.get()) return null;
 		if ((rayTrace.get() || distance > wallRange.get()) && !isVisible(eyes, center, pos)) return null;
 
 		BlockHitResult placeHit = null;
 		if (!existing) {
-			if (!state.isReplaceable() || BlockUtil.hasBlockingEntity(pos, false)) return null;
-			for (PlayerEntity player : targets) {
-				if (predictedBoxes.getOrDefault(player, player.getBoundingBox()).intersects(new Box(pos))) return null;
+			if (!state.canBeReplaced() || BlockUtil.hasBlockingEntity(pos, false)) return null;
+			for (Player player : targets) {
+				if (predictedBoxes.getOrDefault(player, player.getBoundingBox()).intersects(new AABB(pos))) return null;
 			}
 			placeHit = BlockUtil.getPlacement(pos, interact.is(Interact.STRICT));
-			if (placeHit == null || eyes.distanceTo(placeHit.getPos()) > placeRange.get()) return null;
+			if (placeHit == null || eyes.distanceTo(placeHit.getLocation()) > placeRange.get()) return null;
 		}
 		BlockHitResult useHit = useHit(pos, eyes);
 		if (useHit == null) return null;
@@ -311,13 +311,13 @@ public class AutoAnchorModule extends Module {
 	}
 
 	/** The face of the anchor to right click, nearest the eyes; Strict only takes faces you can see. */
-	private BlockHitResult useHit(BlockPos pos, Vec3d eyes) {
+	private BlockHitResult useHit(BlockPos pos, Vec3 eyes) {
 		BlockHitResult best = null;
 		double bestDistance = Double.MAX_VALUE;
 		for (Direction face : Direction.values()) {
 			if (interact.is(Interact.STRICT) && !BlockUtil.isFaceExposed(pos, face, eyes)) continue;
-			Vec3d point = BlockUtil.faceCenter(pos, face);
-			double distance = eyes.squaredDistanceTo(point);
+			Vec3 point = BlockUtil.faceCenter(pos, face);
+			double distance = eyes.distanceToSqr(point);
 			if (distance < bestDistance) {
 				bestDistance = distance;
 				best = new BlockHitResult(point, face, pos, false);
@@ -327,14 +327,14 @@ public class AutoAnchorModule extends Module {
 	}
 
 	/** Best damage this anchor deals to any target, or null if it fails the damage rules. */
-	private Evaluation evaluate(List<PlayerEntity> targets, Vec3d center, BlockPos anchor) {
+	private Evaluation evaluate(List<Player> targets, Vec3 center, BlockPos anchor) {
 		float self = DamageCalculator.explosionDamage(mc.player, mc.player.getBoundingBox(), center, ANCHOR_POWER, destructibleTerrain.get(), false, null, anchor);
 		float selfHealth = mc.player.getHealth() + mc.player.getAbsorptionAmount();
 		boolean selfLethal = self >= selfHealth - 0.5f;
 		if (selfLethal && !(sacrificeTotem.get() && holdsTotem(mc.player))) return null;
 
 		Evaluation best = null;
-		for (PlayerEntity player : targets) {
+		for (Player player : targets) {
 			float damage = targetDamage(player, center, anchor);
 			float health = player.getHealth() + player.getAbsorptionAmount();
 			boolean lethal = damage >= health;
@@ -352,16 +352,16 @@ public class AutoAnchorModule extends Module {
 		return best;
 	}
 
-	private float targetDamage(PlayerEntity player, Vec3d center, BlockPos anchor) {
-		Box box = predictedBoxes.getOrDefault(player, player.getBoundingBox());
+	private float targetDamage(Player player, Vec3 center, BlockPos anchor) {
+		AABB box = predictedBoxes.getOrDefault(player, player.getBoundingBox());
 		return DamageCalculator.explosionDamage(player, box, center, ANCHOR_POWER, destructibleTerrain.get(), assumeBestArmor.get(), null, anchor);
 	}
 
-	private PlayerEntity bestTarget(List<PlayerEntity> targets, Vec3d center) {
-		PlayerEntity best = null;
+	private Player bestTarget(List<Player> targets, Vec3 center) {
+		Player best = null;
 		float bestDamage = -1;
-		for (PlayerEntity player : targets) {
-			float damage = targetDamage(player, center, BlockPos.ofFloored(center));
+		for (Player player : targets) {
+			float damage = targetDamage(player, center, BlockPos.containing(center));
 			if (damage > bestDamage) {
 				bestDamage = damage;
 				best = player;
@@ -370,58 +370,58 @@ public class AutoAnchorModule extends Module {
 		return best;
 	}
 
-	private boolean shouldFacePlace(PlayerEntity player) {
+	private boolean shouldFacePlace(Player player) {
 		if (player.getHealth() + player.getAbsorptionAmount() <= facePlaceHealth.get()) return true;
 		for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
-			ItemStack armor = player.getEquippedStack(slot);
-			if (armor.isEmpty() || !armor.isDamageable()) continue;
-			if (100f * (armor.getMaxDamage() - armor.getDamage()) / armor.getMaxDamage() < armorPercent.get()) return true;
+			ItemStack armor = player.getItemBySlot(slot);
+			if (armor.isEmpty() || !armor.isDamageableItem()) continue;
+			if (100f * (armor.getMaxDamage() - armor.getDamageValue()) / armor.getMaxDamage() < armorPercent.get()) return true;
 		}
 		return false;
 	}
 
-	private static boolean holdsTotem(PlayerEntity player) {
-		return player.getOffHandStack().isOf(Items.TOTEM_OF_UNDYING) || player.getMainHandStack().isOf(Items.TOTEM_OF_UNDYING);
+	private static boolean holdsTotem(Player player) {
+		return player.getOffhandItem().is(Items.TOTEM_OF_UNDYING) || player.getMainHandItem().is(Items.TOTEM_OF_UNDYING);
 	}
 
 	/** Where {@code player} will stand after Extrapolation ticks if they keep moving the same way. */
-	private Box predictBox(PlayerEntity player) {
-		Box box = player.getBoundingBox();
+	private AABB predictBox(Player player) {
+		AABB box = player.getBoundingBox();
 		int ticks = extrapolation.getInt();
 		if (ticks == 0) return box;
-		Vec3d pos = player.getEntityPos();
-		Vec3d start = pos;
-		double motionX = player.getVelocity().x;
-		double motionZ = player.getVelocity().z;
+		Vec3 pos = player.position();
+		Vec3 start = pos;
+		double motionX = player.getDeltaMovement().x;
+		double motionZ = player.getDeltaMovement().z;
 		for (int i = 0; i < ticks; i++) {
 			double edgeX = motionX > 0 ? 0.3 : -0.3;
 			double edgeZ = motionZ > 0 ? 0.3 : -0.3;
-			if (!mc.world.isAir(BlockPos.ofFloored(pos.add(motionX + edgeX, 0.1, motionZ + edgeZ)))
-				|| !mc.world.isAir(BlockPos.ofFloored(pos.add(motionX + edgeX, 1, motionZ + edgeZ)))) break;
+			if (!mc.level.isEmptyBlock(BlockPos.containing(pos.add(motionX + edgeX, 0.1, motionZ + edgeZ)))
+				|| !mc.level.isEmptyBlock(BlockPos.containing(pos.add(motionX + edgeX, 1, motionZ + edgeZ)))) break;
 			pos = pos.add(motionX, 0, motionZ);
 		}
-		return box.offset(pos.subtract(start));
+		return box.move(pos.subtract(start));
 	}
 
 	// ---------------------------------------------------------------- rotation
 
 	/** Whether the server rotation points into {@code box}; Packet mode turns to {@code aim} first when it doesn't. */
-	private boolean canHit(Box box, Vec3d aim) {
+	private boolean canHit(AABB box, Vec3 aim) {
 		if (rotate.is(RotateMode.OFF) || isAimedAt(box)) return true;
 		if (!rotate.is(RotateMode.PACKET)) return false;
-		FemboyWare.getRotations().sendPacketRotation(Rotation.between(mc.player.getEyePos(), aim));
+		FemboyWare.getRotations().sendPacketRotation(Rotation.between(mc.player.getEyePosition(), aim));
 		return isAimedAt(box);
 	}
 
-	private boolean isAimedAt(Box box) {
-		Vec3d eyes = mc.player.getEyePos();
+	private boolean isAimedAt(AABB box) {
+		Vec3 eyes = mc.player.getEyePosition();
 		if (box.contains(eyes)) return true;
-		Vec3d look = FemboyWare.getRotations().getServerRotation().toVector().multiply(8);
-		return box.raycast(eyes, eyes.add(look)).isPresent();
+		Vec3 look = FemboyWare.getRotations().getServerRotation().toVector().scale(8);
+		return box.clip(eyes, eyes.add(look)).isPresent();
 	}
 
-	private boolean isVisible(Vec3d eyes, Vec3d point, BlockPos pos) {
-		BlockHitResult hit = mc.world.raycast(new RaycastContext(eyes, point, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, mc.player));
+	private boolean isVisible(Vec3 eyes, Vec3 point, BlockPos pos) {
+		BlockHitResult hit = mc.level.clip(new ClipContext(eyes, point, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, mc.player));
 		return hit.getType() == HitResult.Type.MISS || hit.getBlockPos().equals(pos);
 	}
 }

@@ -6,16 +6,15 @@ import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.client.network.OtherClientPlayerEntity;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.EntityStatuses;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.network.packet.s2c.play.EntityStatusS2CPacket;
-
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import net.minecraft.client.player.RemotePlayer;
+import net.minecraft.network.protocol.game.ClientboundEntityEventPacket;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityEvent;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.player.Player;
 
 /**
  * Leaves a glowing ghost of a player where they popped a totem, drifting upwards until it
@@ -24,10 +23,10 @@ import java.util.List;
  */
 public class PopChamsModule extends Module {
 	private static final class Ghost {
-		final OtherClientPlayerEntity entity;
+		final RemotePlayer entity;
 		int age;
 
-		Ghost(OtherClientPlayerEntity entity) {
+		Ghost(RemotePlayer entity) {
 			this.entity = entity;
 		}
 	}
@@ -64,10 +63,10 @@ public class PopChamsModule extends Module {
 
 	@Override
 	public void onPacketReceive(PacketEvent event) {
-		if (!(event.getPacket() instanceof EntityStatusS2CPacket packet) || packet.getStatus() != EntityStatuses.USE_TOTEM_OF_UNDYING) return;
+		if (!(event.getPacket() instanceof ClientboundEntityEventPacket packet) || packet.getEventId() != EntityEvent.PROTECTED_FROM_DEATH) return;
 		mc.execute(() -> {
-			if (!isEnabled() || mc.world == null) return;
-			if (packet.getEntity(mc.world) instanceof PlayerEntity player && (player != mc.player || self.get())) spawn(player);
+			if (!isEnabled() || mc.level == null) return;
+			if (packet.getEntity(mc.level) instanceof Player player && (player != mc.player || self.get())) spawn(player);
 		});
 	}
 
@@ -75,36 +74,36 @@ public class PopChamsModule extends Module {
 	public void onTick() {
 		for (Iterator<Ghost> iterator = ghosts.iterator(); iterator.hasNext(); ) {
 			Ghost ghost = iterator.next();
-			if (++ghost.age > duration.getInt() || ghost.entity.getEntityWorld() != mc.world) {
+			if (++ghost.age > duration.getInt() || ghost.entity.level() != mc.level) {
 				remove(ghost);
 				iterator.remove();
 				continue;
 			}
-			ghost.entity.setPosition(ghost.entity.getX(), ghost.entity.getY() + rise.get(), ghost.entity.getZ());
+			ghost.entity.setPos(ghost.entity.getX(), ghost.entity.getY() + rise.get(), ghost.entity.getZ());
 		}
 	}
 
-	private void spawn(PlayerEntity player) {
-		OtherClientPlayerEntity ghost = new OtherClientPlayerEntity(mc.world, player.getGameProfile());
+	private void spawn(Player player) {
+		RemotePlayer ghost = new RemotePlayer(mc.level, player.getGameProfile());
 		ghost.setId(nextId--);
-		ghost.copyPositionAndRotation(player);
-		ghost.setHeadYaw(player.getHeadYaw());
-		ghost.setBodyYaw(player.getBodyYaw());
+		ghost.copyPosition(player);
+		ghost.setYHeadRot(player.getYHeadRot());
+		ghost.setYBodyRot(player.getVisualRotationYInDegrees());
 		ghost.setPose(player.getPose());
-		ghost.setGlowing(true);
-		ghost.noClip = true;
+		ghost.setGlowingTag(true);
+		ghost.noPhysics = true;
 		if (armor.get()) {
 			for (EquipmentSlot slot : EquipmentSlot.values()) {
-				if (slot.isArmorSlot()) ghost.equipStack(slot, player.getEquippedStack(slot).copy());
+				if (slot.isArmor()) ghost.setItemSlot(slot, player.getItemBySlot(slot).copy());
 			}
 		}
-		mc.world.addEntity(ghost);
+		mc.level.addEntity(ghost);
 		ghosts.add(new Ghost(ghost));
 	}
 
 	private void remove(Ghost ghost) {
-		if (mc.world != null && ghost.entity.getEntityWorld() == mc.world) {
-			mc.world.removeEntity(ghost.entity.getId(), Entity.RemovalReason.DISCARDED);
+		if (mc.level != null && ghost.entity.level() == mc.level) {
+			mc.level.removeEntity(ghost.entity.getId(), Entity.RemovalReason.DISCARDED);
 		}
 	}
 }

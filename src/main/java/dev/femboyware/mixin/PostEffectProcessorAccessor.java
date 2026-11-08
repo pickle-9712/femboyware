@@ -1,14 +1,14 @@
 package dev.femboyware.mixin;
 
-import net.minecraft.client.gl.PostEffectPass;
-import net.minecraft.client.gl.PostEffectProcessor;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
 import java.util.List;
+import net.minecraft.client.renderer.PostChain;
+import net.minecraft.client.renderer.PostPass;
 
-@Mixin(PostEffectProcessor.class)
+@Mixin(PostChain.class)
 public interface PostEffectProcessorAccessor {
 	@Accessor("passes")
-	List<PostEffectPass> femboyware$getPasses();
+	List<PostPass> femboyware$getPasses();
 }

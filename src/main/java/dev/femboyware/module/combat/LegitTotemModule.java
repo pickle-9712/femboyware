@@ -1,18 +1,19 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.mixin.HandledScreenAccessor;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.InventoryUtil;
-import net.minecraft.client.gui.screen.ingame.InventoryScreen;
-import net.minecraft.item.Items;
-import net.minecraft.screen.slot.Slot;
-import net.minecraft.screen.slot.SlotActionType;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.Random;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.Items;
 
 /**
  * Refills your offhand totem like a person would: opens your inventory, moves the mouse to a
@@ -44,7 +45,7 @@ public class LegitTotemModule extends Module {
 
 	@Override
 	public String getInfo() {
-		return Integer.toString(InventoryUtil.count(stack -> stack.isOf(Items.TOTEM_OF_UNDYING)));
+		return Integer.toString(InventoryUtil.count(stack -> stack.is(Items.TOTEM_OF_UNDYING)));
 	}
 
 	@Override
@@ -55,8 +56,8 @@ public class LegitTotemModule extends Module {
 	@Override
 	public void onTick() {
 		if (step == null) {
-			if (mc.player.getOffHandStack().isOf(Items.TOTEM_OF_UNDYING) || mc.currentScreen != null) return;
-			int slot = InventoryUtil.findMain(stack -> stack.isOf(Items.TOTEM_OF_UNDYING));
+			if (mc.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING) || Mc.screen() != null) return;
+			int slot = InventoryUtil.findMain(stack -> stack.is(Items.TOTEM_OF_UNDYING));
 			if (slot < 0) return;
 			totemSlot = InventoryUtil.screenSlot(slot);
 			step = Step.OPEN;
@@ -68,38 +69,38 @@ public class LegitTotemModule extends Module {
 			return;
 		}
 		// Stop if something else took over the screen, like the player closing it
-		if (step != Step.OPEN && mc.currentScreen != screen) {
+		if (step != Step.OPEN && Mc.screen() != screen) {
 			step = null;
 			return;
 		}
 		switch (step) {
 			case OPEN -> {
 				screen = new InventoryScreen(mc.player);
-				mc.setScreen(screen);
+				Mc.setScreen(screen);
 				next(Step.PICK_UP);
 			}
 			case PICK_UP -> {
-				if (!mc.player.playerScreenHandler.getSlot(totemSlot).getStack().isOf(Items.TOTEM_OF_UNDYING)) {
+				if (!mc.player.inventoryMenu.getSlot(totemSlot).getItem().is(Items.TOTEM_OF_UNDYING)) {
 					step = null;
 					return;
 				}
 				hover(totemSlot);
-				InventoryUtil.click(totemSlot, 0, SlotActionType.PICKUP);
+				InventoryUtil.click(totemSlot, 0, ClickType.PICKUP);
 				next(Step.PUT_DOWN);
 			}
 			case PUT_DOWN -> {
 				hover(OFFHAND_SLOT);
-				InventoryUtil.click(OFFHAND_SLOT, 0, SlotActionType.PICKUP);
+				InventoryUtil.click(OFFHAND_SLOT, 0, ClickType.PICKUP);
 				// Whatever was in the offhand is now on the cursor and goes where the totem was
-				next(mc.player.playerScreenHandler.getCursorStack().isEmpty() ? Step.CLOSE : Step.PUT_BACK);
+				next(mc.player.inventoryMenu.getCarried().isEmpty() ? Step.CLOSE : Step.PUT_BACK);
 			}
 			case PUT_BACK -> {
 				hover(totemSlot);
-				InventoryUtil.click(totemSlot, 0, SlotActionType.PICKUP);
+				InventoryUtil.click(totemSlot, 0, ClickType.PICKUP);
 				next(Step.CLOSE);
 			}
 			case CLOSE -> {
-				if (close.get()) mc.player.closeHandledScreen();
+				if (close.get()) mc.player.closeContainer();
 				step = null;
 				screen = null;
 			}
@@ -119,11 +120,11 @@ public class LegitTotemModule extends Module {
 	/** Puts the real mouse cursor over {@code slotId}, so you can watch it drag the totem across. */
 	private void hover(int slotId) {
 		if (!moveMouse.get() || screen == null) return;
-		Slot slot = mc.player.playerScreenHandler.getSlot(slotId);
+		Slot slot = mc.player.inventoryMenu.getSlot(slotId);
 		HandledScreenAccessor accessor = (HandledScreenAccessor) screen;
-		double scale = mc.getWindow().getScaleFactor();
+		double scale = mc.getWindow().getGuiScale();
 		double x = (accessor.femboyware$getX() + slot.x + 8) * scale;
 		double y = (accessor.femboyware$getY() + slot.y + 8) * scale;
-		GLFW.glfwSetCursorPos(mc.getWindow().getHandle(), x, y);
+		GLFW.glfwSetCursorPos(mc.getWindow().handle(), x, y);
 	}
 }

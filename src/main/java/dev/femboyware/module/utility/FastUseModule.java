@@ -7,14 +7,13 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.StringSetting;
-import net.minecraft.item.BlockItem;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.Identifier;
-
 import java.util.HashSet;
 import java.util.Set;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 
 /**
  * Removes the delay between right clicks.
@@ -41,7 +40,7 @@ public class FastUseModule extends Module {
 			listed = parseItems(items.get());
 			parsedFrom = items.get();
 		}
-		if (!applies(mc.player.getMainHandStack()) && !applies(mc.player.getOffHandStack())) return;
+		if (!applies(mc.player.getMainHandItem()) && !applies(mc.player.getOffhandItem())) return;
 		MinecraftClientAccessor client = (MinecraftClientAccessor) mc;
 		if (client.femboyware$getItemUseCooldown() > cooldown.getInt()) client.femboyware$setItemUseCooldown(cooldown.getInt());
 	}
@@ -57,7 +56,7 @@ public class FastUseModule extends Module {
 		for (String part : text.split(",")) {
 			if (part.isBlank()) continue;
 			Identifier id = Identifier.tryParse(part.trim().toLowerCase());
-			if (id != null) Registries.ITEM.getOptionalValue(id).ifPresent(result::add);
+			if (id != null) BuiltInRegistries.ITEM.getOptional(id).ifPresent(result::add);
 		}
 		return result;
 	}

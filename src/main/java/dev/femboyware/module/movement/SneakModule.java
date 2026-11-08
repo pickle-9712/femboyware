@@ -4,8 +4,8 @@ import dev.femboyware.event.PacketEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.EnumSetting;
-import net.minecraft.network.packet.c2s.play.PlayerInputC2SPacket;
-import net.minecraft.util.PlayerInput;
+import net.minecraft.network.protocol.game.ServerboundPlayerInputPacket;
+import net.minecraft.world.entity.player.Input;
 
 /**
  * Sneaks for you. Vanilla sneaks for real; Packet only tells the server you're sneaking, so you
@@ -23,30 +23,30 @@ public class SneakModule extends Module {
 
 	@Override
 	protected void onEnable() {
-		if (!nullCheck() && mode.is(Mode.PACKET)) mc.getNetworkHandler().sendPacket(new PlayerInputC2SPacket(withSneak(mc.player.input.playerInput, true)));
+		if (!nullCheck() && mode.is(Mode.PACKET)) mc.getConnection().send(new ServerboundPlayerInputPacket(withSneak(mc.player.input.keyPresses, true)));
 	}
 
 	@Override
 	protected void onDisable() {
 		// Tell the server what we're really doing again
-		if (!nullCheck() && mode.is(Mode.PACKET)) mc.getNetworkHandler().sendPacket(new PlayerInputC2SPacket(mc.player.input.playerInput));
+		if (!nullCheck() && mode.is(Mode.PACKET)) mc.getConnection().send(new ServerboundPlayerInputPacket(mc.player.input.keyPresses));
 	}
 
 	@Override
 	public void onMovementInput() {
 		if (!mode.is(Mode.VANILLA) || mc.player.getAbilities().flying) return;
-		mc.player.input.playerInput = withSneak(mc.player.input.playerInput, true);
+		mc.player.input.keyPresses = withSneak(mc.player.input.keyPresses, true);
 	}
 
 	@Override
 	public void onPacketSend(PacketEvent event) {
 		if (!mode.is(Mode.PACKET) || mc.player.getAbilities().flying) return;
-		if (!(event.getPacket() instanceof PlayerInputC2SPacket packet) || packet.input().sneak()) return;
+		if (!(event.getPacket() instanceof ServerboundPlayerInputPacket packet) || packet.input().shift()) return;
 		event.cancel();
-		mc.getNetworkHandler().sendPacket(new PlayerInputC2SPacket(withSneak(packet.input(), true)));
+		mc.getConnection().send(new ServerboundPlayerInputPacket(withSneak(packet.input(), true)));
 	}
 
-	private static PlayerInput withSneak(PlayerInput input, boolean sneak) {
-		return new PlayerInput(input.forward(), input.backward(), input.left(), input.right(), input.jump(), sneak, input.sprint());
+	private static Input withSneak(Input input, boolean sneak) {
+		return new Input(input.forward(), input.backward(), input.left(), input.right(), input.jump(), sneak, input.sprint());
 	}
 }

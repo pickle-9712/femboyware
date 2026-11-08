@@ -5,11 +5,11 @@ import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.InventoryUtil;
-import net.minecraft.enchantment.Enchantments;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.enchantment.Enchantments;
 
 /**
  * Swaps to a Breach mace for the attack packet and straight back, so hits against armoured
@@ -28,8 +28,8 @@ public class BreachSwapModule extends Module {
 	@Override
 	public void onPreAttack(Entity target) {
 		previousSlot = -1;
-		if (!(target instanceof LivingEntity living) || living.getArmor() < minArmor.getInt()) return;
-		if (isBreachMace(mc.player.getMainHandStack())) return;
+		if (!(target instanceof LivingEntity living) || living.getArmorValue() < minArmor.getInt()) return;
+		if (isBreachMace(mc.player.getMainHandItem())) return;
 		int slot = InventoryUtil.findHotbar(BreachSwapModule::isBreachMace);
 		if (slot < 0) return;
 		previousSlot = mc.player.getInventory().getSelectedSlot();
@@ -43,6 +43,6 @@ public class BreachSwapModule extends Module {
 	}
 
 	private static boolean isBreachMace(ItemStack stack) {
-		return stack.isOf(Items.MACE) && InventoryUtil.getEnchantmentLevel(stack, Enchantments.BREACH) > 0;
+		return stack.is(Items.MACE) && InventoryUtil.getEnchantmentLevel(stack, Enchantments.BREACH) > 0;
 	}
 }

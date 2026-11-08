@@ -4,9 +4,9 @@ import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
+import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
 
 /**
  * Re-deploys your elytra the moment you stop gliding, and can jump off the ground straight away,
@@ -29,14 +29,14 @@ public class ElytraRecastModule extends Module {
 
 	@Override
 	public void onTick() {
-		if (mc.player.isGliding() || mc.player.hasVehicle() || mc.player.getAbilities().flying || mc.player.isClimbing()) return;
-		if (mc.player.isOnGround()) {
-			if (autoJump.get() && LivingEntity.canGlideWith(mc.player.getEquippedStack(EquipmentSlot.CHEST), EquipmentSlot.CHEST) && mc.player.input.hasForwardMovement()) mc.player.jump();
+		if (mc.player.isFallFlying() || mc.player.isPassenger() || mc.player.getAbilities().flying || mc.player.onClimbable()) return;
+		if (mc.player.onGround()) {
+			if (autoJump.get() && LivingEntity.canGlideUsing(mc.player.getItemBySlot(EquipmentSlot.CHEST), EquipmentSlot.CHEST) && mc.player.input.hasForwardImpulse()) mc.player.jumpFromGround();
 			return;
 		}
-		if (mode.is(Mode.JUMP_HELD) && !mc.options.jumpKey.isPressed()) return;
-		if (mc.player.checkGliding()) {
-			mc.getNetworkHandler().sendPacket(new ClientCommandC2SPacket(mc.player, ClientCommandC2SPacket.Mode.START_FALL_FLYING));
+		if (mode.is(Mode.JUMP_HELD) && !mc.options.keyJump.isDown()) return;
+		if (mc.player.tryToStartFallFlying()) {
+			mc.getConnection().send(new ServerboundPlayerCommandPacket(mc.player, ServerboundPlayerCommandPacket.Action.START_FALL_FLYING));
 		}
 	}
 }

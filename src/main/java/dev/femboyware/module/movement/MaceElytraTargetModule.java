@@ -10,11 +10,11 @@ import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.PlaceUtil;
 import dev.femboyware.util.Rotation;
 import dev.femboyware.util.TargetUtil;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.Items;
-import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
-import net.minecraft.util.Hand;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Glides to a point high above the target, drops out of the glide right over them and smashes
@@ -31,7 +31,7 @@ public class MaceElytraTargetModule extends Module {
 	private final NumberSetting turnSpeed = add(new NumberSetting("Turn Speed", "Max degrees turned per tick", 25, 1, 180, 1));
 	private final EnumSetting<SwitchMode> switchMode = add(new EnumSetting<>("Switch", "How to switch to the mace", SwitchMode.SILENT));
 
-	private PlayerEntity target;
+	private Player target;
 	private boolean dropping;
 
 	public MaceElytraTargetModule() {
@@ -46,40 +46,40 @@ public class MaceElytraTargetModule extends Module {
 
 	@Override
 	public void onPreMotion() {
-		if (mc.player.isOnGround()) dropping = false;
+		if (mc.player.onGround()) dropping = false;
 		target = TargetUtil.closestPlayer(range.get());
 		if (target == null) return;
 
-		if (mc.player.isGliding()) {
-			Vec3d above = target.getEntityPos().add(0, height.get(), 0);
+		if (mc.player.isFallFlying()) {
+			Vec3 above = target.position().add(0, height.get(), 0);
 			double horizontal = Math.hypot(above.x - mc.player.getX(), above.z - mc.player.getZ());
 			if (horizontal <= dropRadius.get() && mc.player.getY() > target.getY() + 3) {
 				// Toggling fall flying while already gliding makes the server end the glide
-				mc.getNetworkHandler().sendPacket(new ClientCommandC2SPacket(mc.player, ClientCommandC2SPacket.Mode.START_FALL_FLYING));
-				mc.player.stopGliding();
+				mc.getConnection().send(new ServerboundPlayerCommandPacket(mc.player, ServerboundPlayerCommandPacket.Action.START_FALL_FLYING));
+				mc.player.stopFallFlying();
 				dropping = true;
 				return;
 			}
-			FemboyWare.getRotations().request(Rotation.between(mc.player.getEyePos(), above), ROTATION_PRIORITY, turnSpeed.getFloat(), true);
+			FemboyWare.getRotations().request(Rotation.between(mc.player.getEyePosition(), above), ROTATION_PRIORITY, turnSpeed.getFloat(), true);
 		} else if (dropping) {
-			Vec3d center = target.getBoundingBox().getCenter();
-			Vec3d toward = center.subtract(mc.player.getEntityPos());
+			Vec3 center = target.getBoundingBox().getCenter();
+			Vec3 toward = center.subtract(mc.player.position());
 			// Steer the fall onto them
-			mc.player.setVelocity(Math.max(-0.3, Math.min(0.3, toward.x * 0.2)), mc.player.getVelocity().y, Math.max(-0.3, Math.min(0.3, toward.z * 0.2)));
+			mc.player.setDeltaMovement(Math.max(-0.3, Math.min(0.3, toward.x * 0.2)), mc.player.getDeltaMovement().y, Math.max(-0.3, Math.min(0.3, toward.z * 0.2)));
 		}
 	}
 
 	@Override
 	public void onTick() {
-		if (!dropping || target == null || mc.player.isGliding() || mc.player.fallDistance < 1.5) return;
-		if (mc.player.getEyePos().distanceTo(target.getBoundingBox().getCenter()) > hitRange.get()) return;
-		int slot = InventoryUtil.findHotbar(stack -> stack.isOf(Items.MACE));
+		if (!dropping || target == null || mc.player.isFallFlying() || mc.player.fallDistance < 1.5) return;
+		if (mc.player.getEyePosition().distanceTo(target.getBoundingBox().getCenter()) > hitRange.get()) return;
+		int slot = InventoryUtil.findHotbar(stack -> stack.is(Items.MACE));
 		if (slot < 0) return;
-		PlayerEntity victim = target;
+		Player victim = target;
 		boolean hit = InventoryUtil.withSlot(slot, switchMode.get(), () -> {
 			PlaceUtil.lookAt(victim.getBoundingBox().getCenter());
-			mc.interactionManager.attackEntity(mc.player, victim);
-			mc.player.swingHand(Hand.MAIN_HAND);
+			mc.gameMode.attack(mc.player, victim);
+			mc.player.swing(InteractionHand.MAIN_HAND);
 		});
 		if (hit) dropping = false;
 	}

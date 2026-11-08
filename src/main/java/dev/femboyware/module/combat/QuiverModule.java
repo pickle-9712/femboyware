@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
@@ -7,11 +8,11 @@ import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.InventoryUtil;
 import dev.femboyware.util.Rotation;
 import dev.femboyware.util.Timer;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.PotionContentsComponent;
-import net.minecraft.entity.effect.StatusEffectInstance;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.alchemy.PotionContents;
 
 /**
  * Shoots tipped arrows of helpful effects straight up so they land on you. The arrow is moved
@@ -50,7 +51,7 @@ public class QuiverModule extends Module {
 	public void onPreMotion() {
 		// Keep looking straight up for the whole draw so the release goes up too
 		if (stage == Stage.CHARGING) {
-			FemboyWare.getRotations().request(new Rotation(mc.player.getYaw(), -90f), ROTATION_PRIORITY, 180f, false);
+			FemboyWare.getRotations().request(new Rotation(mc.player.getYRot(), -90f), ROTATION_PRIORITY, 180f, false);
 		}
 	}
 
@@ -59,12 +60,12 @@ public class QuiverModule extends Module {
 		switch (stage) {
 			case IDLE -> tryStart();
 			case CHARGING -> {
-				if (!mc.player.getMainHandStack().isOf(Items.BOW)) {
+				if (!mc.player.getMainHandItem().is(Items.BOW)) {
 					restore();
 					return;
 				}
 				ticks++;
-				mc.options.useKey.setPressed(ticks <= charge.getInt());
+				mc.options.keyUse.setDown(ticks <= charge.getInt());
 				if (ticks > charge.getInt()) {
 					stage = Stage.RESTORE;
 					ticks = 0;
@@ -77,9 +78,9 @@ public class QuiverModule extends Module {
 	}
 
 	private void tryStart() {
-		if (!timer.passed(delay.get()) || mc.currentScreen != null || mc.player.isUsingItem()) return;
+		if (!timer.passed(delay.get()) || Mc.screen() != null || mc.player.isUsingItem()) return;
 		if (mc.player.getHealth() + mc.player.getAbsorptionAmount() < minHealth.get()) return;
-		int bow = InventoryUtil.findHotbar(stack -> stack.isOf(Items.BOW));
+		int bow = InventoryUtil.findHotbar(stack -> stack.is(Items.BOW));
 		int arrow = InventoryUtil.findInventory(this::isUsefulArrow);
 		if (bow < 0 || arrow < 0) return;
 
@@ -92,7 +93,7 @@ public class QuiverModule extends Module {
 	}
 
 	private void restore() {
-		mc.options.useKey.setPressed(false);
+		mc.options.keyUse.setDown(false);
 		InventoryUtil.swapWithOffhand(arrowSlot);
 		InventoryUtil.select(previousSlot);
 		stage = Stage.IDLE;
@@ -101,13 +102,13 @@ public class QuiverModule extends Module {
 
 	/** A tipped arrow whose effects are all helpful and at least one of which we don't have yet. */
 	private boolean isUsefulArrow(ItemStack stack) {
-		if (!stack.isOf(Items.TIPPED_ARROW)) return false;
-		PotionContentsComponent contents = stack.get(DataComponentTypes.POTION_CONTENTS);
+		if (!stack.is(Items.TIPPED_ARROW)) return false;
+		PotionContents contents = stack.get(DataComponents.POTION_CONTENTS);
 		if (contents == null) return false;
 		boolean missing = false;
-		for (StatusEffectInstance effect : contents.getEffects()) {
-			if (!effect.getEffectType().value().isBeneficial()) return false;
-			if (!mc.player.hasStatusEffect(effect.getEffectType())) missing = true;
+		for (MobEffectInstance effect : contents.getAllEffects()) {
+			if (!effect.getEffect().value().isBeneficial()) return false;
+			if (!mc.player.hasEffect(effect.getEffect())) missing = true;
 		}
 		return missing;
 	}

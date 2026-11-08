@@ -9,17 +9,16 @@ import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.PlaceUtil;
 import dev.femboyware.util.TargetUtil;
 import dev.femboyware.util.Timer;
-import net.minecraft.block.Blocks;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.util.math.BlockPos;
-
 import java.util.function.Predicate;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Blocks;
 
 /** Webs the target's feet (and optionally head) so they can't run or escape a hole. */
 public class AutoWebModule extends Module {
-	private static final Predicate<ItemStack> WEB = stack -> stack.isOf(Items.COBWEB);
+	private static final Predicate<ItemStack> WEB = stack -> stack.is(Items.COBWEB);
 
 	private final NumberSetting targetRange = add(new NumberSetting("Target Range", "How far away targets can be", 5, 2, 8, 0.5));
 	private final BoolSetting head = add(new BoolSetting("Head", "Also web the block at the target's head", false));
@@ -37,15 +36,15 @@ public class AutoWebModule extends Module {
 	@Override
 	public void onTick() {
 		if (!timer.passed(delay.get())) return;
-		PlayerEntity target = TargetUtil.closestPlayer(targetRange.get());
+		Player target = TargetUtil.closestPlayer(targetRange.get());
 		if (target == null) return;
 
-		BlockPos feet = target.getBlockPos();
-		if (tryWeb(feet) || head.get() && tryWeb(feet.up())) timer.reset();
+		BlockPos feet = target.blockPosition();
+		if (tryWeb(feet) || head.get() && tryWeb(feet.above())) timer.reset();
 	}
 
 	private boolean tryWeb(BlockPos pos) {
-		if (mc.world.getBlockState(pos).isOf(Blocks.COBWEB)) return false;
+		if (mc.level.getBlockState(pos).is(Blocks.COBWEB)) return false;
 		return PlaceUtil.placeInside(pos, WEB, switchMode.get(), rotate.get(), strict.get());
 	}
 }

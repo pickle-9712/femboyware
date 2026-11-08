@@ -1,12 +1,13 @@
 package dev.femboyware.module.utility;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.minecraft.client.option.KeyBinding;
+import net.minecraft.client.KeyMapping;
 
 /**
  * Clicks or holds the attack and use buttons for you.
@@ -42,24 +43,24 @@ public class AutoClickerModule extends Module {
 
 	@Override
 	public void onTick() {
-		if (!inScreens.get() && mc.currentScreen != null) return;
-		leftTimer = click(mc.options.attackKey, leftMode.get(), leftDelay.getInt(), leftTimer);
-		rightTimer = click(mc.options.useKey, rightMode.get(), rightDelay.getInt(), rightTimer);
+		if (!inScreens.get() && Mc.screen() != null) return;
+		leftTimer = click(mc.options.keyAttack, leftMode.get(), leftDelay.getInt(), leftTimer);
+		rightTimer = click(mc.options.keyUse, rightMode.get(), rightDelay.getInt(), rightTimer);
 	}
 
 	/** Runs one key for this tick and returns its updated timer. Presses queue a click vanilla handles this tick. */
-	private static int click(KeyBinding key, Mode mode, int delay, int timer) {
+	private static int click(KeyMapping key, Mode mode, int delay, int timer) {
 		switch (mode) {
 			case DISABLED -> {
 				return timer;
 			}
 			case HOLD -> {
-				key.setPressed(true);
+				key.setDown(true);
 				return timer;
 			}
 			default -> {
 				if (++timer <= delay) return timer;
-				KeyBinding.onKeyPressed(KeyBindingHelper.getBoundKeyOf(key));
+				KeyMapping.click(KeyBindingHelper.getBoundKeyOf(key));
 				return 0;
 			}
 		}
@@ -67,7 +68,7 @@ public class AutoClickerModule extends Module {
 
 	private void release() {
 		if (nullCheck()) return;
-		mc.options.attackKey.setPressed(false);
-		mc.options.useKey.setPressed(false);
+		mc.options.keyAttack.setDown(false);
+		mc.options.keyUse.setDown(false);
 	}
 }

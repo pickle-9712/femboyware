@@ -1,7 +1,10 @@
 package dev.femboyware.module.render;
 
+import dev.femboyware.util.Mc;
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.Std140Builder;
+import com.mojang.blaze3d.framegraph.FrameGraphBuilder;
+import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
 import dev.femboyware.mixin.GameRendererAccessor;
 import dev.femboyware.mixin.PostEffectPassAccessor;
@@ -11,13 +14,11 @@ import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.client.gl.Framebuffer;
-import net.minecraft.client.gl.PostEffectPass;
-import net.minecraft.client.gl.PostEffectProcessor;
-import net.minecraft.client.render.DefaultFramebufferSet;
-import net.minecraft.client.render.FrameGraphBuilder;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.MathHelper;
+import net.minecraft.client.renderer.LevelTargetBundle;
+import net.minecraft.client.renderer.PostChain;
+import net.minecraft.client.renderer.PostPass;
+import net.minecraft.resources.Identifier;
+import net.minecraft.util.Mth;
 import net.minecraft.world.attribute.EnvironmentAttribute;
 import net.minecraft.world.attribute.EnvironmentAttributes;
 import org.lwjgl.system.MemoryStack;
@@ -32,7 +33,7 @@ import java.nio.ByteBuffer;
  * Client-side only.
  */
 public class PinkSkyModule extends Module {
-	private static final Identifier GRADE = Identifier.of("femboyware", "pink");
+	private static final Identifier GRADE = Identifier.fromNamespaceAndPath("femboyware", "pink");
 
 	private final ColorSetting color = add(new ColorSetting("Color", "The colour to tint towards", 0xFFFF77C8));
 	private final NumberSetting strength = add(new NumberSetting("Strength", "How far the sky, fog and clouds are tinted", 0.8, 0, 1, 0.05));
@@ -53,9 +54,9 @@ public class PinkSkyModule extends Module {
 	/** Colour grades everything drawn in the world so far; called just before ESP and the like draw. */
 	public void gradeWorld() {
 		if (!isEnabled() || !everything.get() || everythingStrength.get() <= 0) return;
-		PostEffectProcessor effect = mc.getShaderLoader().loadPostEffect(GRADE, DefaultFramebufferSet.MAIN_ONLY);
+		PostChain effect = mc.getShaderManager().getPostChain(GRADE, LevelTargetBundle.MAIN_TARGETS);
 		if (effect == null) return;
-		PostEffectPass pass = ((PostEffectProcessorAccessor) effect).femboyware$getPasses().get(0);
+		PostPass pass = ((PostEffectProcessorAccessor) effect).femboyware$getPasses().get(0);
 		GpuBuffer config = ((PostEffectPassAccessor) pass).femboyware$getUniformBuffers().get("PinkConfig");
 		if (config == null) return;
 		int tint = color.get();
@@ -66,23 +67,23 @@ public class PinkSkyModule extends Module {
 			RenderSystem.getDevice().createCommandEncoder().writeToBuffer(config.slice(), data);
 		}
 		// The effect runs as a one-pass frame graph over the main framebuffer
-		Framebuffer main = mc.getFramebuffer();
+		RenderTarget main = Mc.mainRenderTarget();
 		FrameGraphBuilder graph = new FrameGraphBuilder();
-		PostEffectProcessor.FramebufferSet targets = PostEffectProcessor.FramebufferSet.singleton(PostEffectProcessor.MAIN, graph.createObjectNode("main", main));
-		effect.render(graph, main.textureWidth, main.textureHeight, targets);
-		graph.run(((GameRendererAccessor) mc.gameRenderer).femboyware$getPool());
+		PostChain.TargetBundle targets = PostChain.TargetBundle.of(PostChain.MAIN_TARGET_ID, graph.importExternal("main", main));
+		effect.addToFrame(graph, main.width, main.height, targets);
+		graph.execute(((GameRendererAccessor) mc.gameRenderer).femboyware$getPool());
 	}
 
 	/** Called from EnvironmentAttributeInterpolatorMixin with every visual attribute the client reads. */
 	public Object modify(EnvironmentAttribute<?> attribute, Object value) {
 		if (!isEnabled() || !(value instanceof Integer argb)) return value;
 		float amount;
-		if (attribute == EnvironmentAttributes.SKY_COLOR_VISUAL) amount = sky.get() ? strength.getFloat() : 0;
-		else if (attribute == EnvironmentAttributes.FOG_COLOR_VISUAL) amount = fog.get() ? strength.getFloat() : 0;
-		else if (attribute == EnvironmentAttributes.CLOUD_COLOR_VISUAL) amount = clouds.get() ? strength.getFloat() : 0;
-		else if (attribute == EnvironmentAttributes.SUNRISE_SUNSET_COLOR_VISUAL) amount = sunset.get() ? strength.getFloat() : 0;
-		else if (attribute == EnvironmentAttributes.WATER_FOG_COLOR_VISUAL) amount = water.get() ? strength.getFloat() : 0;
-		else if (attribute == EnvironmentAttributes.SKY_LIGHT_COLOR_VISUAL) amount = world.get() ? worldStrength.getFloat() : 0;
+		if (attribute == EnvironmentAttributes.SKY_COLOR) amount = sky.get() ? strength.getFloat() : 0;
+		else if (attribute == EnvironmentAttributes.FOG_COLOR) amount = fog.get() ? strength.getFloat() : 0;
+		else if (attribute == EnvironmentAttributes.CLOUD_COLOR) amount = clouds.get() ? strength.getFloat() : 0;
+		else if (attribute == EnvironmentAttributes.SUNRISE_SUNSET_COLOR) amount = sunset.get() ? strength.getFloat() : 0;
+		else if (attribute == EnvironmentAttributes.WATER_FOG_COLOR) amount = water.get() ? strength.getFloat() : 0;
+		else if (attribute == EnvironmentAttributes.SKY_LIGHT_COLOR) amount = world.get() ? worldStrength.getFloat() : 0;
 		else return value;
 		return amount <= 0 ? value : tint(argb, color.get(), amount);
 	}
@@ -92,9 +93,9 @@ public class PinkSkyModule extends Module {
 		int r = (argb >> 16) & 0xFF, g = (argb >> 8) & 0xFF, b = argb & 0xFF;
 		int tr = (tint >> 16) & 0xFF, tg = (tint >> 8) & 0xFF, tb = tint & 0xFF;
 		float scale = luminance(r, g, b) / Math.max(1f, luminance(tr, tg, tb));
-		int nr = (int) MathHelper.lerp(amount, r, Math.min(255, tr * scale));
-		int ng = (int) MathHelper.lerp(amount, g, Math.min(255, tg * scale));
-		int nb = (int) MathHelper.lerp(amount, b, Math.min(255, tb * scale));
+		int nr = (int) Mth.lerp(amount, r, Math.min(255, tr * scale));
+		int ng = (int) Mth.lerp(amount, g, Math.min(255, tg * scale));
+		int nb = (int) Mth.lerp(amount, b, Math.min(255, tb * scale));
 		return (argb & 0xFF000000) | (nr << 16) | (ng << 8) | nb;
 	}
 

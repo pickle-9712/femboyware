@@ -4,8 +4,8 @@ import dev.femboyware.FemboyWare;
 import dev.femboyware.mixin.ClientPlayerEntityAccessor;
 import dev.femboyware.module.client.MoveFixModule;
 import dev.femboyware.util.Rotation;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
+import net.minecraft.client.Minecraft;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 
 /**
  * Owns the rotation sent to the server. Modules request a rotation during pre-motion (start of
@@ -15,7 +15,7 @@ import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
  * yaw the server sees (see {@link MoveFixModule}), which keeps simulation anti-cheats happy.
  */
 public class RotationManager {
-	private final MinecraftClient mc = MinecraftClient.getInstance();
+	private final Minecraft mc = Minecraft.getInstance();
 
 	private Rotation requested;
 	private int requestedPriority = Integer.MIN_VALUE;
@@ -56,7 +56,7 @@ public class RotationManager {
 	/** The rotation the server currently believes we have. */
 	public Rotation getServerRotation() {
 		if (serverRotation != null) return serverRotation;
-		return new Rotation(mc.player.getYaw(), mc.player.getPitch());
+		return new Rotation(mc.player.getYRot(), mc.player.getXRot());
 	}
 
 	/** Whether the server rotation is within {@code tolerance} degrees of {@code target}. */
@@ -67,7 +67,7 @@ public class RotationManager {
 	/** Whether movement this tick should be computed with the server yaw instead of the camera yaw. */
 	public boolean isMoveFixActive() {
 		return silent && silentMoveFix && FemboyWare.getModules().get(MoveFixModule.class).isEnabled()
-			&& !mc.player.hasVehicle() && !mc.player.isGliding();
+			&& !mc.player.isPassenger() && !mc.player.isFallFlying();
 	}
 
 	public float getServerYaw() {
@@ -83,12 +83,12 @@ public class RotationManager {
 		}
 		Rotation from = getServerRotation();
 		Rotation next = from.stepTowards(requested, requestedStep, requestedStep);
-		next = next.applyGcd(from, mc.options.getMouseSensitivity().getValue());
+		next = next.applyGcd(from, mc.options.sensitivity().get());
 		serverRotation = next;
 
 		if (requestedClientLook) {
-			mc.player.setYaw(next.yaw());
-			mc.player.setPitch(next.pitch());
+			mc.player.setYRot(next.yaw());
+			mc.player.setXRot(next.pitch());
 		} else {
 			silent = true;
 			silentMoveFix = requestedMoveFix;
@@ -104,8 +104,8 @@ public class RotationManager {
 	 */
 	public void sendPacketRotation(Rotation target) {
 		Rotation from = getServerRotation();
-		Rotation next = from.stepTowards(target, 180f, 180f).applyGcd(from, mc.options.getMouseSensitivity().getValue());
-		mc.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.LookAndOnGround(next.yaw(), next.pitch(), mc.player.isOnGround(), mc.player.horizontalCollision));
+		Rotation next = from.stepTowards(target, 180f, 180f).applyGcd(from, mc.options.sensitivity().get());
+		mc.getConnection().send(new ServerboundMovePlayerPacket.Rot(next.yaw(), next.pitch(), mc.player.onGround(), mc.player.horizontalCollision));
 		notePacketRotation(next);
 	}
 
@@ -120,18 +120,18 @@ public class RotationManager {
 	/** Right before the movement packet: put the server rotation on the player so it gets sent. */
 	public void applyBeforePacket() {
 		if (!silent) return;
-		savedYaw = mc.player.getYaw();
-		savedPitch = mc.player.getPitch();
-		mc.player.setYaw(serverRotation.yaw());
-		mc.player.setPitch(serverRotation.pitch());
+		savedYaw = mc.player.getYRot();
+		savedPitch = mc.player.getXRot();
+		mc.player.setYRot(serverRotation.yaw());
+		mc.player.setXRot(serverRotation.pitch());
 		swapped = true;
 	}
 
 	/** Restores the client camera after the packet went out. */
 	public void restoreAfterPacket() {
 		if (!swapped) return;
-		mc.player.setYaw(savedYaw);
-		mc.player.setPitch(savedPitch);
+		mc.player.setYRot(savedYaw);
+		mc.player.setXRot(savedPitch);
 		swapped = false;
 	}
 }

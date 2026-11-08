@@ -1,5 +1,6 @@
 package dev.femboyware.module.render;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.event.PacketEvent;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
@@ -9,31 +10,30 @@ import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.ColorUtil;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.ChestBlock;
-import net.minecraft.block.entity.AbstractFurnaceBlockEntity;
-import net.minecraft.block.entity.BarrelBlockEntity;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.entity.BrewingStandBlockEntity;
-import net.minecraft.block.entity.ChestBlockEntity;
-import net.minecraft.block.entity.ChiseledBookshelfBlockEntity;
-import net.minecraft.block.entity.CrafterBlockEntity;
-import net.minecraft.block.entity.DecoratedPotBlockEntity;
-import net.minecraft.block.entity.DispenserBlockEntity;
-import net.minecraft.block.entity.EnderChestBlockEntity;
-import net.minecraft.block.entity.HopperBlockEntity;
-import net.minecraft.block.entity.ShulkerBoxBlockEntity;
-import net.minecraft.block.entity.TrappedChestBlockEntity;
-import net.minecraft.block.enums.ChestType;
-import net.minecraft.network.packet.c2s.play.PlayerInteractBlockC2SPacket;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.chunk.WorldChunk;
-
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.protocol.game.ServerboundUseItemOnPacket;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
+import net.minecraft.world.level.block.entity.BarrelBlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BrewingStandBlockEntity;
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
+import net.minecraft.world.level.block.entity.ChiseledBookShelfBlockEntity;
+import net.minecraft.world.level.block.entity.CrafterBlockEntity;
+import net.minecraft.world.level.block.entity.DecoratedPotBlockEntity;
+import net.minecraft.world.level.block.entity.DispenserBlockEntity;
+import net.minecraft.world.level.block.entity.EnderChestBlockEntity;
+import net.minecraft.world.level.block.entity.HopperBlockEntity;
+import net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity;
+import net.minecraft.world.level.block.entity.TrappedChestBlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.ChestType;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Highlights chests, shulkers and other containers, and can draw tracers to them.
@@ -74,51 +74,51 @@ public class StorageEspModule extends Module {
 
 	@Override
 	public void onPacketSend(PacketEvent event) {
-		if (!(event.getPacket() instanceof PlayerInteractBlockC2SPacket packet)) return;
-		BlockPos pos = packet.getBlockHitResult().getBlockPos();
-		if (mc.world.getBlockEntity(pos) == null) return;
+		if (!(event.getPacket() instanceof ServerboundUseItemOnPacket packet)) return;
+		BlockPos pos = packet.getHitResult().getBlockPos();
+		if (mc.level.getBlockEntity(pos) == null) return;
 		opened.add(pos);
-		BlockPos otherHalf = otherChestHalf(mc.world.getBlockState(pos), pos);
+		BlockPos otherHalf = otherChestHalf(mc.level.getBlockState(pos), pos);
 		if (otherHalf != null) opened.add(otherHalf);
 	}
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
 		count = 0;
-		Vec3d tracerStart = RenderUtil.tracerOrigin(event);
-		ChunkPos center = mc.player.getChunkPos();
-		int radius = mc.options.getClampedViewDistance();
+		Vec3 tracerStart = RenderUtil.tracerOrigin(event);
+		ChunkPos center = mc.player.chunkPosition();
+		int radius = mc.options.getEffectiveRenderDistance();
 		for (int x = -radius; x <= radius; x++) {
 			for (int z = -radius; z <= radius; z++) {
-				if (!mc.world.getChunkManager().isChunkLoaded(center.x + x, center.z + z)) continue;
-				WorldChunk chunk = mc.world.getChunk(center.x + x, center.z + z);
+				if (!mc.level.getChunkSource().hasChunk(Mc.chunkX(center) + x, Mc.chunkZ(center) + z)) continue;
+				LevelChunk chunk = mc.level.getChunk(Mc.chunkX(center) + x, Mc.chunkZ(center) + z);
 				for (BlockEntity blockEntity : chunk.getBlockEntities().values()) render(event, blockEntity, tracerStart);
 			}
 		}
 	}
 
-	private void render(Render3DEvent event, BlockEntity blockEntity, Vec3d tracerStart) {
-		BlockPos pos = blockEntity.getPos();
+	private void render(Render3DEvent event, BlockEntity blockEntity, Vec3 tracerStart) {
+		BlockPos pos = blockEntity.getBlockPos();
 		boolean wasOpened = opened.contains(pos);
 		if (wasOpened && hideOpened.get()) return;
 		int color = getColor(blockEntity);
 		if (wasOpened && (openedColor.get() >>> 24) != 0) color = openedColor.get();
 		if ((color >>> 24) == 0) return;
 
-		BlockState state = blockEntity.getCachedState();
-		Box box = new Box(pos);
+		BlockState state = blockEntity.getBlockState();
+		AABB box = new AABB(pos);
 		if (blockEntity instanceof ChestBlockEntity || blockEntity instanceof EnderChestBlockEntity) {
 			box = chestBox(pos);
 			BlockPos otherHalf = otherChestHalf(state, pos);
 			if (otherHalf != null) {
 				// Both halves would draw the same double chest; let the left half draw it
-				if (state.get(ChestBlock.CHEST_TYPE) == ChestType.RIGHT) return;
-				box = box.union(chestBox(otherHalf));
+				if (state.getValue(ChestBlock.TYPE) == ChestType.RIGHT) return;
+				box = box.minmax(chestBox(otherHalf));
 			}
 		}
 
-		Vec3d center = box.getCenter();
-		double distance = mc.gameRenderer.getCamera().getCameraPos().distanceTo(center);
+		Vec3 center = box.getCenter();
+		double distance = Mc.camera().position().distanceTo(center);
 		double alpha = fadeDistance.get() <= 0 ? 1 : Math.min(1, distance / fadeDistance.get());
 		if (alpha < 0.075) return;
 		int line = ColorUtil.withAlpha(color, (int) ((color >>> 24) * alpha));
@@ -137,20 +137,20 @@ public class StorageEspModule extends Module {
 		if (blockEntity instanceof ShulkerBoxBlockEntity) return shulker.get();
 		if (blockEntity instanceof EnderChestBlockEntity) return enderChest.get();
 		if (blockEntity instanceof AbstractFurnaceBlockEntity || blockEntity instanceof BrewingStandBlockEntity
-			|| blockEntity instanceof ChiseledBookshelfBlockEntity || blockEntity instanceof CrafterBlockEntity
+			|| blockEntity instanceof ChiseledBookShelfBlockEntity || blockEntity instanceof CrafterBlockEntity
 			|| blockEntity instanceof DispenserBlockEntity || blockEntity instanceof DecoratedPotBlockEntity
 			|| blockEntity instanceof HopperBlockEntity) return other.get();
 		return 0;
 	}
 
 	/** Chests are a pixel smaller than a block on each side and two pixels short. */
-	private static Box chestBox(BlockPos pos) {
-		return new Box(pos.getX() + CHEST_INSET, pos.getY(), pos.getZ() + CHEST_INSET,
+	private static AABB chestBox(BlockPos pos) {
+		return new AABB(pos.getX() + CHEST_INSET, pos.getY(), pos.getZ() + CHEST_INSET,
 			pos.getX() + 1 - CHEST_INSET, pos.getY() + 1 - CHEST_INSET * 2, pos.getZ() + 1 - CHEST_INSET);
 	}
 
 	private static BlockPos otherChestHalf(BlockState state, BlockPos pos) {
-		if (!(state.getBlock() instanceof ChestBlock) || state.get(ChestBlock.CHEST_TYPE) == ChestType.SINGLE) return null;
-		return pos.offset(ChestBlock.getFacing(state));
+		if (!(state.getBlock() instanceof ChestBlock) || state.getValue(ChestBlock.TYPE) == ChestType.SINGLE) return null;
+		return pos.relative(ChestBlock.getConnectedDirection(state));
 	}
 }

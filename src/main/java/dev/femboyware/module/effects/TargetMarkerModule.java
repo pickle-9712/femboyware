@@ -1,18 +1,18 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.math.Axis;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.util.math.RotationAxis;
-import net.minecraft.util.math.Vec3d;
 import org.joml.Vector3f;
 
 import java.util.Map;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.phys.Vec3;
 
 /** Marks whoever you're fighting: a spinning crystal over their head, a lock-on reticle, or a bobbing arrow. */
 public class TargetMarkerModule extends TargetFxModule {
@@ -43,27 +43,27 @@ public class TargetMarkerModule extends TargetFxModule {
 		for (Map.Entry<LivingEntity, Float> entry : targets.entrySet()) {
 			LivingEntity target = entry.getKey();
 			float fade = ease(entry.getValue());
-			Vec3d feet = target.getLerpedPos(tickDelta);
+			Vec3 feet = target.getPosition(tickDelta);
 			switch (mode.get()) {
-				case CRYSTAL -> crystal(event, feet.add(0, target.getHeight() + 0.45 + Math.sin(now * 2.5) * 0.08, 0), now, fade);
-				case RETICLE -> reticle(event, feet.add(0, target.getHeight() / 2, 0), Math.max(target.getWidth(), target.getHeight()) * 0.62f, now, fade);
-				case ARROW -> arrow(event, feet.add(0, target.getHeight() + 0.3 + Math.abs(Math.sin(now * 3)) * 0.2, 0), now, fade);
+				case CRYSTAL -> crystal(event, feet.add(0, target.getBbHeight() + 0.45 + Math.sin(now * 2.5) * 0.08, 0), now, fade);
+				case RETICLE -> reticle(event, feet.add(0, target.getBbHeight() / 2, 0), Math.max(target.getBbWidth(), target.getBbHeight()) * 0.62f, now, fade);
+				case ARROW -> arrow(event, feet.add(0, target.getBbHeight() + 0.3 + Math.abs(Math.sin(now * 3)) * 0.2, 0), now, fade);
 			}
 		}
 	}
 
 	/** An octahedron, spinning, with lit and shaded faces in alternating palette colours. */
-	private void crystal(Render3DEvent event, Vec3d center, double now, float fade) {
+	private void crystal(Render3DEvent event, Vec3 center, double now, float fade) {
 		float s = size.getFloat();
 		float w = 0.17f * s, h = 0.27f * s;
-		MatrixStack matrices = event.matrices();
-		Vec3d cam = event.camera().pos;
+		PoseStack matrices = event.matrices();
+		Vec3 cam = event.camera().pos;
 		if (glow.get()) FxRender.glow(event, FxRender.textured(event, FxRender.GLOW, true, throughWalls.get()), center, 0.55f * s, FxRender.fade(palette.at(0), fade * 0.45f));
 
-		matrices.push();
+		matrices.pushPose();
 		matrices.translate((float) (center.x - cam.x), (float) (center.y - cam.y), (float) (center.z - cam.z));
-		matrices.multiply(RotationAxis.POSITIVE_Y.rotation((float) (now * spin.get() * 2)));
-		MatrixStack.Entry pose = matrices.peek();
+		matrices.mulPose(Axis.YP.rotation((float) (now * spin.get() * 2)));
+		PoseStack.Pose pose = matrices.last();
 		VertexConsumer faces = FxRender.quads(event, false, throughWalls.get());
 		for (int i = 0; i < 4; i++) {
 			double a1 = Math.PI / 2 * i, a2 = Math.PI / 2 * (i + 1);
@@ -86,17 +86,17 @@ public class TargetMarkerModule extends TargetFxModule {
 			FxRender.line(edges, pose, 0, -h, 0, x1, 0, z1, edge, 1.5f);
 			FxRender.line(edges, pose, x1, 0, z1, x2, 0, z2, edge, 1.5f);
 		}
-		matrices.pop();
+		matrices.popPose();
 	}
 
 	/** Four corner brackets facing the camera, turning slowly and breathing in and out. */
-	private void reticle(Render3DEvent event, Vec3d center, float half, double now, float fade) {
+	private void reticle(Render3DEvent event, Vec3 center, float half, double now, float fade) {
 		half *= size.getFloat() * (1 + 0.06f * (float) Math.sin(now * 4));
 		float roll = (float) (now * spin.get() * 0.8);
 		float arm = half * 0.45f, thick = 0.035f * size.getFloat();
-		Vec3d cam = event.camera().pos;
+		Vec3 cam = event.camera().pos;
 		float cx = (float) (center.x - cam.x), cy = (float) (center.y - cam.y), cz = (float) (center.z - cam.z);
-		MatrixStack.Entry pose = event.matrices().peek();
+		PoseStack.Pose pose = event.matrices().last();
 		VertexConsumer consumer = FxRender.quads(event, glow.get(), throughWalls.get());
 		for (int corner = 0; corner < 4; corner++) {
 			double angle = roll + Math.PI / 2 * corner;
@@ -115,7 +115,7 @@ public class TargetMarkerModule extends TargetFxModule {
 	}
 
 	/** A bar from {@code start} along {@code direction}, {@code thick} wide towards {@code side}. */
-	private static void bar(VertexConsumer consumer, MatrixStack.Entry pose, Vector3f start, Vector3f direction, Vector3f side, float thick, int color) {
+	private static void bar(VertexConsumer consumer, PoseStack.Pose pose, Vector3f start, Vector3f direction, Vector3f side, float thick, int color) {
 		Vector3f offset = new Vector3f(side).mul(thick);
 		Vector3f end = new Vector3f(start).add(direction);
 		FxRender.quad(consumer, pose,
@@ -124,15 +124,15 @@ public class TargetMarkerModule extends TargetFxModule {
 	}
 
 	/** A four sided arrowhead with a short shaft, pointing down. */
-	private void arrow(Render3DEvent event, Vec3d tip, double now, float fade) {
+	private void arrow(Render3DEvent event, Vec3 tip, double now, float fade) {
 		float s = size.getFloat();
 		float head = 0.22f * s, width = 0.16f * s, shaft = 0.06f * s, length = 0.2f * s;
-		MatrixStack matrices = event.matrices();
-		Vec3d cam = event.camera().pos;
-		matrices.push();
+		PoseStack matrices = event.matrices();
+		Vec3 cam = event.camera().pos;
+		matrices.pushPose();
 		matrices.translate((float) (tip.x - cam.x), (float) (tip.y - cam.y), (float) (tip.z - cam.z));
-		matrices.multiply(RotationAxis.POSITIVE_Y.rotation((float) (now * spin.get() * 1.5)));
-		MatrixStack.Entry pose = matrices.peek();
+		matrices.mulPose(Axis.YP.rotation((float) (now * spin.get() * 1.5)));
+		PoseStack.Pose pose = matrices.last();
 		VertexConsumer faces = FxRender.quads(event, false, throughWalls.get());
 		for (int i = 0; i < 4; i++) {
 			double a1 = Math.PI / 2 * i, a2 = Math.PI / 2 * (i + 1);
@@ -146,7 +146,7 @@ public class TargetMarkerModule extends TargetFxModule {
 				c1 * shaft, head, s1 * shaft, lit, c2 * shaft, head, s2 * shaft, lit,
 				c2 * shaft, head + length, s2 * shaft, FxRender.fade(lit, 0.2f), c1 * shaft, head + length, s1 * shaft, FxRender.fade(lit, 0.2f));
 		}
-		matrices.pop();
+		matrices.popPose();
 		if (glow.get()) FxRender.glow(event, FxRender.textured(event, FxRender.GLOW, true, throughWalls.get()), tip.add(0, head, 0), 0.4f * s, FxRender.fade(palette.at(0), fade * 0.4f));
 	}
 }

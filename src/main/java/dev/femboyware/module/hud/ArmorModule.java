@@ -5,10 +5,10 @@ import dev.femboyware.gui.Theme;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.util.InventoryUtil;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 
 /** Your armour with how much durability each piece has left, and how many totems you carry. */
 public class ArmorModule extends HudElement {
@@ -37,33 +37,33 @@ public class ArmorModule extends HudElement {
 	}
 
 	@Override
-	protected void draw(DrawContext context, int left, int top, boolean editing) {
+	protected void draw(GuiGraphics context, int left, int top, boolean editing) {
 		Glass.draw(context, left, top, left + width(editing), top + height(editing), 5, backgroundColor(Theme.list()), false);
 		int x = left + 4;
 		for (EquipmentSlot slot : SLOTS) {
-			ItemStack stack = mc.player == null ? ItemStack.EMPTY : mc.player.getEquippedStack(slot);
+			ItemStack stack = mc.player == null ? ItemStack.EMPTY : mc.player.getItemBySlot(slot);
 			if (!stack.isEmpty()) {
-				context.drawItem(stack, x + 1, top + 3);
-				context.drawStackOverlay(mc.textRenderer, stack, x + 1, top + 3);
-				if (percent.get() && stack.isDamageable()) {
-					int left2 = stack.getMaxDamage() - stack.getDamage();
+				context.renderItem(stack, x + 1, top + 3);
+				context.renderItemDecorations(mc.font, stack, x + 1, top + 3);
+				if (percent.get() && stack.isDamageableItem()) {
+					int left2 = stack.getMaxDamage() - stack.getDamageValue();
 					int pct = Math.round(left2 * 100f / stack.getMaxDamage());
 					String text = pct + "%";
-					context.getMatrices().pushMatrix();
-					context.getMatrices().translate(x + 9 - mc.textRenderer.getWidth(text) * 0.35f, top + 21);
-					context.getMatrices().scale(0.7f, 0.7f);
-					context.drawTextWithShadow(mc.textRenderer, text, 0, 0, durabilityColor(pct));
-					context.getMatrices().popMatrix();
+					context.pose().pushMatrix();
+					context.pose().translate(x + 9 - mc.font.width(text) * 0.35f, top + 21);
+					context.pose().scale(0.7f, 0.7f);
+					context.drawString(mc.font, text, 0, 0, durabilityColor(pct));
+					context.pose().popMatrix();
 				}
 			}
 			x += CELL;
 		}
 		if (totems.get()) {
-			int count = mc.player == null ? 0 : InventoryUtil.count(stack -> stack.isOf(Items.TOTEM_OF_UNDYING));
+			int count = mc.player == null ? 0 : InventoryUtil.count(stack -> stack.is(Items.TOTEM_OF_UNDYING));
 			ItemStack totem = new ItemStack(Items.TOTEM_OF_UNDYING);
-			context.drawItem(totem, x + 1, top + 3);
+			context.renderItem(totem, x + 1, top + 3);
 			String text = Integer.toString(count);
-			context.drawTextWithShadow(mc.textRenderer, text, x + 9 - mc.textRenderer.getWidth(text) / 2, top + 20, count == 0 ? lowColor.get() : textColor());
+			context.drawString(mc.font, text, x + 9 - mc.font.width(text) / 2, top + 20, count == 0 ? lowColor.get() : textColor());
 		}
 	}
 

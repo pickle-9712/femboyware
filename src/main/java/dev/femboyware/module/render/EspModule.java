@@ -1,5 +1,6 @@
 package dev.femboyware.module.render;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
@@ -12,13 +13,13 @@ import dev.femboyware.util.ColorUtil;
 import dev.femboyware.util.EntityKind;
 import dev.femboyware.util.ProjectionUtil;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.util.hit.EntityHitResult;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Draws entities through walls as world boxes or flat screen boxes.
@@ -65,8 +66,8 @@ public class EspModule extends Module {
 	public void onRender3D(Render3DEvent event) {
 		if (!mode.is(Mode.BOX)) return;
 		count = 0;
-		float tickDelta = mc.getRenderTickCounter().getTickProgress(true);
-		for (Entity entity : mc.world.getEntities()) {
+		float tickDelta = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
+		for (Entity entity : mc.level.entitiesForRendering()) {
 			if (shouldSkip(entity)) continue;
 			int color = getColor(entity);
 			if ((color >>> 24) == 0) continue;
@@ -76,21 +77,21 @@ public class EspModule extends Module {
 	}
 
 	@Override
-	public void onRender2D(DrawContext context, float tickDelta) {
-		if (!mode.is(Mode.FLAT) || mc.options.hudHidden) return;
+	public void onRender2D(GuiGraphics context, float tickDelta) {
+		if (!mode.is(Mode.FLAT) || Mc.hudHidden()) return;
 		count = 0;
-		for (Entity entity : mc.world.getEntities()) {
+		for (Entity entity : mc.level.entitiesForRendering()) {
 			if (shouldSkip(entity)) continue;
 			int color = getColor(entity);
 			if ((color >>> 24) == 0) continue;
 
 			// Screen bounds of all eight corners; skip anything partly behind the camera
-			Box box = lerpedBox(entity, tickDelta);
+			AABB box = lerpedBox(entity, tickDelta);
 			double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
 			boolean behind = false;
 			for (int i = 0; i < 8 && !behind; i++) {
-				Vec3d corner = new Vec3d((i & 1) == 0 ? box.minX : box.maxX, (i & 2) == 0 ? box.minY : box.maxY, (i & 4) == 0 ? box.minZ : box.maxZ);
-				Vec3d screen = ProjectionUtil.toScreen(corner);
+				Vec3 corner = new Vec3((i & 1) == 0 ? box.minX : box.maxX, (i & 2) == 0 ? box.minY : box.maxY, (i & 4) == 0 ? box.minZ : box.maxZ);
+				Vec3 screen = ProjectionUtil.toScreen(corner);
 				if (screen == null) {
 					behind = true;
 					continue;
@@ -114,7 +115,7 @@ public class EspModule extends Module {
 
 	private boolean shouldSkip(Entity entity) {
 		if (isTarget(entity)) return false;
-		if (entity == mc.player && (ignoreSelf.get() || mc.options.getPerspective().isFirstPerson())) return true;
+		if (entity == mc.player && (ignoreSelf.get() || mc.options.getCameraType().isFirstPerson())) return true;
 		return !switch (EntityKind.of(entity)) {
 			case PLAYER -> players.get();
 			case ANIMAL -> animals.get();
@@ -126,7 +127,7 @@ public class EspModule extends Module {
 	}
 
 	private boolean isTarget(Entity entity) {
-		return highlightTarget.get() && mc.crosshairTarget instanceof EntityHitResult hit && hit.getEntity() == entity;
+		return highlightTarget.get() && mc.hitResult instanceof EntityHitResult hit && hit.getEntity() == entity;
 	}
 
 	private int getColor(Entity entity) {
@@ -140,13 +141,13 @@ public class EspModule extends Module {
 				case AMBIENT -> ambientColor.get();
 				case MISC -> miscColor.get();
 			};
-			case DISTANCE -> EntityKind.distanceColor(mc.gameRenderer.getCamera().getCameraPos().distanceTo(entity.getEntityPos()));
+			case DISTANCE -> EntityKind.distanceColor(Mc.camera().position().distanceTo(entity.position()));
 			case HEALTH -> healthColor(entity);
 		});
 
 		// Fade out entities right next to the camera so they don't cover the screen
-		double distance = mc.gameRenderer.getCamera().getCameraPos().distanceTo(entity.getEyePos());
-		double alpha = fadeDistance.get() <= 0 ? 1 : MathHelper.clamp(distance / fadeDistance.get(), 0, 1);
+		double distance = Mc.camera().position().distanceTo(entity.getEyePosition());
+		double alpha = fadeDistance.get() <= 0 ? 1 : Mth.clamp(distance / fadeDistance.get(), 0, 1);
 		if (alpha < 0.075) return 0;
 		return ColorUtil.withAlpha(color, (int) ((color >>> 24) * alpha));
 	}
@@ -163,7 +164,7 @@ public class EspModule extends Module {
 		return ColorUtil.withAlpha(color, (int) ((color >>> 24) * fillOpacity.get()));
 	}
 
-	private static Box lerpedBox(Entity entity, float tickDelta) {
-		return entity.getBoundingBox().offset(entity.getLerpedPos(tickDelta).subtract(entity.getEntityPos()));
+	private static AABB lerpedBox(Entity entity, float tickDelta) {
+		return entity.getBoundingBox().move(entity.getPosition(tickDelta).subtract(entity.position()));
 	}
 }

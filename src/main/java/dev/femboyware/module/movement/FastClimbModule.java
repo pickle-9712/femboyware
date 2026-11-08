@@ -3,7 +3,7 @@ package dev.femboyware.module.movement;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Climb ladders, vines and scaffolding faster.
@@ -19,9 +19,9 @@ public class FastClimbModule extends Module {
 
 	@Override
 	public void onTick() {
-		boolean pushing = mc.player.horizontalCollision || mc.options.jumpKey.isPressed();
-		if (!pushing || !mc.player.isClimbing()) return;
-		Vec3d velocity = mc.player.getVelocity();
-		mc.player.setVelocity(velocity.x, speed.get(), velocity.z);
+		boolean pushing = mc.player.horizontalCollision || mc.options.keyJump.isDown();
+		if (!pushing || !mc.player.onClimbable()) return;
+		Vec3 velocity = mc.player.getDeltaMovement();
+		mc.player.setDeltaMovement(velocity.x, speed.get(), velocity.z);
 	}
 }

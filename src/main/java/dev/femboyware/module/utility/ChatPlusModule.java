@@ -5,19 +5,18 @@ import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
-import net.minecraft.client.gui.hud.ChatHudLine;
-import net.minecraft.client.sound.PositionedSoundInstance;
-import net.minecraft.sound.SoundEvents;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Style;
-import net.minecraft.text.Text;
-import net.minecraft.text.TextColor;
-import net.minecraft.util.Formatting;
-
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
+import net.minecraft.ChatFormatting;
+import net.minecraft.client.GuiMessage;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.TextColor;
+import net.minecraft.sounds.SoundEvents;
 
 /**
  * Nicer chat: a timestamp on every line, repeated messages folded into one with a count, a
@@ -48,13 +47,13 @@ public class ChatPlusModule extends Module {
 	}
 
 	/** Called by ChatHudMixin with each message as it's added; returns the message to show. */
-	public Text process(Text message, ChatHudAccessor chat) {
+	public Component process(Component message, ChatHudAccessor chat) {
 		if (!isEnabled()) return message;
 		String raw = message.getString();
 
 		if (antiSpam.get() && raw.equals(lastRaw) && !raw.isBlank()) {
 			// Take the previous copy off and show this one with the count instead
-			List<ChatHudLine> lines = chat.femboyware$getMessages();
+			List<GuiMessage> lines = chat.femboyware$getMessages();
 			if (!lines.isEmpty()) {
 				lines.removeFirst();
 				chat.femboyware$refresh();
@@ -65,14 +64,14 @@ public class ChatPlusModule extends Module {
 		}
 		lastRaw = raw;
 
-		MutableText shown = Text.empty();
-		if (timestamps.get()) shown.append(Text.literal("[" + LocalTime.now().format(TIME) + "] ").formatted(Formatting.GRAY));
+		MutableComponent shown = Component.empty();
+		if (timestamps.get()) shown.append(Component.literal("[" + LocalTime.now().format(TIME) + "] ").withStyle(ChatFormatting.GRAY));
 		if (highlight.get() && mentionsMe(raw)) {
-			shown.append(Text.literal("» ").setStyle(Style.EMPTY.withColor(TextColor.fromRgb(highlightColor.get() & 0xFFFFFF)).withBold(true)));
-			if (ding.get() && repeats == 1) mc.getSoundManager().play(PositionedSoundInstance.ui(SoundEvents.BLOCK_NOTE_BLOCK_PLING.value(), 1.6f, 0.5f));
+			shown.append(Component.literal("» ").setStyle(Style.EMPTY.withColor(TextColor.fromRgb(highlightColor.get() & 0xFFFFFF)).withBold(true)));
+			if (ding.get() && repeats == 1) mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.NOTE_BLOCK_PLING.value(), 1.6f, 0.5f));
 		}
 		shown.append(message);
-		if (repeats > 1) shown.append(Text.literal(" (x" + repeats + ")").formatted(Formatting.GRAY));
+		if (repeats > 1) shown.append(Component.literal(" (x" + repeats + ")").withStyle(ChatFormatting.GRAY));
 		return shown;
 	}
 

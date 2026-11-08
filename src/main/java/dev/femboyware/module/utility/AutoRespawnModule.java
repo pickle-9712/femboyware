@@ -1,8 +1,9 @@
 package dev.femboyware.module.utility;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
-import net.minecraft.client.gui.screen.DeathScreen;
+import net.minecraft.client.gui.screens.DeathScreen;
 
 /**
  * Respawns as soon as you die.
@@ -15,8 +16,8 @@ public class AutoRespawnModule extends Module {
 
 	@Override
 	public void onTick() {
-		if (!(mc.currentScreen instanceof DeathScreen)) return;
-		mc.player.requestRespawn();
-		mc.setScreen(null);
+		if (!(Mc.screen() instanceof DeathScreen)) return;
+		mc.player.respawn();
+		Mc.setScreen(null);
 	}
 }

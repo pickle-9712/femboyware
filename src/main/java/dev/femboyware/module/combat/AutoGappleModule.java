@@ -1,12 +1,13 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.InventoryUtil;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 
 /** Eats a golden apple by holding the use key for you once your health drops low. */
 public class AutoGappleModule extends Module {
@@ -35,18 +36,18 @@ public class AutoGappleModule extends Module {
 	public void onTick() {
 		if (eating) {
 			eatingTicks++;
-			boolean holding = isGapple(mc.player.getMainHandStack()) || isGapple(mc.player.getOffHandStack());
+			boolean holding = isGapple(mc.player.getMainHandItem()) || isGapple(mc.player.getOffhandItem());
 			// Using stops once the apple is eaten; give the server a few ticks to start the use first
 			if (!holding || eatingTicks > 4 && !mc.player.isUsingItem()) {
 				stop();
 				return;
 			}
-			mc.options.useKey.setPressed(true);
+			mc.options.keyUse.setDown(true);
 			return;
 		}
 
-		if (mc.player.getHealth() + mc.player.getAbsorptionAmount() > health.get() || mc.currentScreen != null) return;
-		if (!isGapple(mc.player.getOffHandStack()) && !isGapple(mc.player.getMainHandStack())) {
+		if (mc.player.getHealth() + mc.player.getAbsorptionAmount() > health.get() || Mc.screen() != null) return;
+		if (!isGapple(mc.player.getOffhandItem()) && !isGapple(mc.player.getMainHandItem())) {
 			int slot = findApple();
 			if (slot < 0) return;
 			previousSlot = mc.player.getInventory().getSelectedSlot();
@@ -54,25 +55,25 @@ public class AutoGappleModule extends Module {
 		}
 		eating = true;
 		eatingTicks = 0;
-		mc.options.useKey.setPressed(true);
+		mc.options.keyUse.setDown(true);
 	}
 
 	private int findApple() {
 		if (preferEnchanted.get()) {
-			int enchanted = InventoryUtil.findHotbar(stack -> stack.isOf(Items.ENCHANTED_GOLDEN_APPLE));
+			int enchanted = InventoryUtil.findHotbar(stack -> stack.is(Items.ENCHANTED_GOLDEN_APPLE));
 			if (enchanted >= 0) return enchanted;
 		}
 		return InventoryUtil.findHotbar(AutoGappleModule::isGapple);
 	}
 
 	private void stop() {
-		mc.options.useKey.setPressed(false);
+		mc.options.keyUse.setDown(false);
 		if (previousSlot >= 0 && swapBack.get()) InventoryUtil.select(previousSlot);
 		previousSlot = -1;
 		eating = false;
 	}
 
 	private static boolean isGapple(ItemStack stack) {
-		return stack.isOf(Items.GOLDEN_APPLE) || stack.isOf(Items.ENCHANTED_GOLDEN_APPLE);
+		return stack.is(Items.GOLDEN_APPLE) || stack.is(Items.ENCHANTED_GOLDEN_APPLE);
 	}
 }

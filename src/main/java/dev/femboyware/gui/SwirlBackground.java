@@ -2,9 +2,9 @@ package dev.femboyware.gui;
 
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.render.MainMenuModule;
-import net.minecraft.client.gl.RenderPipelines;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.util.Identifier;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.resources.Identifier;
 
 /**
  * The animated pink background behind the main menu and every other out-of-world screen: the
@@ -12,9 +12,9 @@ import net.minecraft.util.Identifier;
  * floating around over it like a lava lamp, each gently swelling and shrinking.
  */
 public final class SwirlBackground {
-	private static final Identifier SWIRL = Identifier.of("femboyware", "textures/gui/swirl.png");
+	private static final Identifier SWIRL = Identifier.fromNamespaceAndPath("femboyware", "textures/gui/swirl.png");
 	private static final int SWIRL_SIZE = 1024;
-	private static final Identifier BLOB = Identifier.of("femboyware", "textures/gui/blob.png");
+	private static final Identifier BLOB = Identifier.fromNamespaceAndPath("femboyware", "textures/gui/blob.png");
 	private static final int BLOB_SIZE = 256;
 	/** How fast everything moves at Swirl Speed 1: slow and calm, but quick enough to see it moving. */
 	private static final double BASE_SPEED = 2;
@@ -39,7 +39,7 @@ public final class SwirlBackground {
 	private SwirlBackground() {
 	}
 
-	public static void draw(DrawContext context, int width, int height) {
+	public static void draw(GuiGraphics context, int width, int height) {
 		float speed = FemboyWare.getModules() == null ? 1 : FemboyWare.getModules().get(MainMenuModule.class).swirlSpeed();
 		// All in double, so it stays smooth however long the game has been open
 		double time = (System.currentTimeMillis() - START) / 1000.0 * speed * BASE_SPEED;
@@ -49,11 +49,11 @@ public final class SwirlBackground {
 		float driftX = width * 0.06f * (float) Math.sin(time * 0.065);
 		float driftY = height * 0.06f * (float) Math.cos(time * 0.055);
 		int size = (int) Math.ceil(Math.hypot(width, height) + 2 * Math.hypot(driftX, driftY)) + 4;
-		context.getMatrices().pushMatrix();
-		context.getMatrices().translate(width / 2f + driftX, height / 2f + driftY);
-		context.getMatrices().rotate((float) (time * 0.025 % (Math.PI * 2)));
-		context.drawTexture(RenderPipelines.GUI_TEXTURED, SWIRL, -size / 2, -size / 2, 0, 0, size, size, SWIRL_SIZE, SWIRL_SIZE, SWIRL_SIZE, SWIRL_SIZE);
-		context.getMatrices().popMatrix();
+		context.pose().pushMatrix();
+		context.pose().translate(width / 2f + driftX, height / 2f + driftY);
+		context.pose().rotate((float) (time * 0.025 % (Math.PI * 2)));
+		context.blit(RenderPipelines.GUI_TEXTURED, SWIRL, -size / 2, -size / 2, 0, 0, size, size, SWIRL_SIZE, SWIRL_SIZE, SWIRL_SIZE, SWIRL_SIZE);
+		context.pose().popMatrix();
 
 		// The blobs, each moved by the matrix rather than whole GUI units so they glide smoothly
 		for (Blob blob : BLOBS) {
@@ -61,11 +61,11 @@ public final class SwirlBackground {
 			float y = height * (0.5f + blob.rangeY * (float) Math.cos(time * blob.speedY * Math.PI * 2 + blob.phase * 1.3f));
 			float swell = 1 + 0.1f * (float) Math.sin(time * 0.18 + blob.phase);
 			int blobSize = Math.round(extent * blob.size * swell);
-			context.getMatrices().pushMatrix();
-			context.getMatrices().translate(x, y);
-			context.drawTexture(RenderPipelines.GUI_TEXTURED, BLOB, -blobSize / 2, -blobSize / 2, 0, 0, blobSize, blobSize,
+			context.pose().pushMatrix();
+			context.pose().translate(x, y);
+			context.blit(RenderPipelines.GUI_TEXTURED, BLOB, -blobSize / 2, -blobSize / 2, 0, 0, blobSize, blobSize,
 				BLOB_SIZE, BLOB_SIZE, BLOB_SIZE, BLOB_SIZE, blob.color);
-			context.getMatrices().popMatrix();
+			context.pose().popMatrix();
 		}
 	}
 }

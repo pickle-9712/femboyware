@@ -10,18 +10,17 @@ import dev.femboyware.util.ColorUtil;
 import dev.femboyware.util.RenderUtil;
 import it.unimi.dsi.fastutil.ints.Int2FloatMap;
 import it.unimi.dsi.fastutil.ints.Int2FloatOpenHashMap;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.phys.Vec3;
 
 /** Floating numbers showing how much damage (and healing) entities around you take. */
 public class DamageParticlesModule extends Module {
-	private record Popup(String text, Vec3d pos, int color, long start) {
+	private record Popup(String text, Vec3 pos, int color, long start) {
 	}
 
 	private final NumberSetting range = add(new NumberSetting("Range", "Track entities this close", 24, 4, 64, 1));
@@ -49,15 +48,15 @@ public class DamageParticlesModule extends Module {
 	public void onTick() {
 		double maxDistance = range.get() * range.get();
 		Int2FloatMap seen = new Int2FloatOpenHashMap();
-		for (Entity entity : mc.world.getEntities()) {
-			if (!(entity instanceof LivingEntity living) || mc.player.squaredDistanceTo(entity) > maxDistance) continue;
+		for (Entity entity : mc.level.entitiesForRendering()) {
+			if (!(entity instanceof LivingEntity living) || mc.player.distanceToSqr(entity) > maxDistance) continue;
 			float now = living.getHealth() + living.getAbsorptionAmount();
 			seen.put(entity.getId(), now);
 			if (!health.containsKey(entity.getId())) continue;
 			float delta = now - health.get(entity.getId());
 			if (Math.abs(delta) < 0.05f || delta > 0 && !healing.get()) continue;
 
-			Vec3d pos = entity.getEntityPos().add((random.nextDouble() - 0.5) * entity.getWidth(), entity.getHeight() * 0.8, (random.nextDouble() - 0.5) * entity.getWidth());
+			Vec3 pos = entity.position().add((random.nextDouble() - 0.5) * entity.getBbWidth(), entity.getBbHeight() * 0.8, (random.nextDouble() - 0.5) * entity.getBbWidth());
 			String text = String.format(delta < 0 ? "%.1f" : "+%.1f", Math.abs(delta));
 			popups.add(new Popup(text, pos, delta < 0 ? damageColor.get() : healColor.get(), System.currentTimeMillis()));
 		}
@@ -77,7 +76,7 @@ public class DamageParticlesModule extends Module {
 				continue;
 			}
 			int alpha = (int) ((popup.color >>> 24) * (1 - progress * progress));
-			Vec3d pos = popup.pos.add(0, progress * 0.8, 0);
+			Vec3 pos = popup.pos.add(0, progress * 0.8, 0);
 			RenderUtil.drawText(event, popup.text, pos, ColorUtil.withAlpha(popup.color, Math.max(alpha, 8)), scale.getFloat() * 0.4f);
 		}
 	}

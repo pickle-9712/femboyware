@@ -11,14 +11,13 @@ import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.PlaceUtil;
 import dev.femboyware.util.RenderUtil;
 import dev.femboyware.util.TargetUtil;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.MathHelper;
-
 import java.util.LinkedHashSet;
 import java.util.Set;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.AABB;
 
 /** Boxes the target in with obsidian: a ring at the feet, a ring at the head and a roof. */
 public class TrapModule extends Module {
@@ -40,7 +39,7 @@ public class TrapModule extends Module {
 
 	@Override
 	public void onTick() {
-		PlayerEntity target = TargetUtil.closestPlayer(targetRange.get());
+		Player target = TargetUtil.closestPlayer(targetRange.get());
 		if (target == null) {
 			positions = Set.of();
 			return;
@@ -57,32 +56,32 @@ public class TrapModule extends Module {
 	public void onRender3D(Render3DEvent event) {
 		if (!render.get()) return;
 		for (BlockPos pos : positions) {
-			if (!mc.world.getBlockState(pos).isReplaceable()) continue;
-			RenderUtil.drawBox(event, new Box(pos), color.get(), color.withAlpha(255), 1.5f);
+			if (!mc.level.getBlockState(pos).canBeReplaced()) continue;
+			RenderUtil.drawBox(event, new AABB(pos), color.get(), color.withAlpha(255), 1.5f);
 		}
 	}
 
 	/** Feet ring, head ring and roof around every block column {@code player} stands in, bottom up. */
-	public static Set<BlockPos> trapPositions(PlayerEntity player, boolean includeFeet, boolean includeRoof) {
-		Box box = player.getBoundingBox();
-		int y = MathHelper.floor(player.getY() + 0.2);
+	public static Set<BlockPos> trapPositions(Player player, boolean includeFeet, boolean includeRoof) {
+		AABB box = player.getBoundingBox();
+		int y = Mth.floor(player.getY() + 0.2);
 		Set<BlockPos> columns = new LinkedHashSet<>();
-		for (int x = MathHelper.floor(box.minX); x <= MathHelper.floor(box.maxX - 1e-4); x++) {
-			for (int z = MathHelper.floor(box.minZ); z <= MathHelper.floor(box.maxZ - 1e-4); z++) {
+		for (int x = Mth.floor(box.minX); x <= Mth.floor(box.maxX - 1e-4); x++) {
+			for (int z = Mth.floor(box.minZ); z <= Mth.floor(box.maxZ - 1e-4); z++) {
 				columns.add(new BlockPos(x, y, z));
 			}
 		}
 		Set<BlockPos> result = new LinkedHashSet<>();
 		for (int level = includeFeet ? 0 : 1; level <= 1; level++) {
 			for (BlockPos column : columns) {
-				for (Direction direction : Direction.Type.HORIZONTAL) {
-					BlockPos side = column.up(level).offset(direction);
-					if (!columns.contains(side.down(level))) result.add(side);
+				for (Direction direction : Direction.Plane.HORIZONTAL) {
+					BlockPos side = column.above(level).relative(direction);
+					if (!columns.contains(side.below(level))) result.add(side);
 				}
 			}
 		}
 		if (includeRoof) {
-			for (BlockPos column : columns) result.add(column.up(2));
+			for (BlockPos column : columns) result.add(column.above(2));
 		}
 		return result;
 	}

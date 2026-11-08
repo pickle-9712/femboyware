@@ -1,15 +1,16 @@
 package dev.femboyware.module.utility;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.util.InventoryUtil;
-import net.minecraft.item.BowItem;
-import net.minecraft.item.Item;
-import net.minecraft.item.Items;
-import net.minecraft.util.Hand;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.item.BowItem;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 
 /**
  * Middle click to throw a pearl, drink XP, eat a gapple and so on, straight from the hotbar.
@@ -61,34 +62,34 @@ public class MiddleClickExtraModule extends Module {
 	public void onTick() {
 		if (using) {
 			// Swallow extra middle clicks too, so they don't pick block mid-use
-			while (mc.options.pickItemKey.wasPressed()) ;
+			while (mc.options.keyPickItem.consumeClick()) ;
 			tickUse();
 			return;
 		}
-		if (mc.currentScreen != null || (disableInCreative.get() && mc.player.isCreative())) return;
+		if (Mc.screen() != null || (disableInCreative.get() && mc.player.isCreative())) return;
 		// Runs before vanilla handles input this tick, so taking the press here stops pick block
 		boolean clicked = false;
-		while (mc.options.pickItemKey.wasPressed()) clicked = true;
+		while (mc.options.keyPickItem.consumeClick()) clicked = true;
 		// A middle click on a player adds or removes them as a friend instead
 		if (clicked && !FemboyWare.getModules().get(FriendsModule.class).onMiddleClick()) use();
 	}
 
 	private void use() {
 		Item item = mode.get().item;
-		boolean held = mc.player.getMainHandStack().isOf(item);
+		boolean held = mc.player.getMainHandItem().is(item);
 		if (!held) {
-			int slot = InventoryUtil.findHotbar(stack -> stack.isOf(item));
+			int slot = InventoryUtil.findHotbar(stack -> stack.is(item));
 			if (slot == -1) return;
 			returnSlot = mc.player.getInventory().getSelectedSlot();
 			InventoryUtil.select(slot);
 		}
 		if (mode.get().immediate) {
-			mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
-			mc.player.swingHand(Hand.MAIN_HAND);
+			mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
+			mc.player.swing(InteractionHand.MAIN_HAND);
 			stop();
 			return;
 		}
-		mc.options.useKey.setPressed(true);
+		mc.options.keyUse.setDown(true);
 		using = true;
 		useTicks = 0;
 	}
@@ -96,17 +97,17 @@ public class MiddleClickExtraModule extends Module {
 	private void tickUse() {
 		useTicks++;
 		// A bow lets go once fully drawn; food and chorus stop when eaten
-		boolean keepHolding = !(mc.player.getMainHandStack().getItem() instanceof BowItem)
-			|| BowItem.getPullProgress(mc.player.getItemUseTime()) < 1;
+		boolean keepHolding = !(mc.player.getMainHandItem().getItem() instanceof BowItem)
+			|| BowItem.getPowerForTime(mc.player.getTicksUsingItem()) < 1;
 		if (useTicks > START_TICKS && !mc.player.isUsingItem() || !keepHolding) {
 			stop();
 			return;
 		}
-		mc.options.useKey.setPressed(true);
+		mc.options.keyUse.setDown(true);
 	}
 
 	private void stop() {
-		if (using) mc.options.useKey.setPressed(false);
+		if (using) mc.options.keyUse.setDown(false);
 		using = false;
 		if (returnSlot != -1 && swapBack.get()) InventoryUtil.select(returnSlot);
 		returnSlot = -1;

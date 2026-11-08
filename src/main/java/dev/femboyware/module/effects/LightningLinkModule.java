@@ -1,19 +1,19 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.util.math.Vec3d;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.phys.Vec3;
 
 /** A crackling bolt of lightning from you to whoever you're fighting, re-forking many times a second. */
 public class LightningLinkModule extends TargetFxModule {
@@ -38,7 +38,7 @@ public class LightningLinkModule extends TargetFxModule {
 		Map<LivingEntity, Float> targets = fadedTargets();
 		if (targets.isEmpty()) return;
 		float tickDelta = tickDelta();
-		Vec3d cam = event.camera().pos;
+		Vec3 cam = event.camera().pos;
 		Vector3f from = origin(event, tickDelta);
 		long bucket = (long) (time() * flicker.get());
 
@@ -48,7 +48,7 @@ public class LightningLinkModule extends TargetFxModule {
 		for (Map.Entry<LivingEntity, Float> entry : targets.entrySet()) {
 			LivingEntity target = entry.getKey();
 			float fade = ease(entry.getValue());
-			Vec3d aim = target.getLerpedPos(tickDelta).add(0, target.getHeight() * 0.55, 0);
+			Vec3 aim = target.getPosition(tickDelta).add(0, target.getBbHeight() * 0.55, 0);
 			Vector3f to = new Vector3f((float) (aim.x - cam.x), (float) (aim.y - cam.y), (float) (aim.z - cam.z));
 			Random random = new Random(bucket * 31 + target.getId());
 			List<Vector3f> main = jag(from, to, SEGMENTS, jaggedness.getFloat(), random);
@@ -64,7 +64,7 @@ public class LightningLinkModule extends TargetFxModule {
 			strikeAlphas.add(fade);
 		}
 
-		MatrixStack.Entry pose = event.matrices().peek();
+		PoseStack.Pose pose = event.matrices().last();
 		VertexConsumer light = FxRender.quads(event, true, throughWalls.get());
 		for (Bolt bolt : bolts) {
 			// A wide coloured glow, then a thin white-hot core along the same path
@@ -82,9 +82,9 @@ public class LightningLinkModule extends TargetFxModule {
 
 	/** Where the bolt starts, relative to the camera: from your hand in first person, else your chest. */
 	private static Vector3f origin(Render3DEvent event, float tickDelta) {
-		if (mc.options.getPerspective().isFirstPerson()) return new Vector3f(0.35f, -0.4f, -1.1f).rotate(event.camera().orientation);
-		Vec3d cam = event.camera().pos;
-		Vec3d chest = mc.player.getLerpedPos(tickDelta).add(0, mc.player.getHeight() * 0.6, 0);
+		if (mc.options.getCameraType().isFirstPerson()) return new Vector3f(0.35f, -0.4f, -1.1f).rotate(event.camera().orientation);
+		Vec3 cam = event.camera().pos;
+		Vec3 chest = mc.player.getPosition(tickDelta).add(0, mc.player.getBbHeight() * 0.6, 0);
 		return new Vector3f((float) (chest.x - cam.x), (float) (chest.y - cam.y), (float) (chest.z - cam.z));
 	}
 
@@ -111,7 +111,7 @@ public class LightningLinkModule extends TargetFxModule {
 	}
 
 	/** A band along the points that always faces the camera, which sits at the origin. */
-	private static void strip(VertexConsumer consumer, MatrixStack.Entry pose, List<Vector3f> points, float width, int startColor, int endColor) {
+	private static void strip(VertexConsumer consumer, PoseStack.Pose pose, List<Vector3f> points, float width, int startColor, int endColor) {
 		for (int i = 0; i < points.size() - 1; i++) {
 			Vector3f a = points.get(i), b = points.get(i + 1);
 			Vector3f side = new Vector3f(b).sub(a).cross(a);

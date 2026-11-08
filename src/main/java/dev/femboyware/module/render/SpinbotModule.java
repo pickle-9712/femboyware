@@ -35,7 +35,7 @@ public class SpinbotModule extends Module {
 
 	@Override
 	protected void onEnable() {
-		if (!nullCheck()) yaw = mc.player.getYaw();
+		if (!nullCheck()) yaw = mc.player.getYRot();
 	}
 
 	@Override
@@ -43,7 +43,7 @@ public class SpinbotModule extends Module {
 		yaw += reverse.get() ? -speed.getFloat() : speed.getFloat();
 		yaw %= 360f;
 		float pitch = switch (pitchMode.get()) {
-			case NORMAL -> mc.player.getPitch();
+			case NORMAL -> mc.player.getXRot();
 			case DOWN -> 90f;
 			case UP -> -90f;
 			case JITTER -> random.nextFloat() * 180f - 90f;

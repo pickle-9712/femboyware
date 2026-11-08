@@ -5,7 +5,7 @@ import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.InventoryUtil;
-import net.minecraft.item.Items;
+import net.minecraft.world.item.Items;
 
 /**
  * Keeps a totem stocked in one hotbar slot and switches to it when your health gets low, so you
@@ -25,15 +25,15 @@ public class MainhandTotemModule extends Module {
 
 	@Override
 	public String getInfo() {
-		return nullCheck() ? null : String.valueOf(InventoryUtil.count(stack -> stack.isOf(Items.TOTEM_OF_UNDYING)));
+		return nullCheck() ? null : String.valueOf(InventoryUtil.count(stack -> stack.is(Items.TOTEM_OF_UNDYING)));
 	}
 
 	@Override
 	public void onTick() {
 		int hotbar = slot.getInt() - 1;
-		boolean stocked = mc.player.getInventory().getStack(hotbar).isOf(Items.TOTEM_OF_UNDYING);
-		if (!stocked && refill.get() && mc.player.currentScreenHandler == mc.player.playerScreenHandler) {
-			int spare = InventoryUtil.findMain(stack -> stack.isOf(Items.TOTEM_OF_UNDYING));
+		boolean stocked = mc.player.getInventory().getItem(hotbar).is(Items.TOTEM_OF_UNDYING);
+		if (!stocked && refill.get() && mc.player.containerMenu == mc.player.inventoryMenu) {
+			int spare = InventoryUtil.findMain(stack -> stack.is(Items.TOTEM_OF_UNDYING));
 			if (spare >= 0) {
 				InventoryUtil.swapWithHotbar(spare, hotbar);
 				stocked = true;

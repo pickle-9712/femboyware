@@ -8,11 +8,10 @@ import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.StringSetting;
 import dev.femboyware.util.Rotation;
-import net.minecraft.util.Hand;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import net.minecraft.world.InteractionHand;
 
 /**
  * Jumps, swings, sneaks, strafes, spins and chats so the server doesn't kick you for idling.
@@ -52,48 +51,48 @@ public class AntiAfkModule extends Module {
 
 	@Override
 	protected void onEnable() {
-		if (!nullCheck()) yaw = mc.player.getYaw();
+		if (!nullCheck()) yaw = mc.player.getYRot();
 		messageTimer = messageDelay.getInt() * 20;
 	}
 
 	@Override
 	protected void onDisable() {
 		if (strafe.get()) {
-			mc.options.leftKey.setPressed(false);
-			mc.options.rightKey.setPressed(false);
+			mc.options.keyLeft.setDown(false);
+			mc.options.keyRight.setDown(false);
 		}
-		if (sneak.get()) mc.options.sneakKey.setPressed(false);
+		if (sneak.get()) mc.options.keyShift.setDown(false);
 	}
 
 	@Override
 	public void onTick() {
 		if (jump.get()) {
-			if (mc.options.jumpKey.isPressed()) mc.options.jumpKey.setPressed(false);
-			else if (random.nextInt(99) == 0) mc.options.jumpKey.setPressed(true);
+			if (mc.options.keyJump.isDown()) mc.options.keyJump.setDown(false);
+			else if (random.nextInt(99) == 0) mc.options.keyJump.setDown(true);
 		}
-		if (swing.get() && random.nextInt(99) == 0) mc.player.swingHand(Hand.MAIN_HAND);
+		if (swing.get() && random.nextInt(99) == 0) mc.player.swing(InteractionHand.MAIN_HAND);
 		if (sneak.get()) {
 			if (sneakTimer++ >= sneakTime.getInt()) {
-				mc.options.sneakKey.setPressed(false);
+				mc.options.keyShift.setDown(false);
 				// Sneak again after about five seconds
 				if (random.nextInt(99) == 0) sneakTimer = 0;
-			} else mc.options.sneakKey.setPressed(true);
+			} else mc.options.keyShift.setDown(true);
 		}
 		if (strafe.get() && strafeTimer-- <= 0) {
-			mc.options.leftKey.setPressed(!strafeRight);
-			mc.options.rightKey.setPressed(strafeRight);
+			mc.options.keyLeft.setDown(!strafeRight);
+			mc.options.keyRight.setDown(strafeRight);
 			strafeRight = !strafeRight;
 			strafeTimer = 20;
 		}
 		if (spin.get() && spinMode.is(SpinMode.CLIENT)) {
 			yaw += spinSpeed.getFloat();
-			mc.player.setYaw(yaw);
+			mc.player.setYRot(yaw);
 		}
 		if (sendMessages.get() && messageTimer-- <= 0) {
 			List<String> list = messageList();
 			if (!list.isEmpty()) {
 				messageIndex = randomMessage.get() ? random.nextInt(list.size()) : (messageIndex + 1) % list.size();
-				mc.getNetworkHandler().sendChatMessage(list.get(messageIndex));
+				mc.getConnection().sendChat(list.get(messageIndex));
 			}
 			messageTimer = messageDelay.getInt() * 20;
 		}

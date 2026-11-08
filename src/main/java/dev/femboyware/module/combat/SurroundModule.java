@@ -12,25 +12,24 @@ import dev.femboyware.util.InventoryUtil;
 import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.RenderUtil;
 import dev.femboyware.util.Rotation;
-import net.minecraft.block.BlockState;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.decoration.EndCrystalEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.network.packet.c2s.play.PlayerInteractEntityC2SPacket;
-import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
-import net.minecraft.util.Hand;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.network.protocol.game.ServerboundInteractPacket;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.util.Mth;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Boxes the player in with obsidian and puts blocks back the moment the server reports them broken.
@@ -70,7 +69,7 @@ public class SurroundModule extends Module {
 	@Override
 	public String getInfo() {
 		if (nullCheck()) return null;
-		long missing = positions.stream().filter(pos -> mc.world.getBlockState(pos).isReplaceable()).count();
+		long missing = positions.stream().filter(pos -> mc.level.getBlockState(pos).canBeReplaced()).count();
 		return missing == 0 ? "Safe" : String.valueOf(missing);
 	}
 
@@ -80,9 +79,9 @@ public class SurroundModule extends Module {
 		startY = mc.player.getY();
 		pending.clear();
 		if (center.get()) {
-			Vec3d middle = Vec3d.ofBottomCenter(mc.player.getBlockPos());
-			mc.player.setPosition(middle.x, mc.player.getY(), middle.z);
-			mc.player.setVelocity(0, mc.player.getVelocity().y, 0);
+			Vec3 middle = Vec3.atBottomCenterOf(mc.player.blockPosition());
+			mc.player.setPos(middle.x, mc.player.getY(), middle.z);
+			mc.player.setDeltaMovement(0, mc.player.getDeltaMovement().y, 0);
 		}
 	}
 
@@ -104,7 +103,7 @@ public class SurroundModule extends Module {
 
 	@Override
 	public void onBlockUpdate(BlockPos pos, BlockState state) {
-		if (!instantReplace.get() || !state.isReplaceable() || !positions.contains(pos)) return;
+		if (!instantReplace.get() || !state.canBeReplaced() || !positions.contains(pos)) return;
 		pending.remove(pos);
 		// Doesn't count against the per-tick budget: being mined is exactly when speed matters
 		tryPlace(pos);
@@ -114,9 +113,9 @@ public class SurroundModule extends Module {
 	public void onRender3D(Render3DEvent event) {
 		if (!render.get()) return;
 		for (BlockPos pos : positions) {
-			boolean safe = !mc.world.getBlockState(pos).isReplaceable();
+			boolean safe = !mc.level.getBlockState(pos).canBeReplaced();
 			ColorSetting color = safe ? safeColor : unsafeColor;
-			RenderUtil.drawBox(event, new Box(pos), color.get(), color.withAlpha(Math.min(255, color.getAlpha() * 3)), 1.5f);
+			RenderUtil.drawBox(event, new AABB(pos), color.get(), color.withAlpha(Math.min(255, color.getAlpha() * 3)), 1.5f);
 		}
 	}
 
@@ -125,25 +124,25 @@ public class SurroundModule extends Module {
 		Set<BlockPos> result = new LinkedHashSet<>();
 
 		if (floor.get()) {
-			for (BlockPos pos : feet) result.add(pos.down());
+			for (BlockPos pos : feet) result.add(pos.below());
 		}
 		addRing(result, feet);
 		if (shape.is(Shape.BOX)) {
 			Set<BlockPos> head = new LinkedHashSet<>();
-			for (BlockPos pos : feet) head.add(pos.up());
+			for (BlockPos pos : feet) head.add(pos.above());
 			addRing(result, head);
-			for (BlockPos pos : head) result.add(pos.up());
+			for (BlockPos pos : head) result.add(pos.above());
 		}
 		return result;
 	}
 
 	/** Every block column the player's hitbox overlaps at height {@code y}. */
 	private Set<BlockPos> occupiedBlocks(double y) {
-		Box box = mc.player.getBoundingBox();
-		int blockY = MathHelper.floor(y + 0.2);
+		AABB box = mc.player.getBoundingBox();
+		int blockY = Mth.floor(y + 0.2);
 		Set<BlockPos> set = new LinkedHashSet<>();
-		for (int x = MathHelper.floor(box.minX); x <= MathHelper.floor(box.maxX - 1e-4); x++) {
-			for (int z = MathHelper.floor(box.minZ); z <= MathHelper.floor(box.maxZ - 1e-4); z++) {
+		for (int x = Mth.floor(box.minX); x <= Mth.floor(box.maxX - 1e-4); x++) {
+			for (int z = Mth.floor(box.minZ); z <= Mth.floor(box.maxZ - 1e-4); z++) {
 				set.add(new BlockPos(x, blockY, z));
 			}
 		}
@@ -152,16 +151,16 @@ public class SurroundModule extends Module {
 
 	private static void addRing(Set<BlockPos> result, Set<BlockPos> inner) {
 		for (BlockPos pos : inner) {
-			for (Direction direction : Direction.Type.HORIZONTAL) {
-				BlockPos side = pos.offset(direction);
+			for (Direction direction : Direction.Plane.HORIZONTAL) {
+				BlockPos side = pos.relative(direction);
 				if (!inner.contains(side)) result.add(side);
 			}
 		}
 	}
 
 	private void tryPlace(BlockPos pos) {
-		if (!mc.world.getBlockState(pos).isReplaceable() || pending.containsKey(pos)) return;
-		if (mc.player.getEyePos().squaredDistanceTo(Vec3d.ofCenter(pos)) > 5.5 * 5.5) return;
+		if (!mc.level.getBlockState(pos).canBeReplaced() || pending.containsKey(pos)) return;
+		if (mc.player.getEyePosition().distanceToSqr(Vec3.atCenterOf(pos)) > 5.5 * 5.5) return;
 
 		if (breakCrystals.get()) clearCrystals(pos);
 		// The server handles our attack before the place packet, so attacked crystals don't block it
@@ -170,8 +169,8 @@ public class SurroundModule extends Module {
 		BlockHitResult hit = BlockUtil.getPlacement(pos, strict.get());
 		if (hit == null) {
 			// Nothing to click on: build a support block underneath first
-			BlockPos below = pos.down();
-			if (mc.world.getBlockState(below).isReplaceable() && !BlockUtil.hasBlockingEntity(below, false)) {
+			BlockPos below = pos.below();
+			if (mc.level.getBlockState(below).canBeReplaced() && !BlockUtil.hasBlockingEntity(below, false)) {
 				BlockHitResult support = BlockUtil.getPlacement(below, strict.get());
 				if (support != null) place(below, support);
 			}
@@ -182,18 +181,18 @@ public class SurroundModule extends Module {
 
 	private void place(BlockPos pos, BlockHitResult hit) {
 		int slot = InventoryUtil.findHotbar(SurroundModule::isSurroundBlock);
-		Hand hand = isSurroundBlock(mc.player.getOffHandStack()) ? Hand.OFF_HAND : Hand.MAIN_HAND;
+		InteractionHand hand = isSurroundBlock(mc.player.getOffhandItem()) ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
 		Runnable action = () -> {
 			if (rotate.get()) {
-				Rotation rotation = Rotation.between(mc.player.getEyePos(), hit.getPos());
-				mc.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.LookAndOnGround(
-					rotation.yaw(), rotation.pitch(), mc.player.isOnGround(), mc.player.horizontalCollision));
+				Rotation rotation = Rotation.between(mc.player.getEyePosition(), hit.getLocation());
+				mc.getConnection().send(new ServerboundMovePlayerPacket.Rot(
+					rotation.yaw(), rotation.pitch(), mc.player.onGround(), mc.player.horizontalCollision));
 			}
-			mc.interactionManager.interactBlock(mc.player, hand, hit);
-			mc.player.swingHand(hand);
+			mc.gameMode.useItemOn(mc.player, hand, hit);
+			mc.player.swing(hand);
 		};
 
-		boolean placed = hand == Hand.OFF_HAND ? run(action) : InventoryUtil.withSlot(slot, switchMode.get(), action);
+		boolean placed = hand == InteractionHand.OFF_HAND ? run(action) : InventoryUtil.withSlot(slot, switchMode.get(), action);
 		if (placed) {
 			pending.put(pos, System.currentTimeMillis());
 			placedThisTick++;
@@ -206,15 +205,19 @@ public class SurroundModule extends Module {
 	}
 
 	private void clearCrystals(BlockPos pos) {
-		for (Entity entity : mc.world.getOtherEntities(null, new Box(pos))) {
-			if (entity instanceof EndCrystalEntity && entity.isAlive()) {
-				mc.getNetworkHandler().sendPacket(PlayerInteractEntityC2SPacket.attack(entity, mc.player.isSneaking()));
-				mc.player.swingHand(Hand.MAIN_HAND);
+		for (Entity entity : mc.level.getEntities(null, new AABB(pos))) {
+			if (entity instanceof EndCrystal && entity.isAlive()) {
+				//? if >=26.1 {
+				/*mc.getConnection().send(new net.minecraft.network.protocol.game.ServerboundAttackPacket(entity.getId()));
+				*///?} else {
+				mc.getConnection().send(ServerboundInteractPacket.createAttackPacket(entity, mc.player.isShiftKeyDown()));
+				//?}
+				mc.player.swing(InteractionHand.MAIN_HAND);
 			}
 		}
 	}
 
 	private static boolean isSurroundBlock(ItemStack stack) {
-		return stack.isOf(Items.OBSIDIAN) || stack.isOf(Items.CRYING_OBSIDIAN) || stack.isOf(Items.ENDER_CHEST);
+		return stack.is(Items.OBSIDIAN) || stack.is(Items.CRYING_OBSIDIAN) || stack.is(Items.ENDER_CHEST);
 	}
 }

@@ -4,8 +4,8 @@ import dev.femboyware.event.PacketEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
-import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.world.phys.Vec3;
 
 /** Hangs in mid air while gliding. Velocity is zeroed by the gliding mixin. */
 public class ElytraFreezeModule extends Module {
@@ -16,13 +16,13 @@ public class ElytraFreezeModule extends Module {
 	}
 
 	/** Called with vanilla's gliding velocity for the local player. */
-	public Vec3d modifyGliding(Vec3d velocity) {
-		return isEnabled() ? Vec3d.ZERO : velocity;
+	public Vec3 modifyGliding(Vec3 velocity) {
+		return isEnabled() ? Vec3.ZERO : velocity;
 	}
 
 	@Override
 	public void onPacketSend(PacketEvent event) {
-		if (cancelPackets.get() && mc.player.isGliding() && event.getPacket() instanceof PlayerMoveC2SPacket packet && packet.changesPosition()) {
+		if (cancelPackets.get() && mc.player.isFallFlying() && event.getPacket() instanceof ServerboundMovePlayerPacket packet && packet.hasPosition()) {
 			event.cancel();
 		}
 	}

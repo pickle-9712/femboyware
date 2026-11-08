@@ -1,16 +1,15 @@
 package dev.femboyware.gui;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gl.RenderPipelines;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.texture.NativeImageBackedTexture;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.MathHelper;
-
+import com.mojang.blaze3d.platform.NativeImage;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.resources.Identifier;
+import net.minecraft.util.Mth;
 
 /**
  * Liquid glass surfaces: a rounded, translucent body with a sheen that's strongest at the top, a
@@ -53,7 +52,7 @@ public final class Glass {
 	}
 
 	/** A glass surface over {@code x1..x2, y1..y2} in GUI units, tinted by {@code tint} (its alpha is how strong). */
-	public static void draw(DrawContext context, int x1, int y1, int x2, int y2, int radius, int tint, boolean shadow) {
+	public static void draw(GuiGraphics context, int x1, int y1, int x2, int y2, int radius, int tint, boolean shadow) {
 		int density = UiScale.density();
 		int width = (x2 - x1) * density, height = (y2 - y1) * density;
 		if (width <= 0 || height <= 0) return;
@@ -66,23 +65,23 @@ public final class Glass {
 	}
 
 	/** A plain rounded rectangle, solid or translucent, with no glass effects. */
-	public static void rounded(DrawContext context, int x1, int y1, int x2, int y2, int radius, int color) {
+	public static void rounded(GuiGraphics context, int x1, int y1, int x2, int y2, int radius, int color) {
 		int density = UiScale.density();
 		int width = (x2 - x1) * density, height = (y2 - y1) * density;
 		if (width <= 0 || height <= 0) return;
 		int r = Math.min(radius * density, Math.min(width, height) / 2);
 		if (r <= DIRECT_RADIUS) {
-			context.getMatrices().pushMatrix();
-			context.getMatrices().scale(1f / density, 1f / density);
+			context.pose().pushMatrix();
+			context.pose().scale(1f / density, 1f / density);
 			pixels(context, x1 * density, y1 * density, x2 * density, y2 * density, r, color);
-			context.getMatrices().popMatrix();
+			context.pose().popMatrix();
 			return;
 		}
 		blit(context, new Key(width, height, r, 0, color, 0, 0, 0, 0, 0, Kind.SOLID), x1 * density, y1 * density, density);
 	}
 
 	/** A soft-edged oval, such as a shadow on the ground, filling {@code x1..x2, y1..y2} in GUI units. */
-	public static void ellipse(DrawContext context, int x1, int y1, int x2, int y2, int color) {
+	public static void ellipse(GuiGraphics context, int x1, int y1, int x2, int y2, int color) {
 		int density = UiScale.density();
 		int width = (x2 - x1) * density, height = (y2 - y1) * density;
 		if (width <= 0 || height <= 0) return;
@@ -91,17 +90,17 @@ public final class Glass {
 
 	// ---------------------------------------------------------------- texture cache
 
-	private static void blit(DrawContext context, Key key, int left, int top, int density) {
+	private static void blit(GuiGraphics context, Key key, int left, int top, int density) {
 		Cached cached = CACHE.get(key);
 		if (cached == null) cached = create(key);
 		int margin = cached.margin;
 		int textureWidth = key.width + margin * 2;
 		int textureHeight = key.height + margin * 2;
-		context.getMatrices().pushMatrix();
-		context.getMatrices().scale(1f / density, 1f / density);
-		context.drawTexture(RenderPipelines.GUI_TEXTURED, cached.id, left - margin, top - margin, 0, 0,
+		context.pose().pushMatrix();
+		context.pose().scale(1f / density, 1f / density);
+		context.blit(RenderPipelines.GUI_TEXTURED, cached.id, left - margin, top - margin, 0, 0,
 			textureWidth, textureHeight, textureWidth, textureHeight, textureWidth, textureHeight);
-		context.getMatrices().popMatrix();
+		context.pose().popMatrix();
 	}
 
 	private static Cached create(Key key) {
@@ -110,9 +109,9 @@ public final class Glass {
 		int textureHeight = key.height + margin * 2;
 		NativeImage image = new NativeImage(textureWidth, textureHeight, true);
 		paint(image, key, margin);
-		Identifier id = Identifier.of("femboyware", "glass/" + nextId++);
-		NativeImageBackedTexture texture = new NativeImageBackedTexture(() -> "femboyware glass", image);
-		MinecraftClient.getInstance().getTextureManager().registerTexture(id, texture);
+		Identifier id = Identifier.fromNamespaceAndPath("femboyware", "glass/" + nextId++);
+		DynamicTexture texture = new DynamicTexture(() -> "femboyware glass", image);
+		Minecraft.getInstance().getTextureManager().register(id, texture);
 		texture.upload();
 
 		Cached cached = new Cached(id, margin, (long) textureWidth * textureHeight);
@@ -125,7 +124,7 @@ public final class Glass {
 			if (old == cached) break;
 			oldest.remove();
 			cachedPixels -= old.pixels;
-			MinecraftClient.getInstance().getTextureManager().destroyTexture(old.id);
+			Minecraft.getInstance().getTextureManager().release(old.id);
 		}
 		return cached;
 	}
@@ -145,33 +144,33 @@ public final class Glass {
 		}
 		for (int y = 0; y < height; y++) {
 			float sy = y - margin + 0.5f;
-			int row = MathHelper.clamp((int) sy, 0, key.height - 1);
+			int row = Mth.clamp((int) sy, 0, key.height - 1);
 			for (int x = 0; x < width; x++) {
 				float sx = x - margin + 0.5f;
 				int color = 0;
 				if (key.kind == Kind.ELLIPSE) {
 					// Fades smoothly from the middle out to the edge
 					float dx = (sx - halfWidth) / halfWidth, dy = (sy - halfHeight) / halfHeight;
-					float fade = 1 - MathHelper.clamp((float) Math.sqrt(dx * dx + dy * dy), 0, 1);
-					image.setColorArgb(x, y, scaleAlpha(key.tint, fade * fade * (3 - 2 * fade)));
+					float fade = 1 - Mth.clamp((float) Math.sqrt(dx * dx + dy * dy), 0, 1);
+					image.setPixel(x, y, scaleAlpha(key.tint, fade * fade * (3 - 2 * fade)));
 					continue;
 				}
 				if (key.shadow > 0) {
 					float distance = roundedDistance(sx - halfWidth, sy - key.shadowOffset - halfHeight, halfWidth, halfHeight, key.radius);
-					float fade = 1 - MathHelper.clamp(distance / key.shadow, 0, 1);
+					float fade = 1 - Mth.clamp(distance / key.shadow, 0, 1);
 					color = ((int) (SHADOW_ALPHA * fade * fade * 255) << 24);
 				}
 				float distance = roundedDistance(sx - halfWidth, sy - halfHeight, halfWidth, halfHeight, key.radius);
 				// How much of this pixel the shape covers, for smooth edges
-				float coverage = MathHelper.clamp(0.5f - distance, 0, 1);
+				float coverage = Mth.clamp(0.5f - distance, 0, 1);
 				if (coverage > 0) {
 					color = over(scaleAlpha(body[row], coverage), color);
 					if (key.rim > 0) {
-						float rimCoverage = coverage * MathHelper.clamp(distance + key.rim + 0.5f, 0, 1);
+						float rimCoverage = coverage * Mth.clamp(distance + key.rim + 0.5f, 0, 1);
 						if (rimCoverage > 0) color = over(scaleAlpha(rim[row], rimCoverage), color);
 					}
 				}
-				image.setColorArgb(x, y, color);
+				image.setPixel(x, y, color);
 			}
 		}
 	}
@@ -220,7 +219,7 @@ public final class Glass {
 	}
 
 	/** A small rounded rectangle drawn straight from fills, in screen pixels. */
-	private static void pixels(DrawContext context, int left, int top, int right, int bottom, int r, int color) {
+	private static void pixels(GuiGraphics context, int left, int top, int right, int bottom, int r, int color) {
 		context.fill(left, top + r, right, bottom - r, color);
 		for (int row = 0; row < r; row++) {
 			double dy = r - row - 0.5;

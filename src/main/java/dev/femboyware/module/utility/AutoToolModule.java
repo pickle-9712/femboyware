@@ -6,23 +6,23 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.InventoryUtil;
-import net.minecraft.block.BambooBlock;
-import net.minecraft.block.BambooShootBlock;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.block.CropBlock;
-import net.minecraft.block.ExperienceDroppingBlock;
-import net.minecraft.block.LeavesBlock;
-import net.minecraft.block.RedstoneOreBlock;
-import net.minecraft.enchantment.Enchantments;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.ShearsItem;
-import net.minecraft.registry.tag.BlockTags;
-import net.minecraft.registry.tag.ItemTags;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.ShearsItem;
+import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.world.level.block.BambooSaplingBlock;
+import net.minecraft.world.level.block.BambooStalkBlock;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.CropBlock;
+import net.minecraft.world.level.block.DropExperienceBlock;
+import net.minecraft.world.level.block.LeavesBlock;
+import net.minecraft.world.level.block.RedStoneOreBlock;
+import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * Switches to the best tool for the block you start mining.
@@ -55,7 +55,7 @@ public class AutoToolModule extends Module {
 
 	@Override
 	public void onTick() {
-		if (returnSlot != -1 && !mc.options.attackKey.isPressed()) {
+		if (returnSlot != -1 && !mc.options.keyAttack.isDown()) {
 			InventoryUtil.select(returnSlot);
 			returnSlot = -1;
 			return;
@@ -69,12 +69,12 @@ public class AutoToolModule extends Module {
 	@Override
 	public boolean onStartBreaking(BlockPos pos, Direction side) {
 		if (mc.player.isCreative()) return false;
-		BlockState state = mc.world.getBlockState(pos);
-		if (state.isAir() || state.getHardness(mc.world, pos) < 0) return false;
+		BlockState state = mc.level.getBlockState(pos);
+		if (state.isAir() || state.getDestroySpeed(mc.level, pos) < 0) return false;
 
-		ItemStack current = mc.player.getMainHandStack();
+		ItemStack current = mc.player.getMainHandItem();
 		int best = bestSlot(state);
-		double bestScore = best == -1 ? -1 : score(mc.player.getInventory().getStack(best), state);
+		double bestScore = best == -1 ? -1 : score(mc.player.getInventory().getItem(best), state);
 		if (best != -1 && best != mc.player.getInventory().getSelectedSlot()
 			&& (bestScore > score(current, state) || shouldStopUsing(current) || !isTool(current))) {
 			ticks = switchDelay.getInt();
@@ -83,9 +83,9 @@ public class AutoToolModule extends Module {
 		}
 
 		// Anti break: refuse to keep mining with a nearly broken tool
-		current = mc.player.getMainHandStack();
+		current = mc.player.getMainHandItem();
 		if (shouldStopUsing(current) && isTool(current)) {
-			mc.options.attackKey.setPressed(false);
+			mc.options.keyAttack.setDown(false);
 			return true;
 		}
 		return false;
@@ -100,8 +100,8 @@ public class AutoToolModule extends Module {
 	public int bestSlot(BlockState state) {
 		int best = -1;
 		double bestScore = -1;
-		for (int i = 0; i < PlayerInventory.HOTBAR_SIZE; i++) {
-			double score = score(mc.player.getInventory().getStack(i), state);
+		for (int i = 0; i < Inventory.SELECTION_SIZE; i++) {
+			double score = score(mc.player.getInventory().getItem(i), state);
 			if (score > bestScore) {
 				bestScore = score;
 				best = i;
@@ -112,14 +112,14 @@ public class AutoToolModule extends Module {
 
 	private double score(ItemStack stack, BlockState state) {
 		if (shouldStopUsing(stack) || !isTool(stack)) return -1;
-		boolean bamboo = state.getBlock() instanceof BambooBlock || state.getBlock() instanceof BambooShootBlock;
-		boolean swordOnBamboo = stack.isIn(ItemTags.SWORDS) && bamboo;
-		boolean shears = stack.getItem() instanceof ShearsItem && (state.getBlock() instanceof LeavesBlock || state.isIn(BlockTags.WOOL));
-		if (!stack.isSuitableFor(state) && !swordOnBamboo && !shears) return -1;
-		if (silkTouchEnderChest.get() && state.isOf(Blocks.ENDER_CHEST) && InventoryUtil.getEnchantmentLevel(stack, Enchantments.SILK_TOUCH) == 0) return -1;
+		boolean bamboo = state.getBlock() instanceof BambooStalkBlock || state.getBlock() instanceof BambooSaplingBlock;
+		boolean swordOnBamboo = stack.is(ItemTags.SWORDS) && bamboo;
+		boolean shears = stack.getItem() instanceof ShearsItem && (state.getBlock() instanceof LeavesBlock || state.is(BlockTags.WOOL));
+		if (!stack.isCorrectToolForDrops(state) && !swordOnBamboo && !shears) return -1;
+		if (silkTouchEnderChest.get() && state.is(Blocks.ENDER_CHEST) && InventoryUtil.getEnchantmentLevel(stack, Enchantments.SILK_TOUCH) == 0) return -1;
 		if (fortuneOres.get() && isFortunable(state.getBlock()) && InventoryUtil.getEnchantmentLevel(stack, Enchantments.FORTUNE) == 0) return -1;
 
-		double score = stack.getMiningSpeedMultiplier(state) * 1000;
+		double score = stack.getDestroySpeed(state) * 1000;
 		score += InventoryUtil.getEnchantmentLevel(stack, Enchantments.UNBREAKING);
 		score += InventoryUtil.getEnchantmentLevel(stack, Enchantments.EFFICIENCY);
 		score += InventoryUtil.getEnchantmentLevel(stack, Enchantments.MENDING);
@@ -130,16 +130,16 @@ public class AutoToolModule extends Module {
 	}
 
 	private boolean shouldStopUsing(ItemStack stack) {
-		return antiBreak.get() && stack.isDamageable()
-			&& stack.getMaxDamage() - stack.getDamage() < stack.getMaxDamage() * breakDurability.get() / 100;
+		return antiBreak.get() && stack.isDamageableItem()
+			&& stack.getMaxDamage() - stack.getDamageValue() < stack.getMaxDamage() * breakDurability.get() / 100;
 	}
 
 	private static boolean isTool(ItemStack stack) {
-		return stack.isIn(ItemTags.AXES) || stack.isIn(ItemTags.HOES) || stack.isIn(ItemTags.PICKAXES)
-			|| stack.isIn(ItemTags.SHOVELS) || stack.getItem() instanceof ShearsItem;
+		return stack.is(ItemTags.AXES) || stack.is(ItemTags.HOES) || stack.is(ItemTags.PICKAXES)
+			|| stack.is(ItemTags.SHOVELS) || stack.getItem() instanceof ShearsItem;
 	}
 
 	private static boolean isFortunable(Block block) {
-		return block instanceof ExperienceDroppingBlock || block instanceof RedstoneOreBlock || block instanceof CropBlock;
+		return block instanceof DropExperienceBlock || block instanceof RedStoneOreBlock || block instanceof CropBlock;
 	}
 }

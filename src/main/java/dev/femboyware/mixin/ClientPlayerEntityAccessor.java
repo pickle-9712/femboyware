@@ -1,14 +1,14 @@
 package dev.femboyware.mixin;
 
-import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.client.player.LocalPlayer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
-@Mixin(ClientPlayerEntity.class)
+@Mixin(LocalPlayer.class)
 public interface ClientPlayerEntityAccessor {
-	@Accessor("lastYawClient")
+	@Accessor("yRotLast")
 	void femboyware$setLastYaw(float yaw);
 
-	@Accessor("lastPitchClient")
+	@Accessor("xRotLast")
 	void femboyware$setLastPitch(float pitch);
 }

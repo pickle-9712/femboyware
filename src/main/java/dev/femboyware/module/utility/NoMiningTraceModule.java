@@ -3,9 +3,9 @@ package dev.femboyware.module.utility;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.registry.tag.ItemTags;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 
 /**
  * Mine blocks through entities standing in front of them. The crosshair change is in
@@ -23,7 +23,7 @@ public class NoMiningTraceModule extends Module {
 	/** Whether the crosshair should look past {@code entity} to the block behind it. */
 	public boolean shouldSkip(Entity entity) {
 		if (!isEnabled() || mc.player == null) return false;
-		if (ignorePlayers.get() && entity instanceof PlayerEntity) return false;
-		return !onlyPickaxe.get() || mc.player.getMainHandStack().isIn(ItemTags.PICKAXES) || mc.player.getOffHandStack().isIn(ItemTags.PICKAXES);
+		if (ignorePlayers.get() && entity instanceof Player) return false;
+		return !onlyPickaxe.get() || mc.player.getMainHandItem().is(ItemTags.PICKAXES) || mc.player.getOffhandItem().is(ItemTags.PICKAXES);
 	}
 }

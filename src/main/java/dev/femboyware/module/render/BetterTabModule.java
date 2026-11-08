@@ -5,13 +5,13 @@ import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.network.PlayerListEntry;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Text;
-import net.minecraft.text.TextColor;
-import net.minecraft.util.Formatting;
-import net.minecraft.world.GameMode;
+import net.minecraft.ChatFormatting;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.multiplayer.PlayerInfo;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.TextColor;
+import net.minecraft.world.level.GameType;
 
 /**
  * A bigger tab list with your own name highlighted, ping in milliseconds and game modes.
@@ -46,22 +46,22 @@ public class BetterTabModule extends Module {
 	}
 
 	/** Vanilla's tab name for {@code entry} with our highlight and game mode added. */
-	public Text playerName(PlayerListEntry entry, Text name) {
+	public Component playerName(PlayerInfo entry, Component name) {
 		if (!isEnabled()) return name;
 		if (self.get() && mc.player != null && entry.getProfile().id().equals(mc.player.getGameProfile().id())) {
 			// Strip colour codes so our colour wins
-			String plain = Formatting.strip(name.getString());
-			name = Text.literal(plain).setStyle(name.getStyle().withColor(TextColor.fromRgb(selfColor.get() & 0xFFFFFF)));
+			String plain = ChatFormatting.stripFormatting(name.getString());
+			name = Component.literal(plain).setStyle(name.getStyle().withColor(TextColor.fromRgb(selfColor.get() & 0xFFFFFF)));
 		}
 		if (gameMode.get()) {
-			GameMode mode = entry.getGameMode();
+			GameType mode = entry.getGameMode();
 			String tag = mode == null ? "?" : switch (mode) {
 				case SPECTATOR -> "Sp";
 				case SURVIVAL -> "S";
 				case CREATIVE -> "C";
 				case ADVENTURE -> "A";
 			};
-			MutableText text = Text.empty().append(name);
+			MutableComponent text = Component.empty().append(name);
 			text.append(" [" + tag + "]");
 			name = text;
 		}
@@ -69,10 +69,10 @@ public class BetterTabModule extends Module {
 	}
 
 	/** Draws the ping as a coloured number where vanilla draws its bars. */
-	public void drawLatency(DrawContext context, int width, int x, int y, PlayerListEntry entry) {
+	public void drawLatency(GuiGraphics context, int width, int x, int y, PlayerInfo entry) {
 		int latency = entry.getLatency();
 		String text = latency + "ms";
 		int color = latency < 150 ? 0xFF77FF99 : latency < 300 ? 0xFFFFD966 : 0xFFFF6666;
-		context.drawTextWithShadow(mc.textRenderer, text, x + width - mc.textRenderer.getWidth(text) - 1, y, color);
+		context.drawString(mc.font, text, x + width - mc.font.width(text) - 1, y, color);
 	}
 }

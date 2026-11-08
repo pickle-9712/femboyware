@@ -6,7 +6,7 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.MoveUtil;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.phys.Vec3;
 
 public class FlightModule extends Module {
 	public enum Mode {
@@ -37,8 +37,8 @@ public class FlightModule extends Module {
 		if (nullCheck() || !mode.is(Mode.VANILLA)) return;
 		boolean creative = mc.player.isCreative() || mc.player.isSpectator();
 		mc.player.getAbilities().flying = creative && mc.player.getAbilities().flying;
-		mc.player.getAbilities().allowFlying = creative;
-		mc.player.getAbilities().setFlySpeed(0.05f);
+		mc.player.getAbilities().mayfly = creative;
+		mc.player.getAbilities().setFlyingSpeed(0.05f);
 	}
 
 	@Override
@@ -47,15 +47,15 @@ public class FlightModule extends Module {
 		boolean kick = antiKick.get() && ticks % 40 == 0;
 		switch (mode.get()) {
 			case VANILLA -> {
-				mc.player.getAbilities().allowFlying = true;
+				mc.player.getAbilities().mayfly = true;
 				mc.player.getAbilities().flying = true;
-				mc.player.getAbilities().setFlySpeed(speed.getFloat() / 10f);
-				if (kick) mc.player.setVelocity(mc.player.getVelocity().x, -0.04, mc.player.getVelocity().z);
+				mc.player.getAbilities().setFlyingSpeed(speed.getFloat() / 10f);
+				if (kick) mc.player.setDeltaMovement(mc.player.getDeltaMovement().x, -0.04, mc.player.getDeltaMovement().z);
 			}
 			case VELOCITY -> {
-				Vec3d horizontal = MoveUtil.strafe(speed.get());
+				Vec3 horizontal = MoveUtil.strafe(speed.get());
 				double y = kick ? -0.04 : MoveUtil.vertical(verticalSpeed.get());
-				mc.player.setVelocity(horizontal.x, y, horizontal.z);
+				mc.player.setDeltaMovement(horizontal.x, y, horizontal.z);
 			}
 		}
 	}

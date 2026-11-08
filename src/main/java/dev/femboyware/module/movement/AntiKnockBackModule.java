@@ -4,8 +4,8 @@ import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.util.Mth;
+import net.minecraft.world.phys.Vec3;
 
 /** Scales the knockback you take from hits and explosions. Applied by the network handler mixin. */
 public class AntiKnockBackModule extends Module {
@@ -27,23 +27,23 @@ public class AntiKnockBackModule extends Module {
 	 * Velocity the server set on us from a hit. At 0% the knockback is ignored outright, so we keep
 	 * moving exactly as we were (standing still stays standing still) instead of being stopped dead.
 	 */
-	public Vec3d modifyVelocity(Vec3d velocity) {
+	public Vec3 modifyVelocity(Vec3 velocity) {
 		if (!isEnabled() || !hits.get()) return velocity;
-		Vec3d current = mc.player.getVelocity();
+		Vec3 current = mc.player.getDeltaMovement();
 		double h = horizontal.get() / 100.0;
 		double v = vertical.get() / 100.0;
-		return new Vec3d(MathHelper.lerp(h, current.x, velocity.x), MathHelper.lerp(v, current.y, velocity.y), MathHelper.lerp(h, current.z, velocity.z));
+		return new Vec3(Mth.lerp(h, current.x, velocity.x), Mth.lerp(v, current.y, velocity.y), Mth.lerp(h, current.z, velocity.z));
 	}
 
 	/** Velocity added to us by an explosion. */
-	public Vec3d modifyExplosion(Vec3d knockback) {
+	public Vec3 modifyExplosion(Vec3 knockback) {
 		if (!isEnabled() || !explosions.get()) return knockback;
 		return scale(knockback);
 	}
 
-	private Vec3d scale(Vec3d velocity) {
+	private Vec3 scale(Vec3 velocity) {
 		double h = horizontal.get() / 100.0;
 		double v = vertical.get() / 100.0;
-		return new Vec3d(velocity.x * h, velocity.y * v, velocity.z * h);
+		return new Vec3(velocity.x * h, velocity.y * v, velocity.z * h);
 	}
 }

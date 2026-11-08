@@ -25,7 +25,11 @@ public class WorldRendererModule extends Module {
 
 	@Override
 	public void onTick() {
-		if (changeTime.get()) mc.world.setTime(mc.world.getTime(), time.getInt(), false);
+		//? if >=26.1 {
+		/*// 26.x: the time is applied by the client clock mixin
+		*///?} else {
+		if (changeTime.get()) mc.level.setTimeFromServer(mc.level.getGameTime(), time.getInt(), false);
+		//?}
 		switch (weather.get()) {
 			case UNCHANGED -> {
 			}
@@ -36,7 +40,7 @@ public class WorldRendererModule extends Module {
 	}
 
 	private void setWeather(float rain, float thunder) {
-		mc.world.setRainGradient(rain);
-		mc.world.setThunderGradient(thunder);
+		mc.level.setRainLevel(rain);
+		mc.level.setThunderLevel(thunder);
 	}
 }

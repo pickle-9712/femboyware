@@ -1,23 +1,22 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.math.Axis;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.RotationAxis;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * A little glowing fairy that follows you round, hovering by your shoulder. It lags behind when you
@@ -34,10 +33,10 @@ public class FairyCompanionModule extends PlayerFxModule {
 	private final EnumSetting<ShowOn> showOn = showOnSetting();
 
 	private static final class Fairy {
-		Vec3d pos;
-		final ArrayDeque<Vec3d> trail = new ArrayDeque<>();
+		Vec3 pos;
+		final ArrayDeque<Vec3> trail = new ArrayDeque<>();
 
-		Fairy(Vec3d pos) {
+		Fairy(Vec3 pos) {
 			this.pos = pos;
 		}
 	}
@@ -60,21 +59,21 @@ public class FairyCompanionModule extends PlayerFxModule {
 		long now = System.nanoTime();
 		float delta = lastFrame == 0 ? 0 : Math.min(0.1f, (now - lastFrame) / 1e9f);
 		lastFrame = now;
-		List<PlayerEntity> wearers = wearers(true);
+		List<Player> wearers = wearers(true);
 		float tickDelta = tickDelta();
 		double time = time();
 		float s = size.getFloat();
 
 		Set<Integer> present = new HashSet<>();
-		for (PlayerEntity player : wearers) {
+		for (Player player : wearers) {
 			present.add(player.getId());
-			Vec3d home = home(player, tickDelta, time);
+			Vec3 home = home(player, tickDelta, time);
 			Fairy fairy = fairies.computeIfAbsent(player.getId(), id -> new Fairy(home));
 			// Teleports and respawns snap it back rather than flying it across the world
-			if (fairy.pos.squaredDistanceTo(home) > 400) fairy.pos = home;
+			if (fairy.pos.distanceToSqr(home) > 400) fairy.pos = home;
 			fairy.pos = fairy.pos.lerp(home, 1 - Math.exp(-follow.get() * delta));
-			Vec3d last = fairy.trail.peekLast();
-			if (last == null || last.squaredDistanceTo(fairy.pos) > 0.003) fairy.trail.addLast(fairy.pos);
+			Vec3 last = fairy.trail.peekLast();
+			if (last == null || last.distanceToSqr(fairy.pos) > 0.003) fairy.trail.addLast(fairy.pos);
 			while (fairy.trail.size() > TRAIL) fairy.trail.pollFirst();
 		}
 		fairies.keySet().retainAll(present);
@@ -88,52 +87,52 @@ public class FairyCompanionModule extends PlayerFxModule {
 			FxRender.glow(event, light, fairy.pos, 0.12f * s, FxRender.lighten(palette.at(0), 0.7f));
 			if (!trail.get()) continue;
 			int i = 0;
-			for (Vec3d point : fairy.trail) {
+			for (Vec3 point : fairy.trail) {
 				float age = 1 - (float) i++ / fairy.trail.size();
 				float twinkle = 0.5f + 0.5f * (float) Math.sin(time * 14 + i * 1.9);
 				FxRender.glow(event, light, point, 0.05f * s * (1 - age * 0.6f), FxRender.fade(palette.at(age), (1 - age) * twinkle));
 			}
 		}
 
-		Vec3d cam = event.camera().pos;
-		MatrixStack matrices = event.matrices();
+		Vec3 cam = event.camera().pos;
+		PoseStack matrices = event.matrices();
 		VertexConsumer wings = FxRender.quads(event, false, false);
 		float flap = (float) Math.sin(time * 28) * 35;
 		for (Map.Entry<Integer, Fairy> entry : fairies.entrySet()) {
-			if (!(mc.world.getEntityById(entry.getKey()) instanceof PlayerEntity owner)) continue;
-			Vec3d pos = entry.getValue().pos;
-			matrices.push();
+			if (!(mc.level.getEntity(entry.getKey()) instanceof Player owner)) continue;
+			Vec3 pos = entry.getValue().pos;
+			matrices.pushPose();
 			matrices.translate((float) (pos.x - cam.x), (float) (pos.y - cam.y), (float) (pos.z - cam.z));
-			matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(-MathHelper.lerpAngleDegrees(tickDelta, owner.lastHeadYaw, owner.headYaw)));
+			matrices.mulPose(Axis.YP.rotationDegrees(-Mth.rotLerp(tickDelta, owner.yHeadRotO, owner.yHeadRot)));
 			matrices.scale(s, s, s);
 			for (int side = -1; side <= 1; side += 2) {
-				matrices.push();
+				matrices.pushPose();
 				matrices.scale(side, 1, 1);
-				matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(30 + flap));
-				MatrixStack.Entry pose = matrices.peek();
+				matrices.mulPose(Axis.YP.rotationDegrees(30 + flap));
+				PoseStack.Pose pose = matrices.last();
 				wing(wings, pose, 0.02f, 0.03f, 0.16f, 0.07f, 40, palette.at(0.2f));
 				wing(wings, pose, 0.02f, -0.02f, 0.11f, 0.05f, -30, palette.at(0.6f));
-				matrices.pop();
+				matrices.popPose();
 			}
-			matrices.pop();
+			matrices.popPose();
 		}
 	}
 
 	/** Where the fairy wants to be: over the shoulder, a little behind, drifting in lazy loops. */
-	private Vec3d home(PlayerEntity player, float tickDelta, double time) {
-		double yaw = Math.toRadians(MathHelper.lerpAngleDegrees(tickDelta, player.lastBodyYaw, player.bodyYaw));
+	private Vec3 home(Player player, float tickDelta, double time) {
+		double yaw = Math.toRadians(Mth.rotLerp(tickDelta, player.yBodyRotO, player.yBodyRot));
 		double sideX = Math.cos(yaw), sideZ = Math.sin(yaw);
 		double backX = Math.sin(yaw), backZ = -Math.cos(yaw);
 		double w = wander.get() * 0.35;
 		double side = 0.65 + Math.sin(time * 0.7 + player.getId()) * w;
 		double back = 0.35 + Math.cos(time * 0.9) * w;
-		double up = player.getHeight() + 0.1 + Math.sin(time * 1.9) * 0.12;
-		Vec3d feet = player.getLerpedPos(tickDelta);
+		double up = player.getBbHeight() + 0.1 + Math.sin(time * 1.9) * 0.12;
+		Vec3 feet = player.getPosition(tickDelta);
 		return feet.add(sideX * side + backX * back, up, sideZ * side + backZ * back);
 	}
 
 	/** A see-through teardrop wing from just off the body, angled up or down by {@code tilt} degrees. */
-	private static void wing(VertexConsumer consumer, MatrixStack.Entry pose, float x, float y, float length, float width, float tilt, int color) {
+	private static void wing(VertexConsumer consumer, PoseStack.Pose pose, float x, float y, float length, float width, float tilt, int color) {
 		double angle = Math.toRadians(tilt);
 		float dx = (float) Math.cos(angle), dy = (float) Math.sin(angle);
 		float cx = x + dx * length / 2, cy = y + dy * length / 2;

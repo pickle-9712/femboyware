@@ -10,10 +10,9 @@ import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.PlaceUtil;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-
 import java.util.Set;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.AABB;
 
 /** Covers your head ring and roof with obsidian, so you can't be face placed or jumped out of a hole. */
 public class SelfTrapModule extends Module {
@@ -57,8 +56,8 @@ public class SelfTrapModule extends Module {
 	public void onRender3D(Render3DEvent event) {
 		if (!render.get()) return;
 		for (BlockPos pos : positions) {
-			if (!mc.world.getBlockState(pos).isReplaceable()) continue;
-			RenderUtil.drawBox(event, new Box(pos), color.get(), color.withAlpha(255), 1.5f);
+			if (!mc.level.getBlockState(pos).canBeReplaced()) continue;
+			RenderUtil.drawBox(event, new AABB(pos), color.get(), color.withAlpha(255), 1.5f);
 		}
 	}
 }

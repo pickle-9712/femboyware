@@ -1,14 +1,14 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.math.Axis;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.RotationAxis;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Wings on your back, drawn from flat shapes: feathered angel wings, bat-like demon wings,
@@ -38,39 +38,39 @@ public class WingsModule extends PlayerFxModule {
 	@Override
 	public void onRender3D(Render3DEvent event) {
 		float tickDelta = tickDelta();
-		Vec3d cam = event.camera().pos;
-		MatrixStack matrices = event.matrices();
+		Vec3 cam = event.camera().pos;
+		PoseStack matrices = event.matrices();
 		VertexConsumer consumer = FxRender.quads(event, false, false);
-		for (PlayerEntity player : wearers(false)) {
-			boolean airborne = !player.isOnGround() && !player.isClimbing() && !player.isTouchingWater();
-			boolean gliding = player.isGliding();
+		for (Player player : wearers(false)) {
+			boolean airborne = !player.onGround() && !player.onClimbable() && !player.isInWater();
+			boolean gliding = player.isFallFlying();
 			// Each player flaps a little out of step with the others
 			double phase = time() * flapSpeed.get() * (airborne ? 7 : 2.2) + player.getId() * 0.7;
 			float swing = gliding ? 0.1f : (0.5f + 0.5f * (float) Math.sin(phase)) * (airborne ? 1 : 0.45f);
 			float sweep = (gliding ? 5 : 18) + swing * 42 * flapAmount.getFloat();
 
-			matrices.push();
+			matrices.pushPose();
 			toBody(matrices, player, cam.x, cam.y, cam.z, tickDelta);
 			// Between the shoulder blades, just off the back
 			matrices.translate(0, 1.32f, -0.17f);
 			float s = size.getFloat();
 			matrices.scale(s, s, s);
 			for (int side = -1; side <= 1; side += 2) {
-				matrices.push();
+				matrices.pushPose();
 				matrices.scale(side, 1, 1);
-				matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(sweep));
+				matrices.mulPose(Axis.YP.rotationDegrees(sweep));
 				// A little upward lift as they beat down, so it reads as flapping rather than swinging
-				matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(-8 + swing * 14));
-				MatrixStack.Entry pose = matrices.peek();
+				matrices.mulPose(Axis.ZP.rotationDegrees(-8 + swing * 14));
+				PoseStack.Pose pose = matrices.last();
 				switch (style.get()) {
 					case ANGEL -> angel(consumer, pose);
 					case DEMON -> demon(consumer, pose);
 					case BUTTERFLY -> butterfly(consumer, pose);
 					case FAIRY -> fairy(consumer, pose);
 				}
-				matrices.pop();
+				matrices.popPose();
 			}
-			matrices.pop();
+			matrices.popPose();
 		}
 	}
 
@@ -88,13 +88,13 @@ public class WingsModule extends PlayerFxModule {
 	}
 
 	/** Three layers of feathers hanging off the arm, longest at the back, each tapering to a point. */
-	private void angel(VertexConsumer consumer, MatrixStack.Entry pose) {
+	private void angel(VertexConsumer consumer, PoseStack.Pose pose) {
 		feathers(consumer, pose, 13, 0.25f, 1f, 0.42f, 0.78f, -0.05f, 0.95f, 0.11f, 0.95f);
 		feathers(consumer, pose, 11, 0f, 0.8f, 0.3f, 0.44f, -0.25f, 0.4f, 0.1f, 1f);
 		feathers(consumer, pose, 9, 0f, 0.9f, 0.14f, 0.2f, -0.2f, 0.5f, 0.09f, 1f);
 	}
 
-	private void feathers(VertexConsumer consumer, MatrixStack.Entry pose, int count, float from, float to,
+	private void feathers(VertexConsumer consumer, PoseStack.Pose pose, int count, float from, float to,
 						  float shortest, float longest, float firstAngle, float lastAngle, float width, float alpha) {
 		for (int i = 0; i < count; i++) {
 			float s = from + (to - from) * i / (count - 1);
@@ -115,7 +115,7 @@ public class WingsModule extends PlayerFxModule {
 	}
 
 	/** Bony fingers fanning from the wrist, with scalloped membrane stretched between them. */
-	private void demon(VertexConsumer consumer, MatrixStack.Entry pose) {
+	private void demon(VertexConsumer consumer, PoseStack.Pose pose) {
 		float wristX = 0.38f, wristY = 0.36f;
 		float[][] tips = {{0.98f, 0.5f}, {0.95f, 0.06f}, {0.74f, -0.36f}, {0.4f, -0.52f}, {0.06f, -0.36f}};
 		int membrane = color(0.2f, 0.8f);
@@ -136,18 +136,18 @@ public class WingsModule extends PlayerFxModule {
 	}
 
 	/** A big upper wing and a smaller lower one, with dark rims and pale eyespots. */
-	private void butterfly(VertexConsumer consumer, MatrixStack.Entry pose) {
+	private void butterfly(VertexConsumer consumer, PoseStack.Pose pose) {
 		lobe(consumer, pose, 0.42f, 0.3f, 0.52f, 0.3f, 35, 0.05f, true);
 		lobe(consumer, pose, 0.3f, -0.21f, 0.36f, 0.2f, -38, 0.55f, true);
 	}
 
 	/** Two slender, see-through lobes with bright rims and a vein down the middle. */
-	private void fairy(VertexConsumer consumer, MatrixStack.Entry pose) {
+	private void fairy(VertexConsumer consumer, PoseStack.Pose pose) {
 		lobe(consumer, pose, 0.4f, 0.32f, 0.48f, 0.13f, 38, 0.1f, false);
 		lobe(consumer, pose, 0.3f, -0.12f, 0.34f, 0.1f, -25, 0.6f, false);
 	}
 
-	private void lobe(VertexConsumer consumer, MatrixStack.Entry pose, float cx, float cy, float a, float b, float tiltDegrees, float shade, boolean butterfly) {
+	private void lobe(VertexConsumer consumer, PoseStack.Pose pose, float cx, float cy, float a, float b, float tiltDegrees, float shade, boolean butterfly) {
 		int segments = 36;
 		double tilt = Math.toRadians(tiltDegrees);
 		float cos = (float) Math.cos(tilt), sin = (float) Math.sin(tilt);

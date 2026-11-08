@@ -6,8 +6,8 @@ import dev.femboyware.module.Module;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.Rotation;
 import dev.femboyware.util.TargetUtil;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
 /** Steers your elytra flight straight at the nearest player. */
 public class ElytraTargetModule extends Module {
@@ -23,10 +23,10 @@ public class ElytraTargetModule extends Module {
 
 	@Override
 	public void onPreMotion() {
-		if (!mc.player.isGliding()) return;
-		PlayerEntity target = TargetUtil.closestPlayer(range.get());
+		if (!mc.player.isFallFlying()) return;
+		Player target = TargetUtil.closestPlayer(range.get());
 		if (target == null) return;
-		Vec3d aim = target.getBoundingBox().getCenter().add(0, heightOffset.get(), 0);
-		FemboyWare.getRotations().request(Rotation.between(mc.player.getEyePos(), aim), ROTATION_PRIORITY, turnSpeed.getFloat(), true);
+		Vec3 aim = target.getBoundingBox().getCenter().add(0, heightOffset.get(), 0);
+		FemboyWare.getRotations().request(Rotation.between(mc.player.getEyePosition(), aim), ROTATION_PRIORITY, turnSpeed.getFloat(), true);
 	}
 }

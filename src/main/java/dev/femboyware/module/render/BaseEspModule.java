@@ -1,5 +1,6 @@
 package dev.femboyware.module.render;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
@@ -11,15 +12,6 @@ import dev.femboyware.util.BlockMatcher;
 import dev.femboyware.util.ChatUtil;
 import dev.femboyware.util.ChunkScanner;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.chunk.WorldChunk;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -29,6 +21,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Flags chunks full of blocks that worldgen never places, which is what bases look like.
@@ -42,7 +42,7 @@ public class BaseEspModule extends Module {
 	private static final long RESCAN_MILLIS = 5_000;
 	private static final int STRONG_WEIGHT = 3;
 
-	private record Base(Box bounds, int strong, int weak, boolean bell, Map<Block, Integer> counts) {}
+	private record Base(AABB bounds, int strong, int weak, boolean bell, Map<Block, Integer> counts) {}
 
 	private final NumberSetting range = add(new NumberSetting("Range", "Scan radius in chunks", 8, 1, 16, 1));
 	private final NumberSetting minScore = add(new NumberSetting("Min Score", "Strong blocks count 3, weak blocks 1; flag chunks scoring at least this", 6, 1, 100, 1));
@@ -93,17 +93,17 @@ public class BaseEspModule extends Module {
 			if (!isFlagged(entry.getKey(), entry.getValue()) || !notified.add(entry.getKey())) continue;
 			Base base = entry.getValue();
 			ChatUtil.info(String.format("Possible base at %s (score %d: %s)",
-				ChatUtil.coords(BlockPos.ofFloored(base.bounds.getCenter())), score(entry.getKey(), base), summary(base)));
+				ChatUtil.coords(BlockPos.containing(base.bounds.getCenter())), score(entry.getKey(), base), summary(base)));
 		}
 	}
 
-	private Base scan(WorldChunk chunk) {
+	private Base scan(LevelChunk chunk) {
 		int[] counts = new int[2];
 		boolean[] bell = {false};
 		Map<Block, Integer> blocks = new HashMap<>();
 		List<BlockPos> positions = new ArrayList<>();
-		ChunkScanner.forEachBlock(chunk, state -> state.isOf(Blocks.BELL) || strong.test(state) || weak.test(state), (pos, state) -> {
-			if (state.isOf(Blocks.BELL)) {
+		ChunkScanner.forEachBlock(chunk, state -> state.is(Blocks.BELL) || strong.test(state) || weak.test(state), (pos, state) -> {
+			if (state.is(Blocks.BELL)) {
 				bell[0] = true;
 				return;
 			}
@@ -113,8 +113,8 @@ public class BaseEspModule extends Module {
 			positions.add(pos);
 		});
 		if (positions.isEmpty()) return bell[0] ? new Base(null, 0, 0, true, Map.of()) : null;
-		Box bounds = new Box(positions.getFirst());
-		for (BlockPos pos : positions) bounds = bounds.union(new Box(pos));
+		AABB bounds = new AABB(positions.getFirst());
+		for (BlockPos pos : positions) bounds = bounds.minmax(new AABB(pos));
 		return new Base(bounds, counts[0], counts[1], bell[0], blocks);
 	}
 
@@ -126,7 +126,7 @@ public class BaseEspModule extends Module {
 	private boolean nearBell(ChunkPos center) {
 		for (int x = -1; x <= 1; x++) {
 			for (int z = -1; z <= 1; z++) {
-				Base neighbour = scanner.results().get(new ChunkPos(center.x + x, center.z + z));
+				Base neighbour = scanner.results().get(new ChunkPos(Mc.chunkX(center) + x, Mc.chunkZ(center) + z));
 				if (neighbour != null && neighbour.bell) return true;
 			}
 		}
@@ -157,16 +157,16 @@ public class BaseEspModule extends Module {
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
-		Vec3d tracerStart = RenderUtil.tracerOrigin(event);
+		Vec3 tracerStart = RenderUtil.tracerOrigin(event);
 		int fill = (color.get() & 0x00FFFFFF) | 0x20000000;
 		for (Map.Entry<ChunkPos, Base> entry : scanner.results().entrySet()) {
 			Base base = entry.getValue();
 			if (!isFlagged(entry.getKey(), base)) continue;
 			RenderUtil.drawBox(event, base.bounds, fill, color.get(), 1.5f, throughWalls.get());
-			Vec3d center = base.bounds.getCenter();
+			Vec3 center = base.bounds.getCenter();
 			if (tracers.get()) RenderUtil.drawLine(event, tracerStart, center, color.get(), 1.5f, throughWalls.get());
 			RenderUtil.drawText(event, "Base? " + score(entry.getKey(), base) + " - " + summary(base),
-				new Vec3d(center.x, base.bounds.maxY + 1, center.z), color.get() | 0xFF000000, 0.5f);
+				new Vec3(center.x, base.bounds.maxY + 1, center.z), color.get() | 0xFF000000, 0.5f);
 		}
 	}
 }

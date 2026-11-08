@@ -1,15 +1,14 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.Heightmap;
-
 import java.util.Random;
+import net.minecraft.util.Mth;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Fireflies drifting low over the ground round you, blinking on and off. Like Petal Rain they live in
@@ -42,7 +41,7 @@ public class FirefliesModule extends SkyFxModule {
 		if (visible <= 0.01f) return;
 		int n = count.getInt();
 		ensureSeeds(n);
-		Vec3d cam = event.camera().pos;
+		Vec3 cam = event.camera().pos;
 		float box = radius.getFloat(), side = box * 2;
 		double time = time();
 		float s = size.getFloat();
@@ -54,10 +53,10 @@ public class FirefliesModule extends SkyFxModule {
 			// Lazy loops, each on its own rhythm
 			double wx = seeds[o] * side + Math.sin(time * 0.23 * (1 + seeds[o + 3]) + phase) * 2.5 + Math.cos(time * 0.11 + phase * 2) * 1.5;
 			double wz = seeds[o + 1] * side + Math.cos(time * 0.19 * (1 + seeds[o + 4]) + phase) * 2.5 + Math.sin(time * 0.13 + phase * 3) * 1.5;
-			float rx = (float) (MathHelper.floorMod(wx - cam.x, side) - box);
-			float rz = (float) (MathHelper.floorMod(wz - cam.z, side) - box);
+			float rx = (float) (Mth.positiveModulo(wx - cam.x, side) - box);
+			float rz = (float) (Mth.positiveModulo(wz - cam.z, side) - box);
 			double x = cam.x + rx, z = cam.z + rz;
-			int ground = mc.world.getTopY(Heightmap.Type.MOTION_BLOCKING, MathHelper.floor(x), MathHelper.floor(z));
+			int ground = mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, Mth.floor(x), Mth.floor(z));
 			double y = ground + 0.4 + (Math.sin(time * 0.4 + phase) + 1) * 1.2;
 			if (Math.abs(y - cam.y) > box) continue;
 			// Fade out at the edge of the area so the wrapping never shows

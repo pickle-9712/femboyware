@@ -2,44 +2,41 @@ package dev.femboyware.util;
 
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
-import com.mojang.blaze3d.platform.DepthTestFunction;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.event.Render3DEvent;
-import net.minecraft.client.gl.RenderPipelines;
-import net.minecraft.client.render.RenderLayer;
-import net.minecraft.client.render.RenderLayers;
-import net.minecraft.client.render.RenderSetup;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.Vec3d;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import java.util.HashMap;
 import java.util.Map;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.rendertype.RenderSetup;
+import net.minecraft.client.renderer.rendertype.RenderType;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Drawing for the Targets and Effects tabs: soft glow sprites, flat colour shapes and textured
  * quads, each either blended normally or added on top as light, and either hidden behind terrain
- * or drawn through it. Positions passed as {@link Vec3d} are world positions; the float overloads
+ * or drawn through it. Positions passed as {@link Vec3} are world positions; the float overloads
  * take coordinates already in the current matrix's space.
  * <p>
  * Asking for one layer's buffer draws and closes whichever other layer was being filled, so never
  * hold a buffer across a call that gets another: draw in passes, one layer at a time.
  */
 public final class FxRender {
-	public static final Identifier GLOW = Identifier.of("femboyware", "textures/fx/glow.png");
+	public static final Identifier GLOW = Identifier.fromNamespaceAndPath("femboyware", "textures/fx/glow.png");
 
 	private static final RenderPipeline QUADS = colorPipeline("fx_quads", BlendFunction.TRANSLUCENT, true);
 	private static final RenderPipeline QUADS_XRAY = colorPipeline("fx_quads_xray", BlendFunction.TRANSLUCENT, false);
 	private static final RenderPipeline LIGHT = colorPipeline("fx_light", BlendFunction.LIGHTNING, true);
 	private static final RenderPipeline LIGHT_XRAY = colorPipeline("fx_light_xray", BlendFunction.LIGHTNING, false);
 	/** Solid colour shapes like ears and tails write depth, so their far sides stay hidden. */
-	private static final RenderPipeline SOLID_QUADS = RenderPipelines.register(RenderPipeline.builder(RenderPipelines.POSITION_COLOR_SNIPPET)
-		.withLocation(Identifier.of("femboyware", "pipeline/fx_solid_quads"))
-		.withCull(false)
-		.withDepthWrite(true)
-		.withDepthTestFunction(DepthTestFunction.LEQUAL_DEPTH_TEST)
+	private static final RenderPipeline SOLID_QUADS = RenderPipelines.register(Pipelines.depth(RenderPipeline.builder(RenderPipelines.DEBUG_FILLED_SNIPPET)
+		.withLocation(Identifier.fromNamespaceAndPath("femboyware", "pipeline/fx_solid_quads"))
+		.withCull(false), true, true)
 		.build());
 	private static final RenderPipeline SPRITES = texturePipeline("fx_sprites", BlendFunction.TRANSLUCENT, true, false);
 	private static final RenderPipeline SPRITES_XRAY = texturePipeline("fx_sprites_xray", BlendFunction.TRANSLUCENT, false, false);
@@ -48,12 +45,12 @@ public final class FxRender {
 	/** Solid textured things like coins write depth, so their faces hide each other properly. */
 	private static final RenderPipeline SOLID_SPRITES = texturePipeline("fx_solid_sprites", BlendFunction.TRANSLUCENT, true, true);
 
-	private static final RenderLayer QUADS_LAYER = colorLayer("fx_quads", QUADS);
-	private static final RenderLayer QUADS_XRAY_LAYER = colorLayer("fx_quads_xray", QUADS_XRAY);
-	private static final RenderLayer LIGHT_LAYER = colorLayer("fx_light", LIGHT);
-	private static final RenderLayer LIGHT_XRAY_LAYER = colorLayer("fx_light_xray", LIGHT_XRAY);
-	private static final RenderLayer SOLID_QUADS_LAYER = colorLayer("fx_solid_quads", SOLID_QUADS);
-	private static final Map<String, RenderLayer> TEXTURE_LAYERS = new HashMap<>();
+	private static final RenderType QUADS_LAYER = colorLayer("fx_quads", QUADS);
+	private static final RenderType QUADS_XRAY_LAYER = colorLayer("fx_quads_xray", QUADS_XRAY);
+	private static final RenderType LIGHT_LAYER = colorLayer("fx_light", LIGHT);
+	private static final RenderType LIGHT_XRAY_LAYER = colorLayer("fx_light_xray", LIGHT_XRAY);
+	private static final RenderType SOLID_QUADS_LAYER = colorLayer("fx_solid_quads", SOLID_QUADS);
+	private static final Map<String, RenderType> TEXTURE_LAYERS = new HashMap<>();
 
 	private static final int FULL_ALPHA = 0xFF000000;
 
@@ -61,37 +58,31 @@ public final class FxRender {
 	}
 
 	private static RenderPipeline colorPipeline(String name, BlendFunction blend, boolean depthTest) {
-		return RenderPipelines.register(RenderPipeline.builder(RenderPipelines.POSITION_COLOR_SNIPPET)
-			.withLocation(Identifier.of("femboyware", "pipeline/" + name))
-			.withBlend(blend)
-			.withCull(false)
-			.withDepthWrite(false)
-			.withDepthTestFunction(depthTest ? DepthTestFunction.LEQUAL_DEPTH_TEST : DepthTestFunction.NO_DEPTH_TEST)
-			.build());
+		RenderPipeline.Builder builder = RenderPipeline.builder(RenderPipelines.DEBUG_FILLED_SNIPPET)
+			.withLocation(Identifier.fromNamespaceAndPath("femboyware", "pipeline/" + name))
+			.withCull(false);
+		return RenderPipelines.register(Pipelines.depth(Pipelines.blend(builder, blend), depthTest, false).build());
 	}
 
 	private static RenderPipeline texturePipeline(String name, BlendFunction blend, boolean depthTest, boolean depthWrite) {
-		return RenderPipelines.register(RenderPipeline.builder(RenderPipelines.POSITION_TEX_COLOR_SNIPPET)
-			.withLocation(Identifier.of("femboyware", "pipeline/" + name))
-			.withBlend(blend)
-			.withCull(false)
-			.withDepthWrite(depthWrite)
-			.withDepthTestFunction(depthTest ? DepthTestFunction.LEQUAL_DEPTH_TEST : DepthTestFunction.NO_DEPTH_TEST)
-			.build());
+		RenderPipeline.Builder builder = RenderPipeline.builder(RenderPipelines.GUI_TEXTURED_SNIPPET)
+			.withLocation(Identifier.fromNamespaceAndPath("femboyware", "pipeline/" + name))
+			.withCull(false);
+		return RenderPipelines.register(Pipelines.depth(Pipelines.blend(builder, blend), depthTest, depthWrite).build());
 	}
 
-	private static RenderLayer colorLayer(String name, RenderPipeline pipeline) {
-		return RenderLayer.of("femboyware_" + name, RenderSetup.builder(pipeline).translucent().build());
+	private static RenderType colorLayer(String name, RenderPipeline pipeline) {
+		return RenderType.create("femboyware_" + name, RenderSetup.builder(pipeline).sortOnUpload().createRenderSetup());
 	}
 
-	private static RenderLayer textureLayer(RenderPipeline pipeline, String name, Identifier texture) {
+	private static RenderType textureLayer(RenderPipeline pipeline, String name, Identifier texture) {
 		return TEXTURE_LAYERS.computeIfAbsent(name + "/" + texture, key ->
-			RenderLayer.of("femboyware_" + name, RenderSetup.builder(pipeline).texture("Sampler0", texture).translucent().build()));
+			RenderType.create("femboyware_" + name, RenderSetup.builder(pipeline).withTexture("Sampler0", texture).sortOnUpload().createRenderSetup()));
 	}
 
 	/** Flat colour quads: normally blended, or added as light with {@code light}. */
 	public static VertexConsumer quads(Render3DEvent event, boolean light, boolean throughWalls) {
-		RenderLayer layer = light ? (throughWalls ? LIGHT_XRAY_LAYER : LIGHT_LAYER) : (throughWalls ? QUADS_XRAY_LAYER : QUADS_LAYER);
+		RenderType layer = light ? (throughWalls ? LIGHT_XRAY_LAYER : LIGHT_LAYER) : (throughWalls ? QUADS_XRAY_LAYER : QUADS_LAYER);
 		return event.consumers().getBuffer(layer);
 	}
 
@@ -112,12 +103,12 @@ public final class FxRender {
 	}
 
 	public static VertexConsumer lines(Render3DEvent event) {
-		return event.consumers().getBuffer(RenderLayers.linesTranslucent());
+		return event.consumers().getBuffer(RenderTypes.linesTranslucent());
 	}
 
 	/** Soft round glow facing the camera, {@code radius} blocks from its centre to its edge. */
-	public static void glow(Render3DEvent event, VertexConsumer consumer, Vec3d pos, float radius, int color) {
-		Vec3d cam = event.camera().pos;
+	public static void glow(Render3DEvent event, VertexConsumer consumer, Vec3 pos, float radius, int color) {
+		Vec3 cam = event.camera().pos;
 		billboard(event, consumer, (float) (pos.x - cam.x), (float) (pos.y - cam.y), (float) (pos.z - cam.z), radius, 0, color);
 	}
 
@@ -127,23 +118,23 @@ public final class FxRender {
 		float cos = (float) Math.cos(roll) * radius, sin = (float) Math.sin(roll) * radius;
 		Vector3f right = new Vector3f(cos, sin, 0).rotate(orientation);
 		Vector3f up = new Vector3f(-sin, cos, 0).rotate(orientation);
-		MatrixStack.Entry entry = event.matrices().peek();
+		PoseStack.Pose entry = event.matrices().last();
 		textured(consumer, entry, x - right.x - up.x, y - right.y - up.y, z - right.z - up.z, 0, 1, color);
 		textured(consumer, entry, x + right.x - up.x, y + right.y - up.y, z + right.z - up.z, 1, 1, color);
 		textured(consumer, entry, x + right.x + up.x, y + right.y + up.y, z + right.z + up.z, 1, 0, color);
 		textured(consumer, entry, x - right.x + up.x, y - right.y + up.y, z - right.z + up.z, 0, 0, color);
 	}
 
-	public static void textured(VertexConsumer consumer, MatrixStack.Entry entry, float x, float y, float z, float u, float v, int color) {
-		consumer.vertex(entry, x, y, z).texture(u, v).color(color);
+	public static void textured(VertexConsumer consumer, PoseStack.Pose entry, float x, float y, float z, float u, float v, int color) {
+		consumer.addVertex(entry, x, y, z).setUv(u, v).setColor(color);
 	}
 
-	public static void vertex(VertexConsumer consumer, MatrixStack.Entry entry, float x, float y, float z, int color) {
-		consumer.vertex(entry, x, y, z).color(color);
+	public static void vertex(VertexConsumer consumer, PoseStack.Pose entry, float x, float y, float z, int color) {
+		consumer.addVertex(entry, x, y, z).setColor(color);
 	}
 
 	/** A quad with its own colour at each corner, so shapes can fade across their face. */
-	public static void quad(VertexConsumer consumer, MatrixStack.Entry entry,
+	public static void quad(VertexConsumer consumer, PoseStack.Pose entry,
 							float ax, float ay, float az, int ca, float bx, float by, float bz, int cb,
 							float cx, float cy, float cz, int cc, float dx, float dy, float dz, int cd) {
 		vertex(consumer, entry, ax, ay, az, ca);
@@ -153,13 +144,13 @@ public final class FxRender {
 	}
 
 	/** A triangle, drawn as a quad with its last corner doubled. */
-	public static void triangle(VertexConsumer consumer, MatrixStack.Entry entry,
+	public static void triangle(VertexConsumer consumer, PoseStack.Pose entry,
 								float ax, float ay, float az, int ca, float bx, float by, float bz, int cb, float cx, float cy, float cz, int cc) {
 		quad(consumer, entry, ax, ay, az, ca, bx, by, bz, cb, cx, cy, cz, cc, cx, cy, cz, cc);
 	}
 
 	/** A strip of {@code width} along the segment, lying flat in the XY plane of the current matrix. */
-	public static void strokeXY(VertexConsumer consumer, MatrixStack.Entry entry, float x1, float y1, float x2, float y2, float width, int c1, int c2) {
+	public static void strokeXY(VertexConsumer consumer, PoseStack.Pose entry, float x1, float y1, float x2, float y2, float width, int c1, int c2) {
 		float dx = x2 - x1, dy = y2 - y1;
 		float length = (float) Math.sqrt(dx * dx + dy * dy);
 		if (length < 1e-5f) return;
@@ -168,7 +159,7 @@ public final class FxRender {
 	}
 
 	/** The same strip lying flat on the ground, in the XZ plane. */
-	public static void strokeXZ(VertexConsumer consumer, MatrixStack.Entry entry, float x1, float z1, float x2, float z2, float y, float width, int c1, int c2) {
+	public static void strokeXZ(VertexConsumer consumer, PoseStack.Pose entry, float x1, float z1, float x2, float z2, float y, float width, int c1, int c2) {
 		float dx = x2 - x1, dz = z2 - z1;
 		float length = (float) Math.sqrt(dx * dx + dz * dz);
 		if (length < 1e-5f) return;
@@ -181,7 +172,7 @@ public final class FxRender {
 	 * {@code outer} radius. Colours come from {@code color}, given how far round the ring (0 to 1) and
 	 * whether it's the inner edge.
 	 */
-	public static void ring(VertexConsumer consumer, MatrixStack.Entry entry, float inner, float outer, float y, int segments, RingColor color) {
+	public static void ring(VertexConsumer consumer, PoseStack.Pose entry, float inner, float outer, float y, int segments, RingColor color) {
 		for (int i = 0; i < segments; i++) {
 			float t1 = (float) i / segments, t2 = (float) (i + 1) / segments;
 			double a1 = t1 * Math.PI * 2, a2 = t2 * Math.PI * 2;
@@ -199,12 +190,12 @@ public final class FxRender {
 		int at(float around, boolean inner);
 	}
 
-	public static void line(VertexConsumer consumer, MatrixStack.Entry entry, float x1, float y1, float z1, float x2, float y2, float z2, int color, float width) {
+	public static void line(VertexConsumer consumer, PoseStack.Pose entry, float x1, float y1, float z1, float x2, float y2, float z2, int color, float width) {
 		Vector3f normal = new Vector3f(x2 - x1, y2 - y1, z2 - z1);
 		if (normal.lengthSquared() < 1e-10f) return;
 		normal.normalize();
-		consumer.vertex(entry, x1, y1, z1).color(color).normal(entry, normal).lineWidth(width);
-		consumer.vertex(entry, x2, y2, z2).color(color).normal(entry, normal).lineWidth(width);
+		consumer.addVertex(entry, x1, y1, z1).setColor(color).setNormal(entry, normal).setLineWidth(width);
+		consumer.addVertex(entry, x2, y2, z2).setColor(color).setNormal(entry, normal).setLineWidth(width);
 	}
 
 	/** {@code color} with its alpha multiplied by {@code alpha}. */

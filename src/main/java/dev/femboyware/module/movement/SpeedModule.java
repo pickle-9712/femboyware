@@ -6,7 +6,7 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.MoveUtil;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.phys.Vec3;
 
 public class SpeedModule extends Module {
 	public enum Mode {
@@ -32,17 +32,17 @@ public class SpeedModule extends Module {
 
 	@Override
 	public void onPreMotion() {
-		if (!MoveUtil.isMoving() || mc.player.isSneaking() || mc.player.isTouchingWater() || mc.player.isInLava()
-			|| mc.player.isGliding() || mc.player.hasVehicle() || mc.player.getAbilities().flying) return;
-		Vec3d velocity = mc.player.getVelocity();
+		if (!MoveUtil.isMoving() || mc.player.isShiftKeyDown() || mc.player.isInWater() || mc.player.isInLava()
+			|| mc.player.isFallFlying() || mc.player.isPassenger() || mc.player.getAbilities().flying) return;
+		Vec3 velocity = mc.player.getDeltaMovement();
 		switch (mode.get()) {
 			case STRAFE -> {
-				if (autoJump.get() && mc.player.isOnGround()) mc.player.jump();
-				Vec3d horizontal = MoveUtil.strafe(Math.max(speed.get(), MoveUtil.horizontalSpeed()));
-				mc.player.setVelocity(horizontal.x, mc.player.getVelocity().y, horizontal.z);
+				if (autoJump.get() && mc.player.onGround()) mc.player.jumpFromGround();
+				Vec3 horizontal = MoveUtil.strafe(Math.max(speed.get(), MoveUtil.horizontalSpeed()));
+				mc.player.setDeltaMovement(horizontal.x, mc.player.getDeltaMovement().y, horizontal.z);
 			}
 			case VANILLA -> {
-				if (mc.player.isOnGround()) mc.player.setVelocity(velocity.x * multiplier.get(), velocity.y, velocity.z * multiplier.get());
+				if (mc.player.onGround()) mc.player.setDeltaMovement(velocity.x * multiplier.get(), velocity.y, velocity.z * multiplier.get());
 			}
 		}
 	}

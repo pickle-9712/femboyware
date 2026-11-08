@@ -3,15 +3,15 @@ package dev.femboyware.module.utility;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.ExperienceOrbEntity;
-import net.minecraft.entity.FallingBlockEntity;
-import net.minecraft.entity.ItemEntity;
-import net.minecraft.entity.decoration.ArmorStandEntity;
-import net.minecraft.particle.ParticleType;
-import net.minecraft.particle.ParticleTypes;
+import net.minecraft.core.particles.ParticleType;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.world.attribute.EnvironmentAttribute;
 import net.minecraft.world.attribute.EnvironmentAttributes;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ExperienceOrb;
+import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.entity.item.FallingBlockEntity;
+import net.minecraft.world.entity.item.ItemEntity;
 
 /** Turns off distracting overlays, effects, weather, fog and entities. Each toggle is checked by a render mixin. */
 public class NoRenderModule extends Module {
@@ -104,16 +104,16 @@ public class NoRenderModule extends Module {
 	public boolean hidesEntity(Entity entity) {
 		if (!isEnabled()) return false;
 		return (items.get() && entity instanceof ItemEntity)
-			|| (xpOrbs.get() && entity instanceof ExperienceOrbEntity)
-			|| (armorStands.get() && entity instanceof ArmorStandEntity)
+			|| (xpOrbs.get() && entity instanceof ExperienceOrb)
+			|| (armorStands.get() && entity instanceof ArmorStand)
 			|| (fallingBlocks.get() && entity instanceof FallingBlockEntity);
 	}
 
 	/** Fog distances pushed far out of sight while Fog is on; read by EnvironmentAttributeInterpolatorMixin. */
 	public Object modify(EnvironmentAttribute<?> attribute, Object value) {
 		if (!isEnabled() || !fog.get() || !(value instanceof Float)) return value;
-		if (attribute == EnvironmentAttributes.FOG_START_DISTANCE_VISUAL || attribute == EnvironmentAttributes.FOG_END_DISTANCE_VISUAL
-			|| attribute == EnvironmentAttributes.SKY_FOG_END_DISTANCE_VISUAL || attribute == EnvironmentAttributes.CLOUD_FOG_END_DISTANCE_VISUAL) {
+		if (attribute == EnvironmentAttributes.FOG_START_DISTANCE || attribute == EnvironmentAttributes.FOG_END_DISTANCE
+			|| attribute == EnvironmentAttributes.SKY_FOG_END_DISTANCE || attribute == EnvironmentAttributes.CLOUD_FOG_END_DISTANCE) {
 			return 1_000_000f;
 		}
 		return value;

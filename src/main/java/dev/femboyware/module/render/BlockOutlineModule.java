@@ -1,18 +1,19 @@
 package dev.femboyware.module.render;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.ShapeContext;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.hit.HitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.shape.VoxelShape;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 /** The outline round the block you're looking at, in your colour and thickness, with a soft fill. Replaces Minecraft's thin black one. */
 public class BlockOutlineModule extends Module {
@@ -31,15 +32,15 @@ public class BlockOutlineModule extends Module {
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
-		if (mc.options.hudHidden || !(mc.crosshairTarget instanceof BlockHitResult hit) || hit.getType() != HitResult.Type.BLOCK) return;
+		if (Mc.hudHidden() || !(mc.hitResult instanceof BlockHitResult hit) || hit.getType() != HitResult.Type.BLOCK) return;
 		BlockPos pos = hit.getBlockPos();
-		BlockState state = mc.world.getBlockState(pos);
-		if (state.isAir() || !mc.world.getWorldBorder().contains(pos)) return;
-		VoxelShape shape = state.getOutlineShape(mc.world, pos, ShapeContext.of(mc.player));
+		BlockState state = mc.level.getBlockState(pos);
+		if (state.isAir() || !mc.level.getWorldBorder().isWithinBounds(pos)) return;
+		VoxelShape shape = state.getShape(mc.level, pos, CollisionContext.of(mc.player));
 		if (shape.isEmpty()) return;
 		// A hair bigger than the block, so the fill doesn't flicker against its faces
-		for (Box box : shape.getBoundingBoxes()) {
-			RenderUtil.drawBox(event, box.offset(pos).expand(0.002), fill.get(), line.get(), width.getFloat());
+		for (AABB box : shape.toAabbs()) {
+			RenderUtil.drawBox(event, box.move(pos).inflate(0.002), fill.get(), line.get(), width.getFloat());
 		}
 	}
 }

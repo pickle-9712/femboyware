@@ -4,7 +4,7 @@ import dev.femboyware.event.PacketEvent;
 import dev.femboyware.mixin.PlayerMoveC2SPacketAccessor;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
-import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 
 /**
  * Claims to be on the ground in movement packets while falling. The server resets your fall
@@ -17,9 +17,9 @@ public class NoFallModule extends Module {
 
 	@Override
 	public void onPacketSend(PacketEvent event) {
-		if (!(event.getPacket() instanceof PlayerMoveC2SPacket packet)) return;
+		if (!(event.getPacket() instanceof ServerboundMovePlayerPacket packet)) return;
 		// Landing while gliding would end the glide server side
-		if (mc.player.isGliding() || mc.player.getAbilities().flying || mc.player.fallDistance <= 2) return;
+		if (mc.player.isFallFlying() || mc.player.getAbilities().flying || mc.player.fallDistance <= 2) return;
 		((PlayerMoveC2SPacketAccessor) packet).femboyware$setOnGround(true);
 	}
 }

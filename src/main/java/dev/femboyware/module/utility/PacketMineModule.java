@@ -9,19 +9,18 @@ import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.RenderUtil;
 import dev.femboyware.util.Rotation;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket;
-import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.util.shape.VoxelShape;
-
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
+import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
  * Mines blocks with packets: click once and the block breaks on its own, no holding needed.
@@ -58,16 +57,16 @@ public class PacketMineModule extends Module {
 	@Override
 	protected void onDisable() {
 		blocks.clear();
-		if (restoreSlot && !nullCheck()) mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().getSelectedSlot()));
+		if (restoreSlot && !nullCheck()) mc.getConnection().send(new ServerboundSetCarriedItemPacket(mc.player.getInventory().getSelectedSlot()));
 		restoreSlot = false;
 	}
 
 	@Override
 	public boolean onStartBreaking(BlockPos pos, Direction side) {
-		BlockState state = mc.world.getBlockState(pos);
-		if (mc.player.isCreative() || state.isAir() || state.getHardness(mc.world, pos) < 0) return false;
+		BlockState state = mc.level.getBlockState(pos);
+		if (mc.player.isCreative() || state.isAir() || state.getDestroySpeed(mc.level, pos) < 0) return false;
 		swapped = false;
-		if (blocks.stream().noneMatch(block -> block.pos.equals(pos))) blocks.add(new MineBlock(pos.toImmutable(), side, state));
+		if (blocks.stream().noneMatch(block -> block.pos.equals(pos))) blocks.add(new MineBlock(pos.immutable(), side, state));
 		return true;
 	}
 
@@ -75,7 +74,7 @@ public class PacketMineModule extends Module {
 	public void onTick() {
 		blocks.removeIf(MineBlock::shouldRemove);
 		if (restoreSlot) {
-			mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(mc.player.getInventory().getSelectedSlot()));
+			mc.getConnection().send(new ServerboundSetCarriedItemPacket(mc.player.getInventory().getSelectedSlot()));
 			restoreSlot = false;
 			swapped = false;
 		}
@@ -87,7 +86,7 @@ public class PacketMineModule extends Module {
 			int slot = FemboyWare.getModules().get(AutoToolModule.class).bestSlot(block.state);
 			if (slot == -1 || slot == mc.player.getInventory().getSelectedSlot()) return;
 			// Server-side only: the server breaks with this tool, we keep our slot on screen
-			mc.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(slot));
+			mc.getConnection().send(new ServerboundSetCarriedItemPacket(slot));
 			swapped = true;
 			restoreSlot = true;
 		}
@@ -97,8 +96,8 @@ public class PacketMineModule extends Module {
 	public void onRender3D(Render3DEvent event) {
 		if (!render.get()) return;
 		for (MineBlock block : blocks) {
-			VoxelShape shape = mc.world.getBlockState(block.pos).getOutlineShape(mc.world, block.pos);
-			Box box = shape.isEmpty() ? new Box(block.pos) : shape.getBoundingBox().offset(block.pos);
+			VoxelShape shape = mc.level.getBlockState(block.pos).getShape(mc.level, block.pos);
+			AABB box = shape.isEmpty() ? new AABB(block.pos) : shape.bounds().move(block.pos);
 			boolean ready = block.isReady();
 			RenderUtil.drawBox(event, box, ready ? readyFillColor.get() : fillColor.get(), ready ? readyLineColor.get() : lineColor.get(), 1.5f);
 		}
@@ -122,10 +121,10 @@ public class PacketMineModule extends Module {
 		}
 
 		private boolean shouldRemove() {
-			boolean broken = mc.world.getBlockState(pos).getBlock() != block;
-			boolean timedOut = progress() > 2 && mc.player.age - startAge > TIMEOUT_TICKS;
-			Vec3d face = Vec3d.ofCenter(pos).add(side.getOffsetX() * 0.5, side.getOffsetY() * 0.5, side.getOffsetZ() * 0.5);
-			boolean outOfRange = mc.player.getEyePos().distanceTo(face) > mc.player.getBlockInteractionRange();
+			boolean broken = mc.level.getBlockState(pos).getBlock() != block;
+			boolean timedOut = progress() > 2 && mc.player.tickCount - startAge > TIMEOUT_TICKS;
+			Vec3 face = Vec3.atCenterOf(pos).add(side.getStepX() * 0.5, side.getStepY() * 0.5, side.getStepZ() * 0.5);
+			boolean outOfRange = mc.player.getEyePosition().distanceTo(face) > mc.player.blockInteractionRange();
 			return broken || timedOut || outOfRange;
 		}
 
@@ -137,29 +136,29 @@ public class PacketMineModule extends Module {
 		private double progress() {
 			if (!mining) return 0;
 			int slot = FemboyWare.getModules().get(AutoToolModule.class).bestSlot(state);
-			PlayerInventory inventory = mc.player.getInventory();
+			Inventory inventory = mc.player.getInventory();
 			int previous = inventory.getSelectedSlot();
 			if (slot != -1) inventory.setSelectedSlot(slot);
-			float delta = state.calcBlockBreakingDelta(mc.player, mc.world, pos);
+			float delta = state.getDestroyProgress(mc.player, mc.level, pos);
 			inventory.setSelectedSlot(previous);
-			return delta * (mc.player.age - startAge + 1);
+			return delta * (mc.player.tickCount - startAge + 1);
 		}
 
 		private void mine() {
 			if (timer > 0) {
 				timer--;
 			} else if (!mining) {
-				if (rotate.get()) FemboyWare.getRotations().sendPacketRotation(Rotation.between(mc.player.getEyePos(), Vec3d.ofCenter(pos)));
-				send(PlayerActionC2SPacket.Action.START_DESTROY_BLOCK);
-				send(PlayerActionC2SPacket.Action.STOP_DESTROY_BLOCK);
+				if (rotate.get()) FemboyWare.getRotations().sendPacketRotation(Rotation.between(mc.player.getEyePosition(), Vec3.atCenterOf(pos)));
+				send(ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK);
+				send(ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK);
 				mining = true;
-				startAge = mc.player.age;
+				startAge = mc.player.tickCount;
 			}
-			if (mining && obscure.get()) send(PlayerActionC2SPacket.Action.ABORT_DESTROY_BLOCK);
+			if (mining && obscure.get()) send(ServerboundPlayerActionPacket.Action.ABORT_DESTROY_BLOCK);
 		}
 
-		private void send(PlayerActionC2SPacket.Action action) {
-			mc.getNetworkHandler().sendPacket(new PlayerActionC2SPacket(action, pos, side));
+		private void send(ServerboundPlayerActionPacket.Action action) {
+			mc.getConnection().send(new ServerboundPlayerActionPacket(action, pos, side));
 		}
 	}
 }

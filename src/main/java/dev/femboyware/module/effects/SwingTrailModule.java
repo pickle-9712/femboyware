@@ -1,21 +1,20 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.math.Axis;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.Arm;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.RotationAxis;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.HumanoidArm;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
 /** A glowing slash arc sweeps from your weapon side across your front each time you swing. */
 public class SwingTrailModule extends PlayerFxModule {
@@ -49,9 +48,9 @@ public class SwingTrailModule extends PlayerFxModule {
 	public void onRender3D(Render3DEvent event) {
 		long now = System.nanoTime();
 		float tickDelta = tickDelta();
-		List<PlayerEntity> wearers = wearers(true);
-		for (PlayerEntity player : wearers) {
-			float progress = player.getHandSwingProgress(tickDelta);
+		List<Player> wearers = wearers(true);
+		for (Player player : wearers) {
+			float progress = player.getAttackAnim(tickDelta);
 			float before = lastProgress.getOrDefault(player.getId(), 0f);
 			if (progress > 0 && (before == 0 || progress + 0.15f < before)) starts.put(player.getId(), now);
 			lastProgress.put(player.getId(), progress);
@@ -59,10 +58,10 @@ public class SwingTrailModule extends PlayerFxModule {
 		starts.values().removeIf(start -> (now - start) / 1e9 > duration.get());
 		if (starts.isEmpty()) return;
 
-		Vec3d cam = event.camera().pos;
-		MatrixStack matrices = event.matrices();
+		Vec3 cam = event.camera().pos;
+		PoseStack matrices = event.matrices();
 		VertexConsumer consumer = FxRender.quads(event, glow.get(), false);
-		for (PlayerEntity player : wearers) {
+		for (Player player : wearers) {
 			Long start = starts.get(player.getId());
 			if (start == null) continue;
 			float t = (float) ((now - start) / 1e9 / duration.get());
@@ -71,17 +70,17 @@ public class SwingTrailModule extends PlayerFxModule {
 			float fade = 1 - Math.max(0, (t - 0.6f) / 0.4f);
 			float headAngle = SWEEP - head * SWEEP * 2;
 			float tailAngle = Math.min(SWEEP, headAngle + length.getFloat());
-			int side = player.getMainArm() == Arm.RIGHT ? -1 : 1;
+			int side = player.getMainArm() == HumanoidArm.RIGHT ? -1 : 1;
 
-			matrices.push();
-			Vec3d feet = player.getLerpedPos(tickDelta);
+			matrices.pushPose();
+			Vec3 feet = player.getPosition(tickDelta);
 			matrices.translate((float) (feet.x - cam.x), (float) (feet.y - cam.y) + player.getEyeHeight(player.getPose()), (float) (feet.z - cam.z));
-			matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(-MathHelper.lerpAngleDegrees(tickDelta, player.lastHeadYaw, player.headYaw)));
-			matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(player.getPitch(tickDelta)));
+			matrices.mulPose(Axis.YP.rotationDegrees(-Mth.rotLerp(tickDelta, player.yHeadRotO, player.yHeadRot)));
+			matrices.mulPose(Axis.XP.rotationDegrees(player.getViewXRot(tickDelta)));
 			// From the weapon shoulder, in a plane tipped towards that side
 			matrices.translate(side * 0.3f, -0.4f, 0.1f);
-			matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(-side * tilt.getFloat()));
-			MatrixStack.Entry pose = matrices.peek();
+			matrices.mulPose(Axis.ZP.rotationDegrees(-side * tilt.getFloat()));
+			PoseStack.Pose pose = matrices.last();
 			float outer = reach.getFloat(), inner = Math.max(0.05f, outer - width.getFloat());
 			for (int i = 0; i < SEGMENTS; i++) {
 				float f1 = (float) i / SEGMENTS, f2 = (float) (i + 1) / SEGMENTS;
@@ -94,7 +93,7 @@ public class SwingTrailModule extends PlayerFxModule {
 					0, y1 * inner, z1 * inner, FxRender.fade(c1, al1 * 0.15f), 0, y2 * inner, z2 * inner, FxRender.fade(c2, al2 * 0.15f),
 					0, y2 * outer, z2 * outer, FxRender.fade(FxRender.lighten(c2, 0.6f), al2), 0, y1 * outer, z1 * outer, FxRender.fade(FxRender.lighten(c1, 0.6f), al1));
 			}
-			matrices.pop();
+			matrices.popPose();
 		}
 	}
 }

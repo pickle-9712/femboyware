@@ -1,19 +1,18 @@
 package dev.femboyware.module.effects;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.math.Axis;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.RotationAxis;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
 /** Spinning crypto coins orbiting round you, with a sparkle trail. */
 public class CryptoOrbitModule extends PlayerFxModule {
@@ -31,7 +30,7 @@ public class CryptoOrbitModule extends PlayerFxModule {
 		private final int color;
 
 		Coin(String name, int color) {
-			this.texture = name == null ? null : Identifier.of("femboyware", "textures/fx/coin_" + name + ".png");
+			this.texture = name == null ? null : Identifier.fromNamespaceAndPath("femboyware", "textures/fx/coin_" + name + ".png");
 			this.color = color;
 		}
 	}
@@ -67,8 +66,8 @@ public class CryptoOrbitModule extends PlayerFxModule {
 		double now = time();
 		int n = count.getInt();
 		List<Placed> coins = new ArrayList<>();
-		for (PlayerEntity player : wearers(true)) {
-			Vec3d feet = player.getLerpedPos(tickDelta);
+		for (Player player : wearers(true)) {
+			Vec3 feet = player.getPosition(tickDelta);
 			for (int i = 0; i < n; i++) {
 				Coin type = coin.is(Coin.MIXED) ? REAL[i % REAL.length] : coin.get();
 				coins.add(new Placed(type, feet, i, feet.add(orbit(i, n, now)), (float) (now * spin.get() * 2 + i * 0.9)));
@@ -78,15 +77,15 @@ public class CryptoOrbitModule extends PlayerFxModule {
 
 		float s = size.getFloat() / 2;
 		float back = -s * THICKNESS * 2;
-		Vec3d cam = event.camera().pos;
-		MatrixStack matrices = event.matrices();
+		Vec3 cam = event.camera().pos;
+		PoseStack matrices = event.matrices();
 
 		// Ridged edges first, then each kind of coin's faces together, since every texture is its own layer
 		VertexConsumer rims = FxRender.quads(event, false, false);
 		for (Placed placed : coins) {
-			matrices.push();
+			matrices.pushPose();
 			face(matrices, placed, cam);
-			MatrixStack.Entry pose = matrices.peek();
+			PoseStack.Pose pose = matrices.last();
 			int dark = FxRender.darken(placed.type.color, 0.35f);
 			int light = FxRender.lighten(placed.type.color, 0.2f);
 			float edge = s * 0.97f;
@@ -97,7 +96,7 @@ public class CryptoOrbitModule extends PlayerFxModule {
 				int c = k % 2 == 0 ? dark : light;
 				FxRender.quad(rims, pose, x1, y1, 0, c, x2, y2, 0, c, x2, y2, back, c, x1, y1, back, c);
 			}
-			matrices.pop();
+			matrices.popPose();
 		}
 
 		for (Coin type : REAL) {
@@ -105,9 +104,9 @@ public class CryptoOrbitModule extends PlayerFxModule {
 			for (Placed placed : coins) {
 				if (placed.type != type) continue;
 				if (faces == null) faces = FxRender.solid(event, type.texture);
-				matrices.push();
+				matrices.pushPose();
 				face(matrices, placed, cam);
-				MatrixStack.Entry pose = matrices.peek();
+				PoseStack.Pose pose = matrices.last();
 				FxRender.textured(faces, pose, -s, -s, 0, 0, 1, 0xFFFFFFFF);
 				FxRender.textured(faces, pose, s, -s, 0, 1, 1, 0xFFFFFFFF);
 				FxRender.textured(faces, pose, s, s, 0, 1, 0, 0xFFFFFFFF);
@@ -117,7 +116,7 @@ public class CryptoOrbitModule extends PlayerFxModule {
 				FxRender.textured(faces, pose, -s, -s, back, 1, 1, 0xFFFFFFFF);
 				FxRender.textured(faces, pose, -s, s, back, 1, 0, 0xFFFFFFFF);
 				FxRender.textured(faces, pose, s, s, back, 0, 0, 0xFFFFFFFF);
-				matrices.pop();
+				matrices.popPose();
 			}
 		}
 
@@ -127,28 +126,28 @@ public class CryptoOrbitModule extends PlayerFxModule {
 		double step = 0.09 / Math.max(0.3, Math.abs(speed.get()));
 		for (Placed placed : coins) {
 			for (int k = 1; k <= 6; k++) {
-				Vec3d trail = placed.feet.add(orbit(placed.index, n, now - k * step));
+				Vec3 trail = placed.feet.add(orbit(placed.index, n, now - k * step));
 				float twinkle = 0.6f + 0.4f * (float) Math.sin(now * 12 + k * 1.7 + placed.index);
 				FxRender.glow(event, glints, trail, s * (0.9f - k * 0.1f), FxRender.fade(placed.type.color, (1 - k / 7f) * 0.55f * twinkle));
 			}
 		}
 	}
 
-	private record Placed(Coin type, Vec3d feet, int index, Vec3d pos, float spin) {}
+	private record Placed(Coin type, Vec3 feet, int index, Vec3 pos, float spin) {}
 
 	/** Moves {@code matrices} to the coin's centre, turned by its spin. */
-	private static void face(MatrixStack matrices, Placed placed, Vec3d cam) {
+	private static void face(PoseStack matrices, Placed placed, Vec3 cam) {
 		matrices.translate((float) (placed.pos.x - cam.x), (float) (placed.pos.y - cam.y), (float) (placed.pos.z - cam.z));
-		matrices.multiply(RotationAxis.POSITIVE_Y.rotation(placed.spin));
+		matrices.mulPose(Axis.YP.rotation(placed.spin));
 	}
 
 	/** Coin {@code i}'s place round the player at {@code now}, from their feet. */
-	private Vec3d orbit(int i, int n, double now) {
+	private Vec3 orbit(int i, int n, double now) {
 		float r = radius.getFloat();
 		double tiltRadians = Math.toRadians(tilt.get());
 		double angle = now * speed.get() * 2 + Math.PI * 2 * i / n;
 		double x = Math.cos(angle) * r, z = Math.sin(angle) * r;
 		double y = height.get() + z * Math.sin(tiltRadians) + Math.sin(now * 2.2 + i * 1.3) * bob.get();
-		return new Vec3d(x, y, z * Math.cos(tiltRadians));
+		return new Vec3(x, y, z * Math.cos(tiltRadians));
 	}
 }

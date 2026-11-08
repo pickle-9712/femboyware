@@ -1,5 +1,6 @@
 package dev.femboyware.module.render;
 
+import dev.femboyware.util.Mc;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
@@ -8,19 +9,18 @@ import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.ProjectionUtil;
 import dev.femboyware.util.RenderUtil;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.network.PlayerListEntry;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.Vec3d;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.multiplayer.PlayerInfo;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 /** Player ESP: nametags with health, ping, armour and held items, drawn on top of everything. */
 public class NametagsModule extends Module {
@@ -40,7 +40,7 @@ public class NametagsModule extends Module {
 	private final BoolSetting box = add(new BoolSetting("Box", "Outline players in the world", false));
 	private final ColorSetting boxColor = add(new ColorSetting("Box Color", "Player box colour", 0xFFFF77C8)).visibleWhen(box::get);
 
-	private record Tag(PlayerEntity player, Vec3d screen, double distance) {}
+	private record Tag(Player player, Vec3 screen, double distance) {}
 
 	public NametagsModule() {
 		super("Nametags", "Shows player names, health, ping, armour and held items", Category.ESP);
@@ -49,23 +49,23 @@ public class NametagsModule extends Module {
 	@Override
 	public void onRender3D(Render3DEvent event) {
 		if (!box.get()) return;
-		float tickDelta = mc.getRenderTickCounter().getTickProgress(true);
-		for (PlayerEntity player : mc.world.getPlayers()) {
+		float tickDelta = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
+		for (Player player : mc.level.players()) {
 			if (player == mc.player || player.isInvisible()) continue;
-			Vec3d lerped = player.getLerpedPos(tickDelta);
-			Box bounds = player.getBoundingBox().offset(lerped.subtract(player.getEntityPos()));
+			Vec3 lerped = player.getPosition(tickDelta);
+			AABB bounds = player.getBoundingBox().move(lerped.subtract(player.position()));
 			RenderUtil.drawBox(event, bounds, boxColor.withAlpha(25), boxColor.get(), 1.5f);
 		}
 	}
 
 	@Override
-	public void onRender2D(DrawContext context, float tickDelta) {
-		if (mc.options.hudHidden) return;
+	public void onRender2D(GuiGraphics context, float tickDelta) {
+		if (Mc.hudHidden()) return;
 		List<Tag> tags = new ArrayList<>();
-		for (PlayerEntity player : mc.world.getPlayers()) {
-			if (player == mc.player && (!self.get() || mc.options.getPerspective().isFirstPerson())) continue;
-			Vec3d pos = player.getLerpedPos(tickDelta).add(0, player.getHeight() + 0.35, 0);
-			Vec3d screen = ProjectionUtil.toScreen(pos);
+		for (Player player : mc.level.players()) {
+			if (player == mc.player && (!self.get() || mc.options.getCameraType().isFirstPerson())) continue;
+			Vec3 pos = player.getPosition(tickDelta).add(0, player.getBbHeight() + 0.35, 0);
+			Vec3 screen = ProjectionUtil.toScreen(pos);
 			if (screen == null) continue;
 			tags.add(new Tag(player, screen, mc.player.distanceTo(player)));
 		}
@@ -74,23 +74,23 @@ public class NametagsModule extends Module {
 		for (Tag tag : tags) drawTag(context, tag);
 	}
 
-	private void drawTag(DrawContext context, Tag tag) {
-		TextRenderer font = mc.textRenderer;
-		PlayerEntity player = tag.player;
+	private void drawTag(GuiGraphics context, Tag tag) {
+		Font font = mc.font;
+		Player player = tag.player;
 
 		float size = scale.getFloat();
-		if (distanceScaling.get()) size *= (float) MathHelper.clamp(8.0 / Math.max(tag.distance, 1.0), 0.45, 1.25);
+		if (distanceScaling.get()) size *= (float) Mth.clamp(8.0 / Math.max(tag.distance, 1.0), 0.45, 1.25);
 
 		String line = buildLine(player, tag.distance);
-		int width = font.getWidth(line);
+		int width = font.width(line);
 
-		context.getMatrices().pushMatrix();
-		context.getMatrices().translate((float) tag.screen.x, (float) tag.screen.y);
-		context.getMatrices().scale(size, size);
+		context.pose().pushMatrix();
+		context.pose().translate((float) tag.screen.x, (float) tag.screen.y);
+		context.pose().scale(size, size);
 
 		int textX = -width / 2;
-		int textY = -font.fontHeight;
-		if (background.get()) context.fill(textX - 2, textY - 2, textX + width + 2, textY + font.fontHeight, 0x90000000);
+		int textY = -font.lineHeight;
+		if (background.get()) context.fill(textX - 2, textY - 2, textX + width + 2, textY + font.lineHeight, 0x90000000);
 		drawLine(context, font, player, textX, textY, tag.distance);
 
 		List<ItemStack> items = collectItems(player);
@@ -100,35 +100,35 @@ public class NametagsModule extends Module {
 			for (int i = 0; i < items.size(); i++) {
 				ItemStack stack = items.get(i);
 				int x = itemsX + i * 16;
-				context.drawItem(stack, x, itemsY);
-				context.drawStackOverlay(font, stack, x, itemsY);
-				if (durability.get() && armor.get() && stack.isDamageable() && isArmor(player, stack)) {
-					int percent = Math.round(100f * (stack.getMaxDamage() - stack.getDamage()) / stack.getMaxDamage());
+				context.renderItem(stack, x, itemsY);
+				context.renderItemDecorations(font, stack, x, itemsY);
+				if (durability.get() && armor.get() && stack.isDamageableItem() && isArmor(player, stack)) {
+					int percent = Math.round(100f * (stack.getMaxDamage() - stack.getDamageValue()) / stack.getMaxDamage());
 					String text = percent + "%";
-					context.getMatrices().pushMatrix();
-					context.getMatrices().translate(x + 8, itemsY - 5);
-					context.getMatrices().scale(0.5f, 0.5f);
-					context.drawTextWithShadow(font, text, -font.getWidth(text) / 2, 0, durabilityColor(percent / 100f));
-					context.getMatrices().popMatrix();
+					context.pose().pushMatrix();
+					context.pose().translate(x + 8, itemsY - 5);
+					context.pose().scale(0.5f, 0.5f);
+					context.drawString(font, text, -font.width(text) / 2, 0, durabilityColor(percent / 100f));
+					context.pose().popMatrix();
 				}
 			}
 		}
 
-		ItemStack main = player.getMainHandStack();
+		ItemStack main = player.getMainHandItem();
 		if (heldItems.get() && itemName.get() && !main.isEmpty()) {
-			String name = main.getName().getString();
+			String name = main.getHoverName().getString();
 			int nameY = (items.isEmpty() ? textY : itemsY) - (durability.get() && armor.get() ? 15 : 11);
-			context.getMatrices().pushMatrix();
-			context.getMatrices().translate(0, nameY);
-			context.getMatrices().scale(0.75f, 0.75f);
-			context.drawTextWithShadow(font, name, -font.getWidth(name) / 2, 0, 0xFFE0D8E8);
-			context.getMatrices().popMatrix();
+			context.pose().pushMatrix();
+			context.pose().translate(0, nameY);
+			context.pose().scale(0.75f, 0.75f);
+			context.drawString(font, name, -font.width(name) / 2, 0, 0xFFE0D8E8);
+			context.pose().popMatrix();
 		}
 
-		context.getMatrices().popMatrix();
+		context.pose().popMatrix();
 	}
 
-	private String buildLine(PlayerEntity player, double dist) {
+	private String buildLine(Player player, double dist) {
 		StringBuilder builder = new StringBuilder(player.getName().getString());
 		if (health.get()) builder.append(' ').append(formatHealth(player));
 		if (ping.get()) builder.append(' ').append(getPing(player)).append("ms");
@@ -137,53 +137,53 @@ public class NametagsModule extends Module {
 	}
 
 	/** Draws the same text as {@link #buildLine} but with each part coloured. */
-	private void drawLine(DrawContext context, TextRenderer font, PlayerEntity player, int x, int y, double dist) {
+	private void drawLine(GuiGraphics context, Font font, Player player, int x, int y, double dist) {
 		String name = player.getName().getString();
-		context.drawTextWithShadow(font, name, x, y, 0xFFFFFFFF);
-		x += font.getWidth(name);
+		context.drawString(font, name, x, y, 0xFFFFFFFF);
+		x += font.width(name);
 		if (health.get()) {
 			String text = " " + formatHealth(player);
 			float fraction = (player.getHealth() + player.getAbsorptionAmount()) / player.getMaxHealth();
-			context.drawTextWithShadow(font, text, x, y, healthColor(fraction));
-			x += font.getWidth(text);
+			context.drawString(font, text, x, y, healthColor(fraction));
+			x += font.width(text);
 		}
 		if (ping.get()) {
 			int latency = getPing(player);
 			String text = " " + latency + "ms";
-			context.drawTextWithShadow(font, text, x, y, latency < 80 ? 0xFF77FF99 : latency < 180 ? 0xFFFFD966 : 0xFFFF6666);
-			x += font.getWidth(text);
+			context.drawString(font, text, x, y, latency < 80 ? 0xFF77FF99 : latency < 180 ? 0xFFFFD966 : 0xFFFF6666);
+			x += font.width(text);
 		}
 		if (distance.get()) {
-			context.drawTextWithShadow(font, String.format(" %.0fm", dist), x, y, 0xFFAAAAAA);
+			context.drawString(font, String.format(" %.0fm", dist), x, y, 0xFFAAAAAA);
 		}
 	}
 
-	private List<ItemStack> collectItems(PlayerEntity player) {
+	private List<ItemStack> collectItems(Player player) {
 		List<ItemStack> items = new ArrayList<>();
-		if (heldItems.get() && !player.getMainHandStack().isEmpty()) items.add(player.getMainHandStack());
+		if (heldItems.get() && !player.getMainHandItem().isEmpty()) items.add(player.getMainHandItem());
 		if (armor.get()) {
 			for (EquipmentSlot slot : ARMOR_ORDER) {
-				ItemStack stack = player.getEquippedStack(slot);
+				ItemStack stack = player.getItemBySlot(slot);
 				if (!stack.isEmpty()) items.add(stack);
 			}
 		}
-		if (heldItems.get() && !player.getOffHandStack().isEmpty()) items.add(player.getOffHandStack());
+		if (heldItems.get() && !player.getOffhandItem().isEmpty()) items.add(player.getOffhandItem());
 		return items;
 	}
 
-	private static boolean isArmor(PlayerEntity player, ItemStack stack) {
+	private static boolean isArmor(Player player, ItemStack stack) {
 		for (EquipmentSlot slot : ARMOR_ORDER) {
-			if (player.getEquippedStack(slot) == stack) return true;
+			if (player.getItemBySlot(slot) == stack) return true;
 		}
 		return false;
 	}
 
-	private int getPing(PlayerEntity player) {
-		PlayerListEntry entry = mc.getNetworkHandler().getPlayerListEntry(player.getUuid());
+	private int getPing(Player player) {
+		PlayerInfo entry = mc.getConnection().getPlayerInfo(player.getUUID());
 		return entry == null ? 0 : entry.getLatency();
 	}
 
-	private static String formatHealth(PlayerEntity player) {
+	private static String formatHealth(Player player) {
 		float total = player.getHealth() + player.getAbsorptionAmount();
 		return String.format("%.1f", total);
 	}
@@ -196,8 +196,8 @@ public class NametagsModule extends Module {
 	}
 
 	private static int durabilityColor(float fraction) {
-		int red = (int) (255 * MathHelper.clamp(2 * (1 - fraction), 0, 1));
-		int green = (int) (255 * MathHelper.clamp(2 * fraction, 0, 1));
+		int red = (int) (255 * Mth.clamp(2 * (1 - fraction), 0, 1));
+		int green = (int) (255 * Mth.clamp(2 * fraction, 0, 1));
 		return 0xFF000000 | red << 16 | green << 8 | 0x40;
 	}
 }

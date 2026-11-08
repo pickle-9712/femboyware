@@ -18,13 +18,13 @@ public class ZoomModule extends Module {
 
 	@Override
 	protected void onEnable() {
-		wasSmooth = mc.options.smoothCameraEnabled;
-		if (smoothCamera.get()) mc.options.smoothCameraEnabled = true;
+		wasSmooth = mc.options.smoothCamera;
+		if (smoothCamera.get()) mc.options.smoothCamera = true;
 	}
 
 	@Override
 	protected void onDisable() {
-		mc.options.smoothCameraEnabled = wasSmooth;
+		mc.options.smoothCamera = wasSmooth;
 	}
 
 	public float modifyFov(float fov) {

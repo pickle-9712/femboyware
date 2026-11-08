@@ -13,15 +13,15 @@ import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.PlaceUtil;
 import dev.femboyware.util.RenderUtil;
 import dev.femboyware.util.Rotation;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockEntityProvider;
-import net.minecraft.block.FallingBlock;
-import net.minecraft.item.BlockItem;
-import net.minecraft.item.ItemStack;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Direction;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.EntityBlock;
+import net.minecraft.world.level.block.FallingBlock;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
 
 /**
  * Places blocks under your feet as you walk. Rotations go through the rotation manager, so the
@@ -53,15 +53,15 @@ public class ScaffoldModule extends Module {
 
 	@Override
 	public void onPreMotion() {
-		target = BlockPos.ofFloored(mc.player.getX(), mc.player.getY() - 0.5, mc.player.getZ());
+		target = BlockPos.containing(mc.player.getX(), mc.player.getY() - 0.5, mc.player.getZ());
 		hit = null;
-		if (!mc.world.getBlockState(target).isReplaceable()) return;
+		if (!mc.level.getBlockState(target).canBeReplaced()) return;
 		hit = BlockUtil.getPlacement(target, strict.get());
 		if (hit == null) {
 			// Nothing to click: place on a neighbour first so the next tick has support
-			for (Direction direction : Direction.Type.HORIZONTAL) {
-				BlockPos side = target.offset(direction);
-				if (!mc.world.getBlockState(side).isReplaceable()) continue;
+			for (Direction direction : Direction.Plane.HORIZONTAL) {
+				BlockPos side = target.relative(direction);
+				if (!mc.level.getBlockState(side).canBeReplaced()) continue;
 				BlockHitResult sideHit = BlockUtil.getPlacement(side, strict.get());
 				if (sideHit != null) {
 					target = side;
@@ -71,30 +71,30 @@ public class ScaffoldModule extends Module {
 			}
 		}
 		if (hit != null && rotate.get()) {
-			FemboyWare.getRotations().request(Rotation.between(mc.player.getEyePos(), hit.getPos()), ROTATION_PRIORITY, rotationSpeed.getFloat(), false);
+			FemboyWare.getRotations().request(Rotation.between(mc.player.getEyePosition(), hit.getLocation()), ROTATION_PRIORITY, rotationSpeed.getFloat(), false);
 		}
 	}
 
 	@Override
 	public void onPostMotion() {
 		if (hit == null) return;
-		if (rotate.get() && !FemboyWare.getRotations().isFacing(Rotation.between(mc.player.getEyePos(), hit.getPos()), 20)) return;
+		if (rotate.get() && !FemboyWare.getRotations().isFacing(Rotation.between(mc.player.getEyePosition(), hit.getLocation()), 20)) return;
 		if (!PlaceUtil.interact(hit, ScaffoldModule::isScaffoldBlock, switchMode.get(), false)) return;
 
-		if (tower.get() && mc.options.jumpKey.isPressed() && mc.player.input.getMovementInput().lengthSquared() == 0) {
-			mc.player.setVelocity(0, 0.42, 0);
+		if (tower.get() && mc.options.keyJump.isDown() && mc.player.input.getMoveVector().lengthSquared() == 0) {
+			mc.player.setDeltaMovement(0, 0.42, 0);
 		}
 	}
 
 	@Override
 	public void onRender3D(Render3DEvent event) {
-		if (render.get() && target != null && hit != null) RenderUtil.drawBox(event, new Box(target), color.get(), color.withAlpha(255), 1.5f);
+		if (render.get() && target != null && hit != null) RenderUtil.drawBox(event, new AABB(target), color.get(), color.withAlpha(255), 1.5f);
 	}
 
 	private static boolean isScaffoldBlock(ItemStack stack) {
 		if (!(stack.getItem() instanceof BlockItem item)) return false;
 		Block block = item.getBlock();
-		if (block instanceof FallingBlock || block instanceof BlockEntityProvider) return false;
-		return block.getDefaultState().isFullCube(mc.world, BlockPos.ORIGIN);
+		if (block instanceof FallingBlock || block instanceof EntityBlock) return false;
+		return block.defaultBlockState().isCollisionShapeFullBlock(mc.level, BlockPos.ZERO);
 	}
 }
