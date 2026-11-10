@@ -124,6 +124,8 @@ import dev.femboyware.module.render.BlockOutlineModule;
 import dev.femboyware.module.render.BreadcrumbsModule;
 import dev.femboyware.module.render.CapeModule;
 import dev.femboyware.module.render.CleanFontModule;
+import dev.femboyware.module.render.CosmeticsModule;
+import dev.femboyware.module.render.EmotesModule;
 import dev.femboyware.module.render.CrosshairModule;
 import dev.femboyware.module.render.CrystalChamsModule;
 import dev.femboyware.module.render.DamageParticlesModule;
@@ -284,6 +286,8 @@ public class ModuleManager {
 		register(new AntiVoidModule());
 		register(new AntiWebModule());
 		register(new BlinkModule());
+		register(new dev.femboyware.module.utility.ServerLarpModule());
+		register(new dev.femboyware.module.render.ScoreboardEditModule());
 		register(new BoatFlyModule());
 		register(new ElytraFreezeModule());
 		register(new ElytraPlusModule());
@@ -312,6 +316,8 @@ public class ModuleManager {
 		register(new CleanFontModule());
 		register(new CapeModule());
 		register(new FurryModule());
+		register(new CosmeticsModule());
+		register(new EmotesModule());
 		register(new CrosshairModule());
 		register(new BlockOutlineModule());
 		register(new NewChunksModule());

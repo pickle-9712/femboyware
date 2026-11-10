@@ -26,6 +26,9 @@ public class CommandManager {
 			case "guard", "g" -> FemboyWare.getModules().get(GuardCommandModule.class).command(message.substring(PREFIX.length()).trim().substring(args[0].length()).trim());
 			case "nameprotect", "np" -> FemboyWare.getModules().get(NameProtectModule.class).command(args);
 			case "fakeplayer", "fp" -> FemboyWare.getModules().get(FakePlayerModule.class).command(args);
+			case "scoreboard", "sb" -> FemboyWare.getModules().get(dev.femboyware.module.render.ScoreboardEditModule.class).command(args);
+			case "cosmetics", "cos" -> FemboyWare.getModules().get(dev.femboyware.module.render.CosmeticsModule.class).command(args);
+			case "larp" -> FemboyWare.getModules().get(dev.femboyware.module.utility.ServerLarpModule.class).command(args);
 			case "help" -> help();
 			default -> ChatUtil.info("Unknown command. Try " + PREFIX + "help");
 		}
@@ -93,6 +96,9 @@ public class CommandManager {
 		ChatUtil.info(PREFIX + "fp crowd [on|off]  (fake players wander, jump, crouch and talk near where they spawned)");
 		ChatUtil.info(PREFIX + "fp formation <name|off|here|list>  (fake players stand in a shape, built in or one you made)");
 		ChatUtil.info(PREFIX + "fp maker  (draw and save your own formations)");
+		ChatUtil.info(PREFIX + "sb <lines|value <label> <value>|replace <find> <with>|line <label> <text>|title <text>|list|remove|clear>  (Scoreboard Edit: change the sidebar on your screen)");
+		ChatUtil.info(PREFIX + "larp <on|off|give <item> [count]|creative|survival|clear>  (Server Larp: play client-side while the server sees you standing still)");
+		ChatUtil.info(PREFIX + "cos <give|take|list|clear> [name] [fiery|frozen|poisoned|random|none|same]  (give a player your Korblox, headless and horns; only you see them)");
 		ChatUtil.info(PREFIX + "fp text <words>  (fake players spell it out, adding as many as it takes; / starts a new line)");
 	}
 }

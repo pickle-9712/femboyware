@@ -15,6 +15,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -58,6 +59,8 @@ final class FakeWanderer {
 	private boolean wantsJump;
 	private boolean moving;
 	/** Which way its formation faces, or NaN when it isn't in one. */
+	/** Knockback still being carried, sideways, in blocks per tick. */
+	private double pushX, pushZ;
 	private float faceYaw = Float.NaN;
 	private int stuckTicks;
 
@@ -202,7 +205,7 @@ final class FakeWanderer {
 		move(self, world, 0, 0);
 		look(self, 0, 0);
 		apply(self);
-		if (grounded) moving = false;
+		if (grounded && pushX == 0 && pushZ == 0) moving = false;
 	}
 
 	private void start(RemotePlayer self, ClientLevel world) {
@@ -266,6 +269,30 @@ final class FakeWanderer {
 		goingToGreet = null;
 	}
 
+	/**
+	 * Knocked back away from {@code (dirX, dirZ)}, as vanilla's LivingEntity#knockback: half the old push
+	 * kept, a hop if on the ground, and less of it all with knockback resistance.
+	 */
+	void knockback(RemotePlayer self, ClientLevel world, double strength, double dirX, double dirZ) {
+		strength *= 1 - self.getAttributeValue(Attributes.KNOCKBACK_RESISTANCE);
+		double length = Math.hypot(dirX, dirZ);
+		if (strength <= 0 || length < 1e-5) return;
+		if (pos == null) start(self, world);
+		pushX = pushX / 2 - dirX / length * strength;
+		pushZ = pushZ / 2 - dirZ / length * strength;
+		if (grounded || self.onGround()) fallSpeed = Math.min(0.4, Math.max(fallSpeed, 0) / 2 + strength);
+		moving = true;
+	}
+
+	/** A straight shove, like an explosion's. */
+	void push(RemotePlayer self, ClientLevel world, Vec3 impulse) {
+		if (pos == null) start(self, world);
+		pushX += impulse.x;
+		pushZ += impulse.z;
+		fallSpeed = Math.max(fallSpeed, 0) + impulse.y;
+		moving = true;
+	}
+
 	private void move(RemotePlayer self, ClientLevel world, double moveX, double moveZ) {
 		if (wantsJump && grounded) fallSpeed = JUMP;
 		// Don't walk off a drop or into water or lava
@@ -274,11 +301,17 @@ final class FakeWanderer {
 			moveZ = 0;
 			blockedTicks = MOST_BLOCKED_TICKS + 1;
 		}
+		// Being knocked about doesn't care about drops
+		boolean walking = moveX != 0 || moveZ != 0;
+		moveX += pushX;
+		moveZ += pushZ;
 		AABB box = boxAt(pos);
 		Vec3 wanted = new Vec3(moveX, fallSpeed, moveZ);
 		Vec3 moved = Entity.collideBoundingBox(self, wanted, box, world, List.of());
 		boolean hitWall = Math.abs(moved.x - moveX) > 1e-6 || Math.abs(moved.z - moveZ) > 1e-6;
-		if (hitWall) {
+		if (Math.abs(moved.x - moveX) > 1e-6) pushX = 0;
+		if (Math.abs(moved.z - moveZ) > 1e-6) pushZ = 0;
+		if (hitWall && walking) {
 			blockedTicks++;
 			if (grounded) {
 				// A slab or a carpet gets walked up, and anything taller gets jumped
@@ -294,6 +327,10 @@ final class FakeWanderer {
 		// So a standing player presses into the ground and notices it's there
 		if (grounded) fallSpeed = -GRAVITY;
 		pos = pos.add(moved);
+		// Ground friction stops a push quickly, air hardly at all, as for players
+		double friction = grounded ? 0.546 : 0.91;
+		pushX = Math.abs(pushX * friction) < 0.003 ? 0 : pushX * friction;
+		pushZ = Math.abs(pushZ * friction) < 0.003 ? 0 : pushZ * friction;
 	}
 
 	private boolean unsafe(RemotePlayer self, ClientLevel world, double moveX, double moveZ) {

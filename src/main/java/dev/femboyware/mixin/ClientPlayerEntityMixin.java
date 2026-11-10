@@ -90,4 +90,11 @@ public class ClientPlayerEntityMixin {
 		HitResult block = camera.pick(blockRange, tickDelta, false);
 		return block.getType() == HitResult.Type.BLOCK ? block : hit;
 	}
+
+	/** Server Larp: what Q drops lands here instead of only being sent to a server that isn't listening. */
+	@com.llamalad7.mixinextras.injector.ModifyExpressionValue(method = "drop(Z)Z", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/player/Inventory;removeFromSelected(Z)Lnet/minecraft/world/item/ItemStack;"))
+	private net.minecraft.world.item.ItemStack femboyware$larpDrop(net.minecraft.world.item.ItemStack dropped) {
+		if (dev.femboyware.FemboyWare.getModules() != null) dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.utility.ServerLarpModule.class).dropLocally(dropped, false);
+		return dropped;
+	}
 }

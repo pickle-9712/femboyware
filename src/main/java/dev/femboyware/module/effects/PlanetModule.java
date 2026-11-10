@@ -12,8 +12,10 @@ import net.minecraft.resources.Identifier;
 import org.joml.Vector3f;
 
 /**
- * A huge ringed planet hanging in the sky, with moons circling it. The half of the rings and the
- * moons behind the planet are drawn before it and the near half after, so they pass behind it.
+ * A huge ringed planet hanging in the sky, with moons circling it. The planet and moons write depth
+ * and the rings are real 3D bands round it, so the far half of the rings and moons hide behind the
+ * planet and the near half pass in front, whatever order the batches end up drawn in (ImmediatelyFast
+ * and 26.2's render queue both regroup draws by layer).
  */
 public class PlanetModule extends SkyFxModule {
 	public enum Style {
@@ -77,7 +79,7 @@ public class PlanetModule extends SkyFxModule {
 		}
 		if (rings.get()) ring(event, c, u, v, radius, distance, true, visible);
 		moons(event, c, u, v, radius, distance, true, visible);
-		sprite(event, FxRender.textured(event, planet.texture, false, false), c, distance, radius, roll, FxRender.fade(0xFFFFFFFF, visible));
+		sprite(event, FxRender.solid(event, planet.texture), c, distance, radius, roll, FxRender.fade(0xFFFFFFFF, visible));
 		if (rings.get()) ring(event, c, u, v, radius, distance, false, visible);
 		moons(event, c, u, v, radius, distance, false, visible);
 	}
@@ -109,7 +111,7 @@ public class PlanetModule extends SkyFxModule {
 	private void moons(Render3DEvent event, Vector3f c, Vector3f u, Vector3f v, float radius, float distance, boolean back, float visible) {
 		int count = moons.getInt();
 		if (count == 0) return;
-		VertexConsumer consumer = FxRender.textured(event, texture("planet_ice"), false, false);
+		VertexConsumer consumer = FxRender.solid(event, texture("planet_ice"));
 		for (int i = 0; i < count; i++) {
 			double angle = time() * moonSpeed.get() * (0.25 - i * 0.03) + i * 2.4;
 			if ((Math.sin(angle) > 0) != back) continue;

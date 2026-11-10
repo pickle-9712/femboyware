@@ -56,9 +56,10 @@ final class MediaSource {
 		art = null;
 	}
 
-	/** The latest track, or null when nothing is playing. */
+	/** The latest track, or null when nothing is playing. A song femboyware is playing comes first. */
 	static WindowsMedia.Track track() {
-		return track;
+		WindowsMedia.Track ours = NowPlaying.track();
+		return ours != null ? ours : track;
 	}
 
 	static void control(int slot) {
@@ -74,7 +75,7 @@ final class MediaSource {
 
 	/** Puts the latest album art on the GPU, once per track; true if there's art to draw. Render thread only. */
 	static boolean prepareArt() {
-		WindowsMedia.Art latest = art;
+		WindowsMedia.Art latest = NowPlaying.track() != null ? NowPlaying.art() : art;
 		if (latest == uploadedArt) return hasArt;
 		uploadedArt = latest;
 		hasArt = false;

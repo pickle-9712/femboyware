@@ -91,4 +91,28 @@ public class InGameHudMixin {
 	private static NoRenderModule noRender() {
 		return FemboyWare.getModules().get(NoRenderModule.class);
 	}
+
+	//? if >=26.1 {
+	/*private static final String ENTRY_NAME = "Lnet/minecraft/client/gui/Hud$1DisplayEntry;name()Lnet/minecraft/network/chat/Component;";
+	private static final String ENTRY_SCORE = "Lnet/minecraft/client/gui/Hud$1DisplayEntry;score()Lnet/minecraft/network/chat/Component;";
+	*///?} else {
+	private static final String ENTRY_NAME = "Lnet/minecraft/client/gui/Gui$1DisplayEntry;name()Lnet/minecraft/network/chat/Component;";
+	private static final String ENTRY_SCORE = "Lnet/minecraft/client/gui/Gui$1DisplayEntry;score()Lnet/minecraft/network/chat/Component;";
+	//?}
+
+	/** Scoreboard Edit: the sidebar title, lines and scores are rewritten as they're read for sizing and drawing. */
+	@ModifyExpressionValue(method = "displayScoreboardSidebar", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/scores/Objective;getDisplayName()Lnet/minecraft/network/chat/Component;"), require = 0)
+	private net.minecraft.network.chat.Component femboyware$sidebarTitle(net.minecraft.network.chat.Component title) {
+		return FemboyWare.getModules() == null ? title : FemboyWare.getModules().get(dev.femboyware.module.render.ScoreboardEditModule.class).title(title);
+	}
+
+	@ModifyExpressionValue(method = "displayScoreboardSidebar", at = @At(value = "INVOKE", target = ENTRY_NAME), require = 0)
+	private net.minecraft.network.chat.Component femboyware$sidebarLine(net.minecraft.network.chat.Component line) {
+		return FemboyWare.getModules() == null ? line : FemboyWare.getModules().get(dev.femboyware.module.render.ScoreboardEditModule.class).line(line);
+	}
+
+	@ModifyExpressionValue(method = "displayScoreboardSidebar", at = @At(value = "INVOKE", target = ENTRY_SCORE), require = 0)
+	private net.minecraft.network.chat.Component femboyware$sidebarScore(net.minecraft.network.chat.Component score) {
+		return FemboyWare.getModules() == null ? score : FemboyWare.getModules().get(dev.femboyware.module.render.ScoreboardEditModule.class).line(score);
+	}
 }

@@ -1,0 +1,11 @@
+{
+	"emote.queen_st": {
+		"sounds": [{"name": "femboyware:emotes/queen_st", "stream": true}]
+	},
+	"emote.vyzee": {
+		"sounds": [{"name": "femboyware:emotes/vyzee", "stream": true}]
+	},
+	"emote.blue_bands": {
+		"sounds": [{"name": "femboyware:emotes/blue_bands", "stream": true}]
+	}
+}

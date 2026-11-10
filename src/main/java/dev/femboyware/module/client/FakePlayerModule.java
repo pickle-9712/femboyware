@@ -18,6 +18,7 @@ import dev.femboyware.setting.StringSetting;
 import dev.femboyware.util.AccountSkins;
 import dev.femboyware.util.ChatUtil;
 import dev.femboyware.util.DamageCalculator;
+import dev.femboyware.util.LegacyText;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -40,6 +41,8 @@ import net.minecraft.client.resources.DefaultPlayerSkin;
 import net.minecraft.core.Holder;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.network.protocol.game.ClientboundExplodePacket;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
@@ -56,6 +59,7 @@ import net.minecraft.world.entity.player.PlayerSkin;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.world.level.ServerExplosion;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -75,8 +79,18 @@ public class FakePlayerModule extends Module {
 
 	private final StringSetting names = add(new StringSetting("Names", "One fake player for each name, separated by commas. Or use " + CommandManager.PREFIX + "fp add <names>", "FakePlayer"));
 	private final BoolSetting accountSkins = add(new BoolSetting("Account Skins", "Each fake player wears the real skin of the account with its name", true));
+	private final EnumSetting<Rank> rank = add(new EnumSetting<>("Rank", "Rank shown on fake players without one of their own, in nametags, tab and chat. Or use " + CommandManager.PREFIX + "fp rank", Rank.NONE));
+	private final StringSetting staffTag = add(new StringSetting("Staff Tag", "How staff look: & colour codes (&#rrggbb for any colour) with {name} for the name. "
+		+ CommandManager.PREFIX + "fp rank copy staff <player> copies a real player's look", "&c&lSTAFF &c{name}"));
+	private final StringSetting mediaTag = add(new StringSetting("Media Tag", "How media look: & colour codes (&#rrggbb for any colour) with {name} for the name. "
+		+ CommandManager.PREFIX + "fp rank copy media <player> copies a real player's look", "&d&lMEDIA &d{name}"));
+	/** Ranks given to particular fake players, as name=rank pairs; everyone else gets {@link #rank}. */
+	private final StringSetting ranks = add(new StringSetting("Ranks", "", "")).visibleWhen(() -> false);
 	private final NumberSetting health = add(new NumberSetting("Health", "Health the fake player spawns with", 20, 1, 20, 1));
-	private final BoolSetting copyArmor = add(new BoolSetting("Copy Armor", "Give it your armor and held items", true));
+	private final BoolSetting copyArmor = add(new BoolSetting("Copy Armor", "Give them your armor and held items once, then keep that set even if you change yours. "
+		+ CommandManager.PREFIX + "fp armor reset takes your current gear again", true));
+	/** The gear fake players wear, saved the first time it's copied from you, as slot -> item JSON. */
+	private final StringSetting savedGear = add(new StringSetting("Saved Gear", "", "")).visibleWhen(() -> false);
 	private final BoolSetting respawn = add(new BoolSetting("Respawn", "Respawn after dying, in the same spot or on the Crowd circle", true));
 	private final NumberSetting respawnDelay = add(new NumberSetting("Respawn Delay", "Ticks to wait before respawning", 40, 0, 200, 1)).visibleWhen(respawn::get);
 	private final BoolSetting invincible = add(new BoolSetting("Invincible", "Takes hits and flinches but never loses health", false));
@@ -96,6 +110,8 @@ public class FakePlayerModule extends Module {
 	/** The formations you've made. Only saved, never shown: the maker edits them. */
 	private final StringSetting savedFormations = add(new StringSetting("Saved Formations", "", "")).visibleWhen(() -> false);
 
+	public enum Rank { NONE, STAFF, MEDIA }
+
 	/** One fake player; the entity is null while it waits to respawn. */
 	private static final class Fake {
 		final String name;
@@ -103,6 +119,8 @@ public class FakePlayerModule extends Module {
 		final GameProfile profile;
 		/** Its row in the tab list, there even while it waits to respawn, like a real player's. */
 		final PlayerInfo listEntry;
+		/** The rank template its tab row was last given, so it's only rebuilt when that changes. */
+		String shownTag = "";
 		RemotePlayer entity;
 		Vec3 spawnPos;
 		float spawnYaw;
@@ -147,6 +165,15 @@ public class FakePlayerModule extends Module {
 	private volatile boolean findingNames;
 	private boolean finderRunning;
 	private boolean announceFound;
+	/**
+	 * Names added only to fill out the Text formation (lower case), taken away again when it ends, and
+	 * whether the running search is adding more of them.
+	 */
+	private final Set<String> textNames = new HashSet<>();
+	private boolean fillingText;
+	/** Ticks the formation has been on Text. Clicking through the options passes it, so it only fills up after a moment. */
+	private int textTicks;
+	private static final int TEXT_FILL_DELAY = 20;
 	private int nextId = FIRST_ENTITY_ID;
 	private boolean spawned;
 	private String syncedFrom = "";
@@ -198,6 +225,12 @@ public class FakePlayerModule extends Module {
 		// Not while a screen is open, so typing a name doesn't spawn every half of it
 		if (Mc.screen() == null && !names.get().equals(syncedFrom)) sync();
 		tickFormation();
+		for (Fake fake : fakes) {
+			String tag = tagFor(fake.name);
+			if (tag.equals(fake.shownTag)) continue;
+			fake.shownTag = tag;
+			fake.listEntry.setTabListDisplayName(tag.isEmpty() ? null : ranked(tag, fake.name));
+		}
 
 		boolean removed = false;
 		for (Iterator<Fake> iterator = fakes.iterator(); iterator.hasNext(); ) {
@@ -252,18 +285,24 @@ public class FakePlayerModule extends Module {
 
 	/** Starts, follows and ends the formation, and hands out new spots when the shape or the group changes. */
 	private void tickFormation() {
+		if (formation.is(FakeFormations.Shape.TEXT)) textTicks++;
+		else {
+			textTicks = 0;
+			if (fillingText || !textNames.isEmpty()) dropTextFakes();
+		}
 		if (!inFormation()) {
 			if (formationCenter != null) endFormation();
 			return;
 		}
 		if (formationCenter == null || (formationFollow.get() && formationTurn.get())) formationYaw = mc.player.getYRot();
 		if (formationCenter == null || formationFollow.get()) formationCenter = mc.player.position();
-		String wanted = formation.get() + "/" + customFormation.get() + "/" + formationText.get() + "/" + savedFormations.get() + "/" + fakes.size();
+		boolean textReady = textTicks >= TEXT_FILL_DELAY;
+		String wanted = formation.get() + "/" + customFormation.get() + "/" + formationText.get() + "/" + savedFormations.get() + "/" + fakes.size() + "/" + textReady;
 		if (wanted.equals(slotsFor)) return;
 		slotsFor = wanted;
 		if (formation.is(FakeFormations.Shape.TEXT)) {
 			Set<FakeFormations.Cell> letters = FakeFormations.textCells(formationText.get());
-			addFakesUpTo(letters.size(), false);
+			if (textReady) addFakesUpTo(letters.size(), false, true);
 			slots = FakeFormations.spots(letters, fakes.size());
 		} else if (formation.is(FakeFormations.Shape.CUSTOM)) {
 			Set<FakeFormations.Cell> custom = customFormations().get(customFormation.get());
@@ -362,8 +401,22 @@ public class FakePlayerModule extends Module {
 		formation.set(FakeFormations.Shape.TEXT);
 		moveFormationHere();
 		if (!isEnabled()) setEnabled(true);
-		addFakesUpTo(needed, false);
+		textTicks = TEXT_FILL_DELAY;
+		addFakesUpTo(needed, false, true);
 		return true;
+	}
+
+	/** The Text formation ended: stop finding names for it and take away the fake players it added. */
+	private void dropTextFakes() {
+		if (fillingText) findingNames = false;
+		fillingText = false;
+		if (textNames.isEmpty()) return;
+		List<String> wanted = wantedNames();
+		wanted.removeIf(name -> textNames.contains(name.toLowerCase(Locale.ROOT)));
+		textNames.clear();
+		names.set(String.join(", ", wanted));
+		// Right away, even with the ClickGUI open
+		sync();
 	}
 
 	/**
@@ -371,9 +424,15 @@ public class FakePlayerModule extends Module {
 	 * each fake player has an account's skin to wear. They join a few at a time as they're found.
 	 */
 	private void addFakesUpTo(int total, boolean announce) {
+		addFakesUpTo(total, announce, false);
+	}
+
+	/** With {@code forText}, the names found are the Text formation's, taken away when it ends. */
+	private void addFakesUpTo(int total, boolean announce, boolean forText) {
 		if (parsedNames().size() >= total) return;
 		namesGoal = findingNames ? Math.max(namesGoal, total) : total;
 		findingNames = true;
+		fillingText = forText;
 		announceFound |= announce;
 		if (finderRunning) return;
 		finderRunning = true;
@@ -415,7 +474,10 @@ public class FakePlayerModule extends Module {
 			for (PlayerInfo entry : mc.getConnection().getOnlinePlayers()) taken.add(entry.getProfile().name().toLowerCase(Locale.ROOT));
 		}
 		for (String name : found) {
-			if (wanted.size() < namesGoal && taken.add(name.toLowerCase(Locale.ROOT))) wanted.add(name);
+			if (wanted.size() < namesGoal && taken.add(name.toLowerCase(Locale.ROOT))) {
+				wanted.add(name);
+				if (fillingText) textNames.add(name.toLowerCase(Locale.ROOT));
+			}
 		}
 		names.set(String.join(", ", wanted));
 		if (wanted.size() >= namesGoal) findingNames = false;
@@ -427,6 +489,7 @@ public class FakePlayerModule extends Module {
 		else if (announceFound && reachedGoal && parsedNames().size() >= namesGoal) ChatUtil.info("Added them all: " + parsedNames().size() + " fake players");
 		findingNames = false;
 		announceFound = false;
+		fillingText = false;
 	}
 
 	public void stopFormation() {
@@ -441,6 +504,15 @@ public class FakePlayerModule extends Module {
 
 	public int fakeCount() {
 		return fakes.size();
+	}
+
+	/** Whether the entity with this id is one of the fake players. */
+	public boolean isFake(int entityId) {
+		if (!isEnabled()) return false;
+		for (Fake fake : fakes) {
+			if (fake.entity != null && fake.entity.getId() == entityId) return true;
+		}
+		return false;
 	}
 
 	/** What's running, to show in the maker. */
@@ -498,7 +570,7 @@ public class FakePlayerModule extends Module {
 		if (usable.isEmpty()) return;
 		String line = usable.get(ThreadLocalRandom.current().nextInt(usable.size()));
 		if (to != null) line = line.replace("{player}", to.getGameProfile().name());
-		Mc.addChat(Component.literal("<" + fake.name + "> " + line));
+		Mc.addChat(Component.literal("<").append(displayName(fake.name)).append("> " + line));
 	}
 
 	/** The Names setting: no blanks or repeats. A copy, for changing. */
@@ -677,8 +749,145 @@ public class FakePlayerModule extends Module {
 			}
 			case "list" -> ChatUtil.info(wanted.isEmpty() ? "No fake players yet. Add some with " + CommandManager.PREFIX + "fp add <names>"
 				: "Fake players (" + wanted.size() + "): " + String.join(", ", wanted));
-			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "fp <add|random|crowd|formation|maker|text|remove|list|clear> [names]");
+			case "rank" -> rankCommand(args);
+			case "armor", "armour", "gear" -> {
+				String what = args.length > 2 ? args[2].toLowerCase(Locale.ROOT) : "";
+				if (what.equals("reset") || what.equals("set")) resetGear();
+				else ChatUtil.info(savedGear.get().isBlank() ? "No gear saved yet: they'll copy yours when they spawn. " + CommandManager.PREFIX + "fp armor reset copies it now"
+					: "Fake players keep their saved gear. " + CommandManager.PREFIX + "fp armor reset gives them what you're wearing now");
+			}
+			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "fp <add|random|crowd|formation|maker|text|rank|armor|remove|list|clear> [names]");
 		}
+	}
+
+	private void rankCommand(String[] args) {
+		String usage = "Usage: " + CommandManager.PREFIX + "fp rank <staff|media|none> [names|all], or " + CommandManager.PREFIX + "fp rank copy <staff|media> <player>";
+		if (args.length < 3) {
+			ChatUtil.info(usage);
+			return;
+		}
+		String what = args[2].toLowerCase(Locale.ROOT);
+		if (what.equals("copy")) {
+			Rank target = args.length > 3 ? parseRank(args[3]) : null;
+			if (target == null || target == Rank.NONE || args.length < 5) {
+				ChatUtil.info("Usage: " + CommandManager.PREFIX + "fp rank copy <staff|media> <player>  (someone online with that rank)");
+				return;
+			}
+			copyRank(target, args[4]);
+			return;
+		}
+		Rank chosen = parseRank(what);
+		if (chosen == null) {
+			ChatUtil.info(usage);
+			return;
+		}
+		Map<String, Rank> given = rankMap();
+		if (args.length < 4 || args[3].equalsIgnoreCase("all")) {
+			rank.set(chosen);
+			given.clear();
+			ChatUtil.info(chosen == Rank.NONE ? "Fake players have no rank" : "Every fake player is " + rankName(chosen));
+		} else {
+			List<String> named = new ArrayList<>();
+			for (int i = 3; i < args.length; i++) {
+				String name = args[i].replace(",", "");
+				if (name.isEmpty()) continue;
+				given.put(name.toLowerCase(Locale.ROOT), chosen);
+				named.add(name);
+			}
+			ChatUtil.info(String.join(", ", named) + (named.size() == 1 ? " is " : " are ") + (chosen == Rank.NONE ? "unranked" : rankName(chosen)));
+		}
+		saveRankMap(given);
+	}
+
+	private static Rank parseRank(String text) {
+		return switch (text.toLowerCase(Locale.ROOT)) {
+			case "staff", "s" -> Rank.STAFF;
+			case "media", "m" -> Rank.MEDIA;
+			case "none", "off", "clear", "n" -> Rank.NONE;
+			default -> null;
+		};
+	}
+
+	private static String rankName(Rank rank) {
+		return rank == Rank.STAFF ? "staff" : "media";
+	}
+
+	/** Copies how a real online player's name looks in the tab list, rank and colours and all, as the template for {@code target}. */
+	private void copyRank(Rank target, String playerName) {
+		if (mc.getConnection() == null) {
+			ChatUtil.info("Join a server first");
+			return;
+		}
+		PlayerInfo found = null;
+		for (PlayerInfo entry : mc.getConnection().getOnlinePlayers()) {
+			if (entry.getProfile().name().equalsIgnoreCase(playerName) && !fakesById.containsKey(entry.getProfile().id())) found = entry;
+		}
+		if (found == null) {
+			ChatUtil.info(playerName + " isn't online here");
+			return;
+		}
+		String realName = found.getProfile().name();
+		Component shown = found.getTabListDisplayName() != null ? found.getTabListDisplayName()
+			: PlayerTeam.formatNameForTeam(found.getTeam(), Component.literal(realName));
+		String template = LegacyText.write(shown);
+		int at = template.toLowerCase(Locale.ROOT).indexOf(realName.toLowerCase(Locale.ROOT));
+		if (at < 0) {
+			ChatUtil.info("Couldn't find " + realName + "'s name in how the tab list shows them");
+			return;
+		}
+		template = template.substring(0, at) + "{name}" + template.substring(at + realName.length());
+		if (template.replaceAll("&(#[0-9a-fA-F]{6}|.)", "").trim().equals("{name}")) {
+			ChatUtil.info(realName + " has no rank showing in the tab list here");
+			return;
+		}
+		(target == Rank.STAFF ? staffTag : mediaTag).set(template);
+		Mc.addChat(Component.literal("[femboyware] " + EnumSetting.prettify(target.name()) + " now looks like: ").append(ranked(template, "Name")));
+	}
+
+	private Map<String, Rank> rankMap() {
+		Map<String, Rank> map = new HashMap<>();
+		for (String pair : ranks.get().split(",")) {
+			int eq = pair.indexOf('=');
+			if (eq <= 0) continue;
+			Rank parsed = parseRank(pair.substring(eq + 1).trim());
+			if (parsed != null) map.put(pair.substring(0, eq).trim().toLowerCase(Locale.ROOT), parsed);
+		}
+		return map;
+	}
+
+	private void saveRankMap(Map<String, Rank> map) {
+		List<String> pairs = new ArrayList<>();
+		map.forEach((name, given) -> pairs.add(name + "=" + given.name().toLowerCase(Locale.ROOT)));
+		ranks.set(String.join(",", pairs));
+	}
+
+	/** The rank template for a fake player's name, or empty if it has none. */
+	private String tagFor(String name) {
+		Rank given = rankMap().getOrDefault(name.toLowerCase(Locale.ROOT), rank.get());
+		return switch (given) {
+			case STAFF -> staffTag.get();
+			case MEDIA -> mediaTag.get();
+			case NONE -> "";
+		};
+	}
+
+	private static MutableComponent ranked(String template, String name) {
+		return LegacyText.parse(template.contains("{name}") ? template.replace("{name}", name) : template + name);
+	}
+
+	/** A fake player's name with its rank, or plain if it has none. */
+	private Component displayName(String name) {
+		String tag = tagFor(name);
+		return tag.isEmpty() ? Component.literal(name) : ranked(tag, name);
+	}
+
+	/** Called from PlayerEntityMixin: what's shown above a fake player's head. */
+	public Component nametag(Player player, Component original) {
+		if (!isEnabled()) return original;
+		Fake fake = fakesById.get(player.getUUID());
+		if (fake == null) return original;
+		String tag = fake.shownTag;
+		return tag.isEmpty() ? original : ranked(tag, fake.name);
 	}
 
 	/** Called from AbstractClientPlayerEntityMixin: a fake player wears the skin of the account with its name. */
@@ -741,11 +950,26 @@ public class FakePlayerModule extends Module {
 		damage = CombatRules.getDamageAfterAbsorb(entity, damage, source, entity.getArmorValue(), (float) entity.getAttributeValue(Attributes.ARMOR_TOUGHNESS));
 		damage = CombatRules.getDamageAfterMagicAbsorb(damage, getProtection(entity));
 		playSound(entity, crit ? SoundEvents.PLAYER_ATTACK_CRIT : progress > 0.9f ? SoundEvents.PLAYER_ATTACK_STRONG : SoundEvents.PLAYER_ATTACK_WEAK);
-		damage(fake, damage, source);
+		boolean sprintHit = progress > 0.9f && attacker.isSprinting();
+		if (damage(fake, damage, source) && !entity.isDeadOrDying()) {
+			// Every hit pushes away from the attacker; a sprint hit or the knockback attribute adds a shove the way they face
+			fake.wanderer.knockback(entity, mc.level, 0.4, attacker.getX() - entity.getX(), attacker.getZ() - entity.getZ());
+			float extra = (float) attacker.getAttributeValue(Attributes.ATTACK_KNOCKBACK) + (sprintHit ? 1 : 0);
+			if (extra > 0) {
+				float yaw = attacker.getYRot() * Mth.DEG_TO_RAD;
+				fake.wanderer.knockback(entity, mc.level, extra * 0.5, Mth.sin(yaw), -Mth.cos(yaw));
+			}
+		}
+		if (sprintHit) {
+			// As vanilla: a sprint hit costs the attacker their sprint and some speed
+			attacker.setDeltaMovement(attacker.getDeltaMovement().multiply(0.6, 1, 0.6));
+			attacker.setSprinting(false);
+		}
 		return true;
 	}
 
-	private void onExplosion(Vec3 center, float power) {
+	/** An explosion at {@code center}: damages and pushes fake players as a real one would. Also used by Server Larp's local crystals. */
+	public void onExplosion(Vec3 center, float power) {
 		if (!isEnabled()) return;
 		for (Fake fake : fakes) {
 			RemotePlayer entity = fake.entity;
@@ -753,6 +977,15 @@ public class FakePlayerModule extends Module {
 			// Blast protection and armor are already applied by the calculator
 			float damage = DamageCalculator.explosionDamage(entity, entity.getBoundingBox(), center, power, false, false);
 			if (damage > 0) damage(fake, damage, mc.level.damageSources().explosion(null, null));
+			// The shove, as ServerExplosion: weaker further out and behind cover
+			double reach = power * 2;
+			double distance = Math.sqrt(entity.distanceToSqr(center)) / reach;
+			if (distance > 1 || entity.isDeadOrDying()) continue;
+			Vec3 away = new Vec3(entity.getX() - center.x, entity.getEyeY() - center.y, entity.getZ() - center.z);
+			if (away.lengthSqr() < 1e-8) continue;
+			double strength = (1 - distance) * ServerExplosion.getSeenPercent(center, entity)
+				* (1 - entity.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE));
+			if (strength > 0) fake.wanderer.push(entity, mc.level, away.normalize().scale(strength));
 		}
 	}
 
@@ -761,11 +994,12 @@ public class FakePlayerModule extends Module {
 		return fake != null && fake.entity == target ? fake : null;
 	}
 
-	private void damage(Fake fake, float amount, DamageSource source) {
+	/** Hurts a fake player; false if the hurt cooldown shrugged the hit off, as vanilla does (no knockback then either). */
+	private boolean damage(Fake fake, float amount, DamageSource source) {
 		RemotePlayer entity = fake.entity;
 		// Vanilla hurt cooldown: within 10 ticks of a hit only damage above the last hit counts
 		if (fake.invulnerableTicks > 10) {
-			if (amount <= fake.lastDamage) return;
+			if (amount <= fake.lastDamage) return false;
 			float extra = amount - fake.lastDamage;
 			fake.lastDamage = amount;
 			amount = extra;
@@ -777,17 +1011,18 @@ public class FakePlayerModule extends Module {
 
 		if (invincible.get()) {
 			playSound(entity, SoundEvents.PLAYER_HURT);
-			return;
+			return true;
 		}
 		float remaining = entity.getHealth() - amount;
 		if (remaining > 0) {
 			entity.setHealth(remaining);
 			playSound(entity, SoundEvents.PLAYER_HURT);
-			return;
+			return true;
 		}
 		entity.setHealth(0);
 		fake.deadTicks = 0;
 		playSound(entity, SoundEvents.PLAYER_DEATH);
+		return true;
 	}
 
 	/** Protection enchantment levels on the armor, which reduce melee damage. */
@@ -810,12 +1045,7 @@ public class FakePlayerModule extends Module {
 		entity.setYHeadRot(yaw);
 		entity.setYBodyRot(yaw);
 		entity.setHealth(health.getFloat());
-		if (copyArmor.get()) {
-			for (EquipmentSlot slot : EquipmentSlot.values()) {
-				ItemStack stack = mc.player.getItemBySlot(slot);
-				if (!stack.isEmpty()) entity.setItemSlot(slot, stack.copy());
-			}
-		}
+		if (copyArmor.get()) dress(entity);
 		world.addEntity(entity);
 		fake.entity = entity;
 		fake.wanderer = new FakeWanderer();
@@ -824,6 +1054,60 @@ public class FakePlayerModule extends Module {
 		fake.invulnerableTicks = 0;
 		fake.deadTicks = 0;
 		fake.landing = true;
+	}
+
+	/** Puts the saved gear on, saving yours first if there's nothing saved yet. */
+	private void dress(RemotePlayer entity) {
+		Map<EquipmentSlot, ItemStack> gear = loadGear();
+		if (gear == null) gear = saveGearFromYou();
+		for (EquipmentSlot slot : EquipmentSlot.values()) entity.setItemSlot(slot, gear.getOrDefault(slot, ItemStack.EMPTY).copy());
+	}
+
+	/** Your armor and held items, kept as the fake players' gear from now on. */
+	private Map<EquipmentSlot, ItemStack> saveGearFromYou() {
+		Map<EquipmentSlot, ItemStack> gear = new java.util.EnumMap<>(EquipmentSlot.class);
+		com.google.gson.JsonObject json = new com.google.gson.JsonObject();
+		var ops = mc.level.registryAccess().createSerializationContext(com.mojang.serialization.JsonOps.INSTANCE);
+		for (EquipmentSlot slot : EquipmentSlot.values()) {
+			ItemStack stack = mc.player.getItemBySlot(slot);
+			if (stack.isEmpty()) continue;
+			gear.put(slot, stack.copy());
+			ItemStack.CODEC.encodeStart(ops, stack).result().ifPresent(encoded -> json.add(slot.getName(), encoded));
+		}
+		savedGear.set(json.toString());
+		return gear;
+	}
+
+	/** The saved gear, rebuilt for this world's registries; null if none has been saved yet. */
+	private Map<EquipmentSlot, ItemStack> loadGear() {
+		if (savedGear.get().isBlank()) return null;
+		Map<EquipmentSlot, ItemStack> gear = new java.util.EnumMap<>(EquipmentSlot.class);
+		try {
+			com.google.gson.JsonObject json = com.google.gson.JsonParser.parseString(savedGear.get()).getAsJsonObject();
+			var ops = mc.level.registryAccess().createSerializationContext(com.mojang.serialization.JsonOps.INSTANCE);
+			for (EquipmentSlot slot : EquipmentSlot.values()) {
+				if (!json.has(slot.getName())) continue;
+				ItemStack.CODEC.parse(ops, json.get(slot.getName())).result().ifPresent(stack -> gear.put(slot, stack));
+			}
+		} catch (RuntimeException e) {
+			return null;
+		}
+		return gear;
+	}
+
+	/** Takes your current gear as the fake players' gear and puts it on everyone already out. */
+	private void resetGear() {
+		if (mc.player == null || mc.level == null) {
+			savedGear.set("");
+			ChatUtil.info("Fake players will copy your gear next time they spawn");
+			return;
+		}
+		Map<EquipmentSlot, ItemStack> gear = saveGearFromYou();
+		for (Fake fake : fakes) {
+			if (fake.entity == null) continue;
+			for (EquipmentSlot slot : EquipmentSlot.values()) fake.entity.setItemSlot(slot, gear.getOrDefault(slot, ItemStack.EMPTY).copy());
+		}
+		ChatUtil.info(gear.isEmpty() ? "Fake players now wear nothing (you had nothing on)" : "Fake players now wear your current gear, and keep it");
 	}
 
 	private void despawn(Fake fake) {

@@ -41,6 +41,7 @@ public class FireworkRocketEntityMixin {
 
 	@Unique
 	private boolean femboyware$isBoost() {
-		return FemboyWare.getModules() != null && FemboyWare.getModules().get(ElytraBoostModule.class).isOurFirework((FireworkRocketEntity) (Object) this);
+		return FemboyWare.getModules() != null && (FemboyWare.getModules().get(ElytraBoostModule.class).isOurFirework((FireworkRocketEntity) (Object) this)
+			|| FemboyWare.getModules().get(dev.femboyware.module.utility.ServerLarpModule.class).isOurRocket((FireworkRocketEntity) (Object) this));
 	}
 }
