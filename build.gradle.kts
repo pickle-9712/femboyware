@@ -53,6 +53,14 @@ tasks {
         filesMatching("*.mixins.json") { expand(props) }
     }
 
+    // After every game test run, its screenshots land in src/gametest/screenshots to look at
+    register<Sync>("collectTestScreenshots") {
+        group = "verification"
+        from(layout.buildDirectory.dir("run/clientGameTest/screenshots"))
+        into(rootProject.layout.projectDirectory.dir("src/gametest/screenshots"))
+    }
+    matching { it.name == "runClientGameTest" }.configureEach { finalizedBy("collectTestScreenshots") }
+
     register<Copy>("buildAndCollect") {
         group = "build"
         from(loomx.modJar.flatMap { it.archiveFile })

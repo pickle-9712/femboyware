@@ -35,6 +35,13 @@ public final class Glass {
 	/** Textures kept for reuse, and roughly how many pixels they may hold between them. */
 	private static final int MAX_TEXTURES = 200;
 	private static final long MAX_PIXELS = 24_000_000;
+	/** Plain shapes bigger than this many pixels are drawn from fills rather than kept as a texture. */
+	private static final long DIRECT_AREA = 250_000;
+	/**
+	 * A texture drawn this recently may still be waiting in this frame's batch, so it's never let go
+	 * then: releasing one that's about to be drawn is what makes the GL error and the garbage on screen.
+	 */
+	private static final long IN_USE_NANOS = 500_000_000L;
 
 	/** Everything a shape's pixels depend on. */
 	private record Key(int width, int height, int radius, int rim, int tint, int highlight, int rimStrength, int sheenStrength,
@@ -42,7 +49,18 @@ public final class Glass {
 
 	private enum Kind { GLASS, SOLID, ELLIPSE }
 
-	private record Cached(Identifier id, int margin, long pixels) {}
+	private static final class Cached {
+		final Identifier id;
+		final int margin;
+		final long pixels;
+		long used = System.nanoTime();
+
+		Cached(Identifier id, int margin, long pixels) {
+			this.id = id;
+			this.margin = margin;
+			this.pixels = pixels;
+		}
+	}
 
 	private static final Map<Key, Cached> CACHE = new LinkedHashMap<>(64, 0.75f, true);
 	private static long cachedPixels;
@@ -70,7 +88,9 @@ public final class Glass {
 		int width = (x2 - x1) * density, height = (y2 - y1) * density;
 		if (width <= 0 || height <= 0) return;
 		int r = Math.min(radius * density, Math.min(width, height) / 2);
-		if (r <= DIRECT_RADIUS) {
+		// Small corners, and big panels (whole app windows and their backdrops), go straight from fills:
+		// a texture the size of a window costs millions of pixels to paint and keep for a barely softer edge
+		if (r <= DIRECT_RADIUS || (long) width * height > DIRECT_AREA) {
 			context.pose().pushMatrix();
 			context.pose().scale(1f / density, 1f / density);
 			pixels(context, x1 * density, y1 * density, x2 * density, y2 * density, r, color);
@@ -93,6 +113,7 @@ public final class Glass {
 	private static void blit(GuiGraphics context, Key key, int left, int top, int density) {
 		Cached cached = CACHE.get(key);
 		if (cached == null) cached = create(key);
+		cached.used = System.nanoTime();
 		int margin = cached.margin;
 		int textureWidth = key.width + margin * 2;
 		int textureHeight = key.height + margin * 2;
@@ -117,11 +138,13 @@ public final class Glass {
 		Cached cached = new Cached(id, margin, (long) textureWidth * textureHeight);
 		CACHE.put(key, cached);
 		cachedPixels += cached.pixels;
-		// Forget the least recently drawn shapes once there are too many, or too many pixels
+		// Forget the least recently drawn shapes once there are too many, or too many pixels, but
+		// never one still in use: if they all are, go over the limit for now rather than break the frame
+		long now = System.nanoTime();
 		Iterator<Map.Entry<Key, Cached>> oldest = CACHE.entrySet().iterator();
 		while ((CACHE.size() > MAX_TEXTURES || cachedPixels > MAX_PIXELS) && oldest.hasNext()) {
 			Cached old = oldest.next().getValue();
-			if (old == cached) break;
+			if (old == cached || now - old.used < IN_USE_NANOS) break;
 			oldest.remove();
 			cachedPixels -= old.pixels;
 			Minecraft.getInstance().getTextureManager().release(old.id);

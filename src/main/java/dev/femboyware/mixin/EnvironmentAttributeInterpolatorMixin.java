@@ -16,6 +16,7 @@ public class EnvironmentAttributeInterpolatorMixin {
 	private Object femboyware$pinkSky(Object value, EnvironmentAttribute<?> attribute, float tickProgress) {
 		if (FemboyWare.getModules() == null) return value;
 		Object tinted = FemboyWare.getModules().get(PinkSkyModule.class).modify(attribute, value);
+		tinted = FemboyWare.getModules().get(dev.femboyware.module.effects.AuraSkyModule.class).modify(attribute, tinted);
 		return FemboyWare.getModules().get(NoRenderModule.class).modify(attribute, tinted);
 	}
 }

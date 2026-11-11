@@ -40,6 +40,8 @@ public class ClickGuiScreen extends Screen {
 	private static final int HEADER_HEIGHT = 16;
 	private static final int ROW_HEIGHT = 13;
 	private static final int TABS_PER_ROW = 3;
+	/** Room round a tab's name. */
+	private static final int TAB_PADDING = 10;
 	/** Settings sit in a slightly darker well inside the glass. */
 	private static final int SETTING_BG = 0x24000000;
 	private static final String[] CHANNEL_NAMES = {"Red", "Green", "Blue", "Alpha"};
@@ -271,21 +273,29 @@ public class ClickGuiScreen extends Screen {
 			context.fill(x + 6, y - 1, x + PANEL_WIDTH - 6, y, 0x30FFFFFF);
 
 			if (tabs.size() > 1) {
-				// At most three tabs to a row, so names never run into each other
-				int perRow = Math.min(TABS_PER_ROW, tabs.size());
-				for (int start = 0; start < tabs.size(); start += perRow) {
-					int count = Math.min(perRow, tabs.size() - start);
+				// Tabs as wide as their names, as many to a row as fit (at most three), the spare room
+				// shared out, so long names like Cosmetic never run off the panel or into each other
+				for (int start = 0; start < tabs.size(); ) {
+					int count = 0, used = 0;
+					while (start + count < tabs.size() && count < TABS_PER_ROW) {
+						int w = font.width(tabs.get(start + count).getDisplayName()) + TAB_PADDING;
+						if (count > 0 && used + w > PANEL_WIDTH) break;
+						used += w;
+						count++;
+					}
+					int spare = Math.max(0, PANEL_WIDTH - used) / count, left = x;
 					for (int i = 0; i < count; i++) {
 						Category tab = tabs.get(start + i);
-						int left = x + PANEL_WIDTH * i / count;
-						int right = x + PANEL_WIDTH * (i + 1) / count;
+						int right = i == count - 1 ? x + PANEL_WIDTH : left + font.width(tab.getDisplayName()) + TAB_PADDING + spare;
 						Row tabRow = new Row(RowType.TAB, left, y, right - left, ROW_HEIGHT, tab, null, null, 0);
 						rows.add(tabRow);
 						if (tab == panel.tab) Glass.draw(context, left + 3, y + 1, right - 3, y + ROW_HEIGHT - 1, 5, ColorUtil.withAlpha(accent, 0x70), false);
 						else if (tabRow.contains(mouseX, mouseY)) Glass.rounded(context, left + 3, y + 1, right - 3, y + ROW_HEIGHT - 1, 5, 0x18FFFFFF);
 						String name = tab.getDisplayName();
 						context.drawString(font, name, (left + right - font.width(name)) / 2, y + 3, tab == panel.tab ? Theme.text() : Theme.muted());
+						left = right;
 					}
+					start += count;
 					y += ROW_HEIGHT;
 				}
 			}

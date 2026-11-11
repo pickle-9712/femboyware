@@ -9,6 +9,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.RemotePlayer;
+import dev.femboyware.module.larp.LarpProps;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
@@ -24,7 +25,7 @@ import net.minecraft.world.phys.Vec3;
  * to greet them. Fake players have no physics of their own, so this does its own simple movement
  * and collisions, and moves them the way the game moves other players, which animates them too.
  */
-final class FakeWanderer {
+public final class FakeWanderer {
 	private static final double WALK_SPEED = 0.216, SPRINT_SPEED = 0.28, SNEAK_SPEED = 0.065;
 	private static final double GRAVITY = 0.08, DRAG = 0.98, JUMP = 0.42, STEP = 0.6;
 	private static final double HALF_WIDTH = 0.3, HEIGHT = 1.8;
@@ -141,7 +142,7 @@ final class FakeWanderer {
 	}
 
 	/** Walks to its spot in a formation and stands there facing the way the formation does. */
-	void tickFormation(RemotePlayer self, ClientLevel world, Vec3 spot, float facing) {
+	public void tickFormation(RemotePlayer self, ClientLevel world, Vec3 spot, float facing) {
 		if (pos == null) start(self, world);
 		moving = true;
 		if (!world.hasChunkAt(BlockPos.containing(pos))) return;
@@ -186,8 +187,8 @@ final class FakeWanderer {
 	private void putAt(RemotePlayer self, ClientLevel world, Vec3 spot) {
 		stuckTicks = 0;
 		Vec3 free = spot;
-		for (int up = 0; up < 8 && !world.noCollision(self, boxAt(free)); up++) free = free.add(0, 1, 0);
-		if (!world.noCollision(self, boxAt(free))) return;
+		for (int up = 0; up < 8 && !free(self, world, boxAt(free)); up++) free = free.add(0, 1, 0);
+		if (!free(self, world, boxAt(free))) return;
 		pos = free;
 		fallSpeed = 0;
 	}
@@ -213,7 +214,7 @@ final class FakeWanderer {
 		yaw = self.getYRot();
 		headYaw = yaw;
 		// Spawned inside something, like a ring position that landed in a wall
-		for (int up = 0; up < 8 && !world.noCollision(self, boxAt(pos)); up++) pos = pos.add(0, 1, 0);
+		for (int up = 0; up < 8 && !free(self, world, boxAt(pos)); up++) pos = pos.add(0, 1, 0);
 	}
 
 	private void pickWhatsNext(RemotePlayer self, Vec3 home, double radius, List<? extends Player> players) {
@@ -307,7 +308,8 @@ final class FakeWanderer {
 		moveZ += pushZ;
 		AABB box = boxAt(pos);
 		Vec3 wanted = new Vec3(moveX, fallSpeed, moveZ);
-		Vec3 moved = Entity.collideBoundingBox(self, wanted, box, world, List.of());
+		// The larp cars, jet and so on are solid for fake players too
+		Vec3 moved = Entity.collideBoundingBox(self, wanted, box, world, LarpProps.shapes(self, box.expandTowards(wanted).inflate(1)));
 		boolean hitWall = Math.abs(moved.x - moveX) > 1e-6 || Math.abs(moved.z - moveZ) > 1e-6;
 		if (Math.abs(moved.x - moveX) > 1e-6) pushX = 0;
 		if (Math.abs(moved.z - moveZ) > 1e-6) pushZ = 0;
@@ -316,7 +318,7 @@ final class FakeWanderer {
 			if (grounded) {
 				// A slab or a carpet gets walked up, and anything taller gets jumped
 				Vec3 stepped = pos.add(moveX, STEP, moveZ);
-				if (world.noCollision(self, boxAt(stepped)) && world.noCollision(self, box.expandTowards(0, STEP, 0))) {
+				if (free(self, world, boxAt(stepped)) && free(self, world, box.expandTowards(0, STEP, 0))) {
 					moved = new Vec3(moveX, STEP, moveZ);
 				} else fallSpeed = JUMP;
 			}
@@ -336,7 +338,12 @@ final class FakeWanderer {
 	private boolean unsafe(RemotePlayer self, ClientLevel world, double moveX, double moveZ) {
 		Vec3 next = pos.add(moveX, 0, moveZ);
 		if (!world.getFluidState(BlockPos.containing(next)).isEmpty()) return true;
-		return grounded && world.noCollision(self, boxAt(next).expandTowards(0, -3.5, 0));
+		return grounded && free(self, world, boxAt(next).expandTowards(0, -3.5, 0));
+	}
+
+	/** Whether {@code box} is clear of blocks and of the larp props. */
+	private static boolean free(RemotePlayer self, ClientLevel world, AABB box) {
+		return world.noCollision(self, box) && LarpProps.clear(self, box);
 	}
 
 	private static AABB boxAt(Vec3 pos) {

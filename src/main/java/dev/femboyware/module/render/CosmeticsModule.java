@@ -25,6 +25,7 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
 import net.fabricmc.fabric.api.client.rendering.v1.LivingEntityFeatureRendererRegistrationCallback;
+import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.player.PlayerModel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.RenderLayerParent;
@@ -78,6 +79,7 @@ public class CosmeticsModule extends Module {
 	private final NumberSetting hornSize = add(new NumberSetting("Horn Size", "How big the horns are", DEFAULT_HORN_SIZE, 0.15, 0.5, 0.01)).visibleWhen(() -> !horns.is(Horns.OFF));
 	private final BoolSetting fire = add(new BoolSetting("Fire", "A big fire burning between the horns", true)).visibleWhen(() -> !horns.is(Horns.OFF));
 	private final EnumSetting<ShowOn> showOn = add(new EnumSetting<>("Show On", "You, you and your friends, or every player", ShowOn.YOU));
+	private final EnumSetting<Watch> watch = add(new EnumSetting<>("Watch", "A watch on your left wrist", Watch.ICED));
 	private final BoolSetting onFakes = add(new BoolSetting("Fake Players", "Fake players wear your cosmetics too, each with its own random horns", true));
 	/** Who you gave the cosmetics to with .cos give, as name:horns pairs. Only saved, never shown. */
 	private final StringSetting givenTo = add(new StringSetting("Given To", "", "")).visibleWhen(() -> false);
@@ -85,7 +87,7 @@ public class CosmeticsModule extends Module {
 	private Map<String, String> givenParsed = Map.of();
 
 	public CosmeticsModule() {
-		super("Cosmetics", "Korblox leg, headless and Roblox horns", Category.COSMETIC);
+		super("Cosmetics", "Korblox leg, headless and Roblox horns", Category.LARP);
 		LivingEntityFeatureRendererRegistrationCallback.EVENT.register((type, renderer, helper, context) -> {
 			if (renderer instanceof AvatarRenderer<?> player) helper.register(new Feature(asContext(player)));
 		});
@@ -265,6 +267,7 @@ public class CosmeticsModule extends Module {
 				queue.submitCustomGeometry(matrices, cutout(KORBLOX), (pose, consumer) -> leg.draw(pose, consumer, light));
 				matrices.popPose();
 			}
+			if (!watch.is(Watch.OFF)) submitWatch(matrices, queue, getParentModel().leftArm, watch.get(), light, state.ageInTicks);
 			Horns style = hornsFor(state);
 			Mesh hornMesh = horns();
 			if (style == Horns.OFF || hornMesh == null) return;
@@ -289,8 +292,9 @@ public class CosmeticsModule extends Module {
 	private record FireSpot(Vector3f base, Vec3 owner, float age, float studs, Horns style) {
 	}
 
+	/** Late, once everything solid's drawn, so nothing drawn after it (cars, the jet) can paint over the fire. */
 	@Override
-	public void onRender3D(Render3DEvent event) {
+	public void onRender3DLate(Render3DEvent event) {
 		if (fires.isEmpty()) return;
 		Vec3 cam = event.camera().pos;
 		VertexConsumer consumer = null;
@@ -307,6 +311,226 @@ public class CosmeticsModule extends Module {
 	@Override
 	protected void onDisable() {
 		fires.clear();
+	}
+
+	// ---------------------------------------------------------------- watch
+
+	public enum Watch {
+		OFF, GOLD, ICED, ROSE_GOLD, BLACK;
+
+		Identifier texture() {
+			String name = switch (this) {
+				case GOLD -> "gold";
+				case ROSE_GOLD -> "rose";
+				case BLACK -> "black";
+				default -> "iced";
+			};
+			return Identifier.fromNamespaceAndPath("femboyware", "textures/larp/watch_" + name + ".png");
+		}
+	}
+
+	// ---------------------------------------------------------------- the 3D skin in menus
+
+	/** What the menu skin had visible before we hid parts of it, to put back after. */
+	private boolean skinHeadWas = true, skinLegWas = true;
+
+	/**
+	 * Shrinks and lowers a menu's 3D skin so the horns fit in its box with the feet, since the box
+	 * only has room for a plain player. Model space: y down, head top at -0.5, feet at 1.5.
+	 */
+	public void fitSkin(PoseStack matrices) {
+		if (!isEnabled() || horns.is(Horns.OFF)) return;
+		// The horns reach this far above the head's top; the body's middle sits where it did
+		float size = hornSize.get().floatValue();
+		float top = -0.5f - 0.6f * size / 0.28f, bottom = 1.5f;
+		// The fire reaches higher still; its faint tip can go past the edge
+		if (fire.get()) top = Math.min(top, -0.5f + (FIRE_BASE - FIRE_HEIGHT * 0.8f) * size);
+		float fit = 2f / (bottom - top), middle = (top + bottom) / 2;
+		matrices.translate(0, 0.5f - middle * fit, 0);
+		matrices.scale(fit, fit, fit);
+	}
+
+	/**
+	 * Called from GuiSkinRendererMixin before a menu's 3D skin is drawn (the main menu, the phone's
+	 * Roblox profile): hides the head for Headless and the right leg for Korblox.
+	 */
+	public void prepareSkin(PlayerModel model) {
+		skinHeadWas = model.head.visible;
+		skinLegWas = model.rightLeg.visible;
+		if (!isEnabled()) return;
+		if (headless.get()) model.head.visible = false;
+		if (korblox.get()) model.rightLeg.visible = false;
+	}
+
+	//? if <26.1 {
+	/** Called right after: draws the Korblox leg, horns and watch onto it, then puts the model back. */
+	public void decorateSkin(PlayerModel model, PoseStack matrices, net.minecraft.client.renderer.MultiBufferSource buffers, int light) {
+		model.head.visible = skinHeadWas;
+		model.rightLeg.visible = skinLegWas;
+		if (!isEnabled()) return;
+		Mesh leg = korblox();
+		if (korblox.get() && leg.triangles() > 0) {
+			matrices.pushPose();
+			model.rightLeg.translateAndRotate(matrices);
+			matrices.scale(KORBLOX_SCALE, KORBLOX_SCALE, KORBLOX_SCALE);
+			leg.draw(matrices.last(), buffers.getBuffer(cutout(KORBLOX)), light);
+			matrices.popPose();
+		}
+		Horns style = horns.get();
+		Mesh hornMesh = horns();
+		if (style != Horns.OFF && hornMesh.triangles() > 0) {
+			float size = hornSize.get().floatValue();
+			matrices.pushPose();
+			model.head.translateAndRotate(matrices);
+			matrices.translate(0, -0.5f, 0);
+			matrices.scale(size, size, size);
+			hornMesh.draw(matrices.last(), buffers.getBuffer(cutout(style.texture)), light);
+			matrices.popPose();
+		}
+		if (!watch.is(Watch.OFF)) {
+			matrices.pushPose();
+			model.leftArm.translateAndRotate(matrices);
+			drawWatch(matrices.last(), buffers.getBuffer(cutout(watch.get().texture())), light);
+			matrices.popPose();
+		}
+		// The fire last, since it's see-through: in the horns' own space, rising up the screen
+		if (style != Horns.OFF && fire.get()) {
+			float size = hornSize.get().floatValue();
+			matrices.pushPose();
+			model.head.translateAndRotate(matrices);
+			matrices.translate(0, -0.5f, 0);
+			matrices.scale(size, size, size);
+			drawSkinFire(matrices.last(), buffers.getBuffer(FxRender.spriteLayer(FIRE_PUFF)), style, System.nanoTime() / 5e7f);
+			matrices.popPose();
+		}
+	}
+
+	/**
+	 * The same fire as in the world, for menus: there's no camera to face there, so each puff is
+	 * three crossed quads round the upright. Horn space, in studs: y down, so the fire goes to -y.
+	 */
+	private static void drawSkinFire(PoseStack.Pose pose, VertexConsumer c, Horns style, float age) {
+		float height = FIRE_HEIGHT;
+		for (int i = 0; i < OUTER_PUFFS + CORE_PUFFS; i++) {
+			boolean core = i >= OUTER_PUFFS;
+			int seed = core ? i + 100 - OUTER_PUFFS : i;
+			float life = (age * ((core ? 0.026f : 0.022f) + 0.012f * random(seed, 1)) + random(seed, 2)) % 1f;
+			if (core) life *= 0.8f;
+			float reach = fireWidth(life) * (core ? 0.3f : 0.55f) * (float) Math.sqrt(random(seed, 4));
+			float size = (core ? 0.4f + 0.15f * random(seed, 5) : 0.55f + 0.22f * random(seed, 5)) * (1 - life * (core ? 0.45f : 0.35f));
+			int color = core ? FxRender.fade(style.core, fade(life) * 0.75f) : FxRender.fade(FxRender.mix(style.outer, style.core, 0.15f * random(seed, 6)), fade(life) * 0.55f);
+			float around = random(seed, 3) * Mth.TWO_PI + age * 0.02f;
+			float x = Mth.cos(around) * reach, z = Mth.sin(around) * reach, y = FIRE_BASE - life * height;
+			float turn = random(seed, 9) * Mth.PI;
+			for (int k = 0; k < 3; k++) {
+				float angle = turn + k * Mth.PI / 3, dx = Mth.cos(angle) * size, dz = Mth.sin(angle) * size;
+				skinFireVertex(c, pose, x - dx, y + size, z - dz, 0, 1, color);
+				skinFireVertex(c, pose, x + dx, y + size, z + dz, 1, 1, color);
+				skinFireVertex(c, pose, x + dx, y - size, z + dz, 1, 0, color);
+				skinFireVertex(c, pose, x - dx, y - size, z - dz, 0, 0, color);
+			}
+		}
+	}
+
+	private static void skinFireVertex(VertexConsumer c, PoseStack.Pose pose, float x, float y, float z, float u, float v, int color) {
+		c.addVertex(pose, x, y, z).setColor(color).setUv(u, v).setOverlay(OverlayTexture.NO_OVERLAY).setLight(0xF000F0).setNormal(pose, 0, -1, 0);
+	}
+	//?}
+
+	/** Your horns, or OFF when Cosmetics is off. Read by the phone's Roblox app. */
+	public Horns hornStyle() {
+		return isEnabled() ? horns.get() : Horns.OFF;
+	}
+
+	public boolean korbloxOn() {
+		return isEnabled() && korblox.get();
+	}
+
+	public boolean headlessOn() {
+		return isEnabled() && headless.get();
+	}
+
+	/** Whether you (or whoever this is) are already wearing a watch from here. */
+	public boolean showsWatch(AvatarRenderState state) {
+		return !watch.is(Watch.OFF) && wears(state);
+	}
+
+	/**
+	 * A watch on the left wrist: a band round the arm and a dial on the outside of the wrist, both
+	 * from the dial texture (its corner is the case colour). Iced ones glint. Left arm space.
+	 */
+	public static void submitWatch(PoseStack matrices, SubmitNodeCollector queue, ModelPart leftArm, Watch style, int light, float age) {
+		if (style == Watch.OFF) return;
+		matrices.pushPose();
+		leftArm.translateAndRotate(matrices);
+		queue.submitCustomGeometry(matrices, cutout(style.texture()), (pose, c) -> drawWatch(pose, c, light));
+		if (style == Watch.ICED) queue.submitCustomGeometry(matrices, RenderTypes.eyes(FxRender.GLOW), (pose, c) -> drawGlints(pose, c, age));
+		matrices.popPose();
+	}
+
+	private static final float WATCH_FACE_X = 0.226f;
+
+	private static void drawWatch(PoseStack.Pose pose, VertexConsumer c, int light) {
+		float[] caseUv = {0.01f, 0.01f, 0.06f, 0.06f};
+		// The band
+		cuboid(c, pose, light, -0.078f, 0.48f, -0.14f, 0.203f, 0.55f, 0.14f, caseUv);
+		// The case, standing off the outside of the wrist
+		cuboid(c, pose, light, 0.2f, 0.452f, -0.068f, WATCH_FACE_X, 0.578f, 0.068f, caseUv);
+		// The dial, facing out
+		Vec3 n = new Vec3(1, 0, 0);
+		float x = WATCH_FACE_X + 0.001f;
+		vertex(c, pose, x, 0.455f, 0.065f, 0, 0, light, n);
+		vertex(c, pose, x, 0.455f, -0.065f, 1, 0, light, n);
+		vertex(c, pose, x, 0.575f, -0.065f, 1, 1, light, n);
+		vertex(c, pose, x, 0.575f, 0.065f, 0, 1, light, n);
+	}
+
+	/** Little stars twinkling on an iced-out dial. */
+	private static void drawGlints(PoseStack.Pose pose, VertexConsumer c, float age) {
+		float[][] spots = {{0.47f, 0.05f}, {0.56f, -0.05f}, {0.50f, -0.02f}, {0.53f, 0.04f}, {0.46f, -0.055f}};
+		for (int i = 0; i < spots.length; i++) {
+			float twinkle = (float) Math.max(0, Math.sin(age * 0.35f + i * 2.1f));
+			twinkle = twinkle * twinkle * twinkle;
+			if (twinkle < 0.05f) continue;
+			float size = 0.012f + 0.03f * twinkle, x = WATCH_FACE_X + 0.004f, y = spots[i][0], z = spots[i][1];
+			int color = FxRender.fade(0xFFFFFFFF, twinkle);
+			glint(c, pose, x, y - size, z, x, y + size, z, size * 0.18f, color);
+			glint(c, pose, x, y, z - size, x, y, z + size, size * 0.18f, color);
+		}
+	}
+
+	/** A thin bright line from a to b on the dial's plane, as a quad. */
+	private static void glint(VertexConsumer c, PoseStack.Pose pose, float ax, float ay, float az, float bx, float by, float bz, float half, int color) {
+		boolean vertical = ay != by;
+		float oy = vertical ? 0 : half, oz = vertical ? half : 0;
+		glow(c, pose, ax, ay - oy, az - oz, color);
+		glow(c, pose, bx, by - oy, bz - oz, color);
+		glow(c, pose, bx, by + oy, bz + oz, color);
+		glow(c, pose, ax, ay + oy, az + oz, color);
+	}
+
+	private static void glow(VertexConsumer c, PoseStack.Pose pose, float x, float y, float z, int color) {
+		c.addVertex(pose, x, y, z).setColor(color).setUv(0.5f, 0.5f).setOverlay(OverlayTexture.NO_OVERLAY).setLight(0xF000F0).setNormal(pose, 1, 0, 0);
+	}
+
+	/** A box with every face showing the same piece of texture. */
+	private static void cuboid(VertexConsumer c, PoseStack.Pose pose, int light, float x1, float y1, float z1, float x2, float y2, float z2, float[] uv) {
+		float[][][] faces = {
+			{{x1, y1, z1}, {x2, y1, z1}, {x2, y2, z1}, {x1, y2, z1}},
+			{{x2, y1, z2}, {x1, y1, z2}, {x1, y2, z2}, {x2, y2, z2}},
+			{{x1, y1, z2}, {x1, y1, z1}, {x1, y2, z1}, {x1, y2, z2}},
+			{{x2, y1, z1}, {x2, y1, z2}, {x2, y2, z2}, {x2, y2, z1}},
+			{{x1, y1, z2}, {x2, y1, z2}, {x2, y1, z1}, {x1, y1, z1}},
+			{{x1, y2, z1}, {x2, y2, z1}, {x2, y2, z2}, {x1, y2, z2}}};
+		Vec3[] normals = {new Vec3(0, 0, -1), new Vec3(0, 0, 1), new Vec3(-1, 0, 0), new Vec3(1, 0, 0), new Vec3(0, -1, 0), new Vec3(0, 1, 0)};
+		float[][] corners = {{uv[0], uv[1]}, {uv[2], uv[1]}, {uv[2], uv[3]}, {uv[0], uv[3]}};
+		for (int f = 0; f < faces.length; f++) {
+			for (int k = 0; k < 4; k++) vertex(c, pose, faces[f][k][0], faces[f][k][1], faces[f][k][2], corners[k][0], corners[k][1], light, normals[f]);
+		}
+	}
+
+	private static void vertex(VertexConsumer c, PoseStack.Pose pose, float x, float y, float z, float u, float v, int light, Vec3 n) {
+		c.addVertex(pose, x, y, z).setColor(0xFFFFFFFF).setUv(u, v).setOverlay(OverlayTexture.NO_OVERLAY).setLight(light).setNormal(pose, (float) n.x, (float) n.y, (float) n.z);
 	}
 
 	// ---------------------------------------------------------------- meshes

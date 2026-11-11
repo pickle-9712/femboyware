@@ -80,6 +80,11 @@ public final class FxRender {
 			RenderType.create("femboyware_" + name, RenderSetup.builder(pipeline).withTexture("Sampler0", texture).sortOnUpload().createRenderSetup()));
 	}
 
+	/** Unlit, normally blended textured quads for drawing into any buffer source, like a menu's 3D skin. */
+	public static RenderType spriteLayer(Identifier texture) {
+		return textureLayer(SPRITES, "fx_sprites", texture);
+	}
+
 	/** Flat colour quads: normally blended, or added as light with {@code light}. */
 	public static VertexConsumer quads(Render3DEvent event, boolean light, boolean throughWalls) {
 		RenderType layer = light ? (throughWalls ? LIGHT_XRAY_LAYER : LIGHT_LAYER) : (throughWalls ? QUADS_XRAY_LAYER : QUADS_LAYER);

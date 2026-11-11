@@ -124,6 +124,10 @@ public abstract class Module {
 	public void onRender3D(Render3DEvent event) {
 	}
 
+	/** After every module's {@link #onRender3D} has been drawn: for see-through things that must go over solid ones. */
+	public void onRender3DLate(Render3DEvent event) {
+	}
+
 	public void onRender2D(GuiGraphics context, float tickDelta) {
 	}
 

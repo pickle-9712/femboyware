@@ -17,6 +17,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(LevelRenderer.class)
 public class WorldRendererMixin {
+	/** While you fly, the sections you and the captain are in count as visible, so you're both drawn over unloaded ground. */
+	@Inject(method = "isSectionCompiledAndVisible", at = @At("HEAD"), cancellable = true)
+	private void femboyware$keepFlyersVisible(net.minecraft.core.BlockPos pos, org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable<Boolean> cir) {
+		if (dev.femboyware.module.larp.FarGround.keepsVisible(pos)) cir.setReturnValue(true);
+	}
+
 	//? if >=26.1 {
 	/*private static final String BLOCK_OUTLINE = "submitBlockOutline";
 	*///?} else {

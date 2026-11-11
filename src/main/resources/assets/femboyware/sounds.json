@@ -1,11 +1,103 @@
 {
 	"emote.queen_st": {
-		"sounds": [{"name": "femboyware:emotes/queen_st", "stream": true}]
+		"sounds": [
+			{
+				"name": "femboyware:emotes/queen_st",
+				"stream": true
+			}
+		]
 	},
 	"emote.vyzee": {
-		"sounds": [{"name": "femboyware:emotes/vyzee", "stream": true}]
+		"sounds": [
+			{
+				"name": "femboyware:emotes/vyzee",
+				"stream": true
+			}
+		]
 	},
 	"emote.blue_bands": {
-		"sounds": [{"name": "femboyware:emotes/blue_bands", "stream": true}]
+		"sounds": [
+			{
+				"name": "femboyware:emotes/blue_bands",
+				"stream": true
+			}
+		]
+	},
+	"ui.ledger_notify": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/ledger_notify"
+			}
+		]
+	},
+	"ui.phone_text": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/phone_text"
+			}
+		]
+	},
+	"ui.phone_unlock": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/phone_unlock"
+			}
+		]
+	},
+	"ui.phone_tap": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/phone_tap"
+			}
+		]
+	},
+	"ui.ledger_beep": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/ledger_beep"
+			}
+		]
+	},
+	"ui.ledger_success": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/ledger_success"
+			}
+		]
+	},
+	"ui.shutter": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/shutter"
+			}
+		]
+	},
+	"ui.champagne_pop": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/champagne_pop"
+			}
+		]
+	},
+	"ui.champagne_spray": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/champagne_spray"
+			}
+		]
+	},
+	"ui.heli_rotor": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/heli_rotor"
+			}
+		]
+	},
+	"ui.jet_engine": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/jet_engine"
+			}
+		]
 	}
 }

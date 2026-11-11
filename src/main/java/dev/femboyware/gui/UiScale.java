@@ -44,6 +44,26 @@ public final class UiScale {
 		beginClient();
 	}
 
+	/** Like {@link #begin()}, at a density the caller picked, for screens that need a canvas of some size. */
+	public static void begin(int density) {
+		canvasDensity = density;
+		beginClient();
+	}
+
+	/**
+	 * For text drawn scaled up: switches to the font copy for {@code density} pixels per unit so the
+	 * glyphs are made at the size they'll show at, not stretched. Returns what to restore.
+	 */
+	public static int pushDensity(int density) {
+		int old = canvasDensity;
+		canvasDensity = Math.max(1, Math.min(MAX_DENSITY, density));
+		return old;
+	}
+
+	public static void popDensity(int old) {
+		canvasDensity = old;
+	}
+
 	public static void end() {
 		canvasDensity = 0;
 		endClient();
@@ -56,6 +76,17 @@ public final class UiScale {
 
 	public static void endClient() {
 		clientDepth = Math.max(0, clientDepth - 1);
+	}
+
+	/** Draws Minecraft's own text (like a copy of a vanilla name tag) from inside our drawing, in its normal font. Returns what to resume. */
+	public static int suspendClient() {
+		int depth = clientDepth;
+		clientDepth = 0;
+		return depth;
+	}
+
+	public static void resumeClient(int depth) {
+		clientDepth = depth;
 	}
 
 	public static boolean isClientText() {

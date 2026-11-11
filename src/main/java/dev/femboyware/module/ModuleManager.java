@@ -287,6 +287,7 @@ public class ModuleManager {
 		register(new AntiWebModule());
 		register(new BlinkModule());
 		register(new dev.femboyware.module.utility.ServerLarpModule());
+		register(new dev.femboyware.module.larp.ForceDispenserModule());
 		register(new dev.femboyware.module.render.ScoreboardEditModule());
 		register(new BoatFlyModule());
 		register(new ElytraFreezeModule());
@@ -317,7 +318,16 @@ public class ModuleManager {
 		register(new CapeModule());
 		register(new FurryModule());
 		register(new CosmeticsModule());
+		register(new dev.femboyware.module.render.RobloxHatsModule());
 		register(new EmotesModule());
+		register(new dev.femboyware.module.larp.LedgerModule());
+		register(new dev.femboyware.module.larp.CinematicCameraModule());
+		register(new dev.femboyware.module.larp.PhoneModule());
+		register(new dev.femboyware.module.larp.PaparazziModule());
+		register(new dev.femboyware.module.larp.CarsModule());
+		register(new dev.femboyware.module.larp.JetModule());
+		register(new dev.femboyware.module.larp.HelicopterModule());
+		register(new dev.femboyware.module.larp.HangarModule());
 		register(new CrosshairModule());
 		register(new BlockOutlineModule());
 		register(new NewChunksModule());
@@ -387,6 +397,7 @@ public class ModuleManager {
 		register(new AuroraModule());
 		register(new StarfieldModule());
 		register(new PlanetModule());
+		register(new dev.femboyware.module.effects.AuraSkyModule());
 		register(new RainbowModule());
 		register(new SkyLanternsModule());
 		register(new PetalRainModule());
@@ -397,6 +408,7 @@ public class ModuleManager {
 		register(new AutoShearModule());
 		register(new AutoSignModule());
 		register(new FakePlayerModule());
+		register(new dev.femboyware.module.client.ClientSyncModule());
 		register(new FreeCamModule());
 		register(new FtHelperModule());
 		register(new NoRenderModule());
@@ -495,6 +507,8 @@ public class ModuleManager {
 	}
 
 	public void onTick() {
+		// The phone and Ledger items open on right-click whether or not their modules are on
+		dev.femboyware.module.larp.LarpItems.tick();
 		dispatch(Module::onTick);
 	}
 
@@ -544,6 +558,9 @@ public class ModuleManager {
 		UiScale.beginClient();
 		try {
 			dispatch(module -> module.onRender3D(event));
+			// Draw everything solid now, so see-through effects drawn late aren't painted over
+			event.consumers().endBatch();
+			dispatch(module -> module.onRender3DLate(event));
 		} finally {
 			UiScale.endClient();
 		}

@@ -177,6 +177,10 @@ public class ServerLarpModule extends Module {
 	/** End crystals placed while larping; they only exist here, and blow up here. */
 	private final Set<EndCrystal> crystals = Collections.newSetFromMap(new IdentityHashMap<>());
 	private int nextRocketId = FIRST_ROCKET_ID;
+	/** Levers, buttons, plates and redstone, worked out here while larping. */
+	private final dev.femboyware.module.larp.LarpRedstone redstone = new dev.femboyware.module.larp.LarpRedstone();
+	/** Arrows shot while larping (by Force Dispenser), which only exist here and go when it ends or after a minute. */
+	private final Map<Entity, Integer> localShots = new IdentityHashMap<>();
 	/** Everything from the last larp, kept when it's turned off so turning it back on carries on; .larp reset forgets it. */
 	/**
 	 * Items are kept as data, not live stacks: each join builds fresh registries, and a stack still pointing
@@ -221,7 +225,7 @@ public class ServerLarpModule extends Module {
 	private net.minecraft.world.inventory.AbstractContainerMenu openMenu;
 
 	public ServerLarpModule() {
-		super("Server Larp", "Freezes you server-side while you play client-side with any items, blocks and chests; off puts everything back", Category.PLAYER);
+		super("Server Larp", "Freezes you server-side while you play client-side with any items, blocks and chests; off puts everything back", Category.LARP);
 		ItemTooltipCallback.EVENT.register((stack, context, flag, lines) -> {
 			if (!isEnabled() && !worthAlways.get()) return;
 			double worth = worth(stack);
@@ -502,6 +506,9 @@ public class ServerLarpModule extends Module {
 		crystals.clear();
 		for (ItemEntity drop : drops) drop.discard();
 		drops.clear();
+		for (Entity shot : localShots.keySet()) shot.discard();
+		localShots.clear();
+		redstone.reset();
 		// Every block placed or broken was a prediction the server never answered; this rolls them all back
 		mc.level.handleBlockChangedAck(Integer.MAX_VALUE);
 		if (mc.gameMode.getPlayerMode() != startMode) mc.gameMode.setLocalMode(startMode);
@@ -537,6 +544,8 @@ public class ServerLarpModule extends Module {
 		rockets.clear();
 		crystals.clear();
 		drops.clear();
+		localShots.clear();
+		redstone.reset();
 		startInventory.clear();
 		startLevel = null;
 		serverBox = null;
@@ -551,6 +560,13 @@ public class ServerLarpModule extends Module {
 		if (larping && mc.player != null) {
 			stopGlidingIfNeeded(mc.player);
 			tickDrops(mc.player);
+			redstone.tick();
+			localShots.entrySet().removeIf(shot -> {
+				if (shot.getKey().isRemoved()) return true;
+				if (shot.setValue(shot.getValue() + 1) < 1200) return false;
+				shot.getKey().discard();
+				return true;
+			});
 		}
 		if (openPos != null && (mc.player == null || mc.player.containerMenu != openMenu)) closeAnimation();
 	}
@@ -679,6 +695,11 @@ public class ServerLarpModule extends Module {
 		if (hand != InteractionHand.MAIN_HAND) return false;
 		// Sneaking with something in hand places it, as usual
 		if (player.isSecondaryUseActive() && !player.getMainHandItem().isEmpty()) return false;
+		// Levers and buttons work here, since the server isn't listening
+		if (redstone.use(hit)) {
+			player.swing(hand);
+			return true;
+		}
 		BlockPos pos = hit.getBlockPos();
 		BlockState state = mc.level.getBlockState(pos);
 		Inventory inventory = player.getInventory();
@@ -702,6 +723,15 @@ public class ServerLarpModule extends Module {
 		if (state.getBlock() instanceof EnderChestBlock) {
 			ChestMenu menu = ChestMenu.sixRows(FAKE_CONTAINER_ID, inventory, enderChest);
 			open(menu, new ContainerScreen(menu, inventory, Component.translatable("container.enderchest")), pos);
+			return true;
+		}
+		if (state.getBlock() instanceof net.minecraft.world.level.block.DispenserBlock) {
+			// Dispensers and droppers too: fill them here, and powering them shoots it out (see Force Dispenser)
+			SimpleContainer container = containers.computeIfAbsent(pos.immutable(), k -> new SimpleContainer(9));
+			var menu = new net.minecraft.world.inventory.DispenserMenu(FAKE_CONTAINER_ID, inventory, container);
+			boolean dropper = state.getBlock() instanceof net.minecraft.world.level.block.DropperBlock;
+			open(menu, new net.minecraft.client.gui.screens.inventory.DispenserScreen(menu, inventory,
+				Component.translatable(dropper ? "container.dropper" : "container.dispenser")), pos);
 			return true;
 		}
 		if (state.getBlock() instanceof ShulkerBoxBlock) {
@@ -830,6 +860,57 @@ public class ServerLarpModule extends Module {
 		drops.add(item);
 		mc.level.addEntity(item);
 		return true;
+	}
+
+	/** A block changed (placed, broken, or from the server): the redstone looks again. */
+	@Override
+	public void onBlockUpdate(BlockPos pos, BlockState state) {
+		if (larping) redstone.changed(pos, state);
+	}
+
+	/** One item out of a random filled slot of a dispenser you've filled while larping, as vanilla picks; empty if it has none. */
+	public ItemStack takeForDispenser(BlockPos pos) {
+		SimpleContainer container = containers.get(pos);
+		if (container == null) return ItemStack.EMPTY;
+		List<Integer> filled = new ArrayList<>();
+		for (int i = 0; i < container.getContainerSize(); i++) if (!container.getItem(i).isEmpty()) filled.add(i);
+		if (filled.isEmpty()) return ItemStack.EMPTY;
+		int slot = filled.get(java.util.concurrent.ThreadLocalRandom.current().nextInt(filled.size()));
+		ItemStack one = container.getItem(slot).split(1);
+		container.setChanged();
+		return one;
+	}
+
+	/** An item that only exists here, landing and picked up like ones you drop while larping. */
+	public void spawnLocalItem(ItemStack stack, Vec3 at, Vec3 velocity) {
+		if (!larping || mc.level == null || stack.isEmpty()) return;
+		ItemEntity item = new ItemEntity(mc.level, at.x, at.y, at.z, stack);
+		item.setDeltaMovement(velocity);
+		item.setPickUpDelay(10);
+		item.setId(nextRocketId--);
+		drops.add(item);
+		mc.level.addEntity(item);
+	}
+
+	/** A firework that only exists here, flying off the way it's pointed. */
+	public void spawnLocalRocket(ItemStack stack, Vec3 at, Vec3 direction) {
+		if (!larping || mc.level == null) return;
+		FireworkRocketEntity rocket = new FireworkRocketEntity(mc.level, at.x, at.y, at.z, stack);
+		rocket.shoot(direction.x, direction.y, direction.z, 0.5f, 1f);
+		rocket.setId(nextRocketId--);
+		rockets.add(rocket);
+		mc.level.addEntity(rocket);
+		mc.level.playLocalSound(at.x, at.y, at.z, SoundEvents.FIREWORK_ROCKET_LAUNCH, SoundSource.AMBIENT, 3f, 1f, false);
+	}
+
+	/** An arrow that only exists here, shot the way it's pointed. */
+	public void spawnLocalArrow(ItemStack stack, Vec3 at, Vec3 direction, float power) {
+		if (!larping || mc.level == null) return;
+		var arrow = new net.minecraft.world.entity.projectile.arrow.Arrow(mc.level, at.x, at.y, at.z, stack, null);
+		arrow.shoot(direction.x, direction.y + 0.1, direction.z, power, 6f);
+		arrow.setId(nextRocketId--);
+		localShots.put(arrow, 0);
+		mc.level.addEntity(arrow);
 	}
 
 	/** Picking up, burning, cactus, the void and despawning for items dropped while larping. */

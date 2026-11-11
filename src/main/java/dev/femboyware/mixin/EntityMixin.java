@@ -21,6 +21,23 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(Entity.class)
 public class EntityMixin {
+	/**
+	 * The cars, jet, helicopter and hangar: their boxes join what you bump into while Server Larp is
+	 * on, and what larp-dropped items land on. Optional, in case a version moves this call.
+	 */
+	@ModifyExpressionValue(method = "collide(Lnet/minecraft/world/phys/Vec3;)Lnet/minecraft/world/phys/Vec3;",
+		at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/Level;getEntityCollisions(Lnet/minecraft/world/entity/Entity;Lnet/minecraft/world/phys/AABB;)Ljava/util/List;"), require = 0)
+	private java.util.List<net.minecraft.world.phys.shapes.VoxelShape> femboyware$carCollisions(java.util.List<net.minecraft.world.phys.shapes.VoxelShape> shapes) {
+		Entity self = (Entity) (Object) this;
+		if (!dev.femboyware.module.larp.LarpProps.solidFor(self)) return shapes;
+		net.minecraft.world.phys.AABB area = self.getBoundingBox().expandTowards(self.getDeltaMovement()).inflate(1);
+		java.util.List<net.minecraft.world.phys.shapes.VoxelShape> cars = dev.femboyware.module.larp.LarpProps.shapes(self, area);
+		if (cars.isEmpty()) return shapes;
+		java.util.List<net.minecraft.world.phys.shapes.VoxelShape> all = new java.util.ArrayList<>(shapes);
+		all.addAll(cars);
+		return all;
+	}
+
 	/** Turns movement input into velocity using the server yaw while a silent rotation is active. */
 	@ModifyExpressionValue(method = "moveRelative", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;getYRot()F"))
 	private float femboyware$moveFixYaw(float yaw) {

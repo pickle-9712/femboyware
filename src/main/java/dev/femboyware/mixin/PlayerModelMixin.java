@@ -20,6 +20,10 @@ public class PlayerModelMixin {
 		PlayerModel model = (PlayerModel) (Object) this;
 		model.head.visible = !cosmetics.hidesHead(state);
 		if (cosmetics.replacesRightLeg(state)) model.rightLeg.visible = false;
+		FemboyWare.getModules().get(dev.femboyware.module.larp.PaparazziModule.class).pose(model, state);
 		FemboyWare.getModules().get(EmotesModule.class).pose(model, state);
+		FemboyWare.getModules().get(dev.femboyware.module.larp.JetModule.class).posePilot(model, state);
+		FemboyWare.getModules().get(dev.femboyware.module.larp.HelicopterModule.class).posePilot(model, state);
+		FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class).posePilots(model, state);
 	}
 }

@@ -42,7 +42,7 @@ public class ScoreboardEditModule extends Module {
 	private String parsedFrom;
 
 	public ScoreboardEditModule() {
-		super("Scoreboard Edit", "Change your balance, stats and name on the scoreboard, on your screen only. Use " + CommandManager.PREFIX + "sb", Category.COSMETIC);
+		super("Scoreboard Edit", "Change your balance, stats and name on the scoreboard, on your screen only. Use " + CommandManager.PREFIX + "sb", Category.LARP);
 	}
 
 	@Override

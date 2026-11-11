@@ -50,6 +50,15 @@ public final class Mc {
 		//?}
 	}
 
+	/** Hides or shows the HUD, like F1. */
+	public static void setHudHidden(boolean hidden) {
+		//? if >=26.1 {
+		/*if (mc().gui.hud.isHidden() != hidden) mc().gui.hud.toggle();
+		*///?} else {
+		mc().options.hideGui = hidden;
+		//?}
+	}
+
 	public static ChatComponent chat() {
 		//? if >=26.1 {
 		/*return mc().gui.hud.getChat();

@@ -9,6 +9,7 @@ public enum Category {
 	RAGE(Group.MOVEMENT, "Rage"),
 	COSMETIC(Group.VISUAL, "Cosmetic"),
 	ESP(Group.VISUAL, "Esp"),
+	LARP(Group.VISUAL, "Larp"),
 	WORLD(Group.UTILITY, "World"),
 	AUTO(Group.UTILITY, "Auto"),
 	BUILD(Group.UTILITY, "Build"),

@@ -506,6 +506,16 @@ public class FakePlayerModule extends Module {
 		return fakes.size();
 	}
 
+	/** The fake players standing in the world right now. */
+	public List<RemotePlayer> fakeEntities() {
+		List<RemotePlayer> entities = new ArrayList<>();
+		if (!isEnabled()) return entities;
+		for (Fake fake : fakes) {
+			if (fake.entity != null && !fake.entity.isDeadOrDying()) entities.add(fake.entity);
+		}
+		return entities;
+	}
+
 	/** Whether the entity with this id is one of the fake players. */
 	public boolean isFake(int entityId) {
 		if (!isEnabled()) return false;

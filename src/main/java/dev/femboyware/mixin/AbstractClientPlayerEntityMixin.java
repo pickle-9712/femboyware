@@ -14,6 +14,12 @@ public class AbstractClientPlayerEntityMixin {
 	@ModifyReturnValue(method = "getSkin", at = @At("RETURN"))
 	private PlayerSkin femboyware$fakePlayerSkin(PlayerSkin textures) {
 		if (FemboyWare.getModules() == null) return textures;
-		return FemboyWare.getModules().get(FakePlayerModule.class).skinFor((AbstractClientPlayer) (Object) this, textures);
+		AbstractClientPlayer self = (AbstractClientPlayer) (Object) this;
+		textures = FemboyWare.getModules().get(dev.femboyware.module.larp.PaparazziModule.class).skinFor(self, textures);
+		textures = FemboyWare.getModules().get(dev.femboyware.module.larp.CarsModule.class).skinFor(self, textures);
+		textures = FemboyWare.getModules().get(dev.femboyware.module.larp.JetModule.class).skinFor(self, textures);
+		textures = FemboyWare.getModules().get(dev.femboyware.module.larp.HelicopterModule.class).skinFor(self, textures);
+		textures = FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class).skinFor(self, textures);
+		return FemboyWare.getModules().get(FakePlayerModule.class).skinFor(self, textures);
 	}
 }

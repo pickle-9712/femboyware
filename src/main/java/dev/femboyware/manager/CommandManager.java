@@ -27,8 +27,17 @@ public class CommandManager {
 			case "nameprotect", "np" -> FemboyWare.getModules().get(NameProtectModule.class).command(args);
 			case "fakeplayer", "fp" -> FemboyWare.getModules().get(FakePlayerModule.class).command(args);
 			case "scoreboard", "sb" -> FemboyWare.getModules().get(dev.femboyware.module.render.ScoreboardEditModule.class).command(args);
+			case "hat", "hats" -> FemboyWare.getModules().get(dev.femboyware.module.render.RobloxHatsModule.class).command(args);
+			case "heli", "helicopter", "chopper" -> FemboyWare.getModules().get(dev.femboyware.module.larp.HelicopterModule.class).command(args);
+			case "hangar", "hanger" -> FemboyWare.getModules().get(dev.femboyware.module.larp.HangarModule.class).command(args);
+			case "jet", "plane" -> FemboyWare.getModules().get(dev.femboyware.module.larp.JetModule.class).command(args);
+			case "car", "cars" -> FemboyWare.getModules().get(dev.femboyware.module.larp.CarsModule.class).command(args);
+			case "phone" -> FemboyWare.getModules().get(dev.femboyware.module.larp.PhoneModule.class).command(args);
+			case "ledger", "wallet" -> FemboyWare.getModules().get(dev.femboyware.module.larp.LedgerModule.class).command(args);
 			case "cosmetics", "cos" -> FemboyWare.getModules().get(dev.femboyware.module.render.CosmeticsModule.class).command(args);
 			case "larp" -> FemboyWare.getModules().get(dev.femboyware.module.utility.ServerLarpModule.class).command(args);
+			case "forcedispenser", "fd" -> FemboyWare.getModules().get(dev.femboyware.module.larp.ForceDispenserModule.class).command(args);
+			case "emote", "emotes" -> FemboyWare.getModules().get(dev.femboyware.module.render.EmotesModule.class).command(args);
 			case "help" -> help();
 			default -> ChatUtil.info("Unknown command. Try " + PREFIX + "help");
 		}
@@ -98,6 +107,13 @@ public class CommandManager {
 		ChatUtil.info(PREFIX + "fp maker  (draw and save your own formations)");
 		ChatUtil.info(PREFIX + "sb <lines|value <label> <value>|replace <find> <with>|line <label> <text>|title <text>|list|remove|clear>  (Scoreboard Edit: change the sidebar on your screen)");
 		ChatUtil.info(PREFIX + "larp <on|off|give <item> [count]|creative|survival|clear>  (Server Larp: play client-side while the server sees you standing still)");
+		ChatUtil.info(PREFIX + "hat <add|remove|list|clear> [id or catalog link]  (wear Roblox hats)");
+		ChatUtil.info(PREFIX + "heli <spawn|fly|land|remove>  (park a helicopter on a pad; board it while larping for a flight)");
+		ChatUtil.info(PREFIX + "hangar <spawn|remove>  (a hangar with your jet and cars parked inside)");
+		ChatUtil.info(PREFIX + "jet <spawn|fly|land|remove>  (park a private jet; board it while larping and walk round inside as it flies a lap)");
+		ChatUtil.info(PREFIX + "car <spawn [suv|jesko]|remove|clear>  (park flex cars next to you; only you see them)");
+		ChatUtil.info(PREFIX + "phone <open|give|dm [name] [message]|bank [amount]|robux [amount]>  (the fake phone: DMs, bank, stocks, Roblox; only you see it)");
+		ChatUtil.info(PREFIX + "ledger <open|give|deposit [coin] [amount]|set <coin> <amount>|price <coin> <dollars>|history [clear]|reset|total>  (the fake crypto wallet; only you see it)");
 		ChatUtil.info(PREFIX + "cos <give|take|list|clear> [name] [fiery|frozen|poisoned|random|none|same]  (give a player your Korblox, headless and horns; only you see them)");
 		ChatUtil.info(PREFIX + "fp text <words>  (fake players spell it out, adding as many as it takes; / starts a new line)");
 	}
