@@ -107,7 +107,36 @@ public class CosmeticsModule extends Module {
 		return horns.is(Horns.OFF) ? null : horns.getDisplayName();
 	}
 
+	// ---------------------------------------------------------------- Client Sync
+
+	/** What someone's wearing: the leg, the head, their horns and fire, and their watch. */
+	public record Worn(boolean korblox, boolean headless, Horns horns, float hornSize, boolean fire, Watch watch) {}
+
+	/** For Client Sync: what you're wearing, or null with this off. */
+	public Worn shareWorn() {
+		if (!isEnabled()) return null;
+		return new Worn(korblox.get(), headless.get(), horns.get(), hornSize.get().floatValue(), fire.get(), watch.get());
+	}
+
+	/** For Client Sync: the horns one of your fake players wears (each has its own), or null if it wears none of yours. */
+	public Horns fakeHorns(Entity fake) {
+		if (!isEnabled() || !onFakes.get()) return null;
+		return horns.get() == Horns.OFF ? Horns.OFF : randomHorns(fake);
+	}
+
+	/** Whether your fake players wear your cosmetics, so other people's copies of them do too. */
+	public boolean sharesWithFakes() {
+		return onFakes.get();
+	}
+
+	/** What another femboyware user (or one of their fake players) is wearing, from Client Sync; null if not shared. */
+	private Worn peer(AvatarRenderState state) {
+		return mc.player == null || state.id == mc.player.getId() ? null
+			: FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class).cosmeticsOf(state.id);
+	}
+
 	private boolean wears(AvatarRenderState state) {
+		if (mc.player != null && !state.isInvisible && peer(state) != null) return true;
 		if (!isEnabled() || mc.player == null || mc.level == null || state.isInvisible) return false;
 		if (state.id == mc.player.getId()) return true;
 		if (onFakes.get() && FemboyWare.getModules().get(FakePlayerModule.class).isFake(state.id)) return true;
@@ -235,10 +264,14 @@ public class CosmeticsModule extends Module {
 
 	/** Read by PlayerModelMixin each time the model is posed. */
 	public boolean hidesHead(AvatarRenderState state) {
+		Worn peer = peer(state);
+		if (peer != null) return peer.headless() && !state.isInvisible;
 		return headless.get() && wears(state);
 	}
 
 	public boolean replacesRightLeg(AvatarRenderState state) {
+		Worn peer = peer(state);
+		if (peer != null) return peer.korblox() && !state.isInvisible && korblox() != null;
 		return korblox.get() && wears(state) && korblox() != null;
 	}
 
@@ -258,8 +291,12 @@ public class CosmeticsModule extends Module {
 		@Override
 		public void submit(PoseStack matrices, SubmitNodeCollector queue, int light, AvatarRenderState state, float headYaw, float headPitch) {
 			if (!wears(state)) return;
+			// Theirs, if it's someone else with femboyware; otherwise yours
+			Worn peer = peer(state);
+			boolean wearsLeg = peer != null ? peer.korblox() : korblox.get();
+			Watch wornWatch = peer != null ? peer.watch() : watch.get();
 			Mesh leg = korblox();
-			if (korblox.get() && leg != null) {
+			if (wearsLeg && leg != null) {
 				matrices.pushPose();
 				getParentModel().rightLeg.translateAndRotate(matrices);
 				// At its true Roblox size: a short thin peg hanging from the hip, a third as long as a leg
@@ -267,18 +304,19 @@ public class CosmeticsModule extends Module {
 				queue.submitCustomGeometry(matrices, cutout(KORBLOX), (pose, consumer) -> leg.draw(pose, consumer, light));
 				matrices.popPose();
 			}
-			if (!watch.is(Watch.OFF)) submitWatch(matrices, queue, getParentModel().leftArm, watch.get(), light, state.ageInTicks);
-			Horns style = hornsFor(state);
+			if (wornWatch != Watch.OFF) submitWatch(matrices, queue, getParentModel().leftArm, wornWatch, light, state.ageInTicks);
+			Horns style = peer != null ? peer.horns() : hornsFor(state);
 			Mesh hornMesh = horns();
 			if (style == Horns.OFF || hornMesh == null) return;
-			float size = hornSize.get().floatValue();
+			float size = peer != null ? Mth.clamp(peer.hornSize(), 0.15f, 0.5f) : hornSize.get().floatValue();
+			boolean burning = peer != null ? peer.fire() : fire.get();
 			matrices.pushPose();
 			getParentModel().head.translateAndRotate(matrices);
 			// The hat attachment sits on top of the head; the mesh is in studs from it
 			matrices.translate(0, -0.5f, 0);
 			matrices.scale(size, size, size);
 			queue.submitCustomGeometry(matrices, cutout(style.texture), (pose, consumer) -> hornMesh.draw(pose, consumer, light));
-			if (fire.get() && fires.size() < MAX_FIRES) {
+			if (burning && fires.size() < MAX_FIRES) {
 				// Between the horn roots, relative to the camera. The fire itself is drawn at the end of the
 				// frame (onRender3D), after block entities, so a chest or sign behind it can't paint over it
 				Vector3f base = matrices.last().pose().transformPosition(new Vector3f(0, FIRE_BASE, 0));
@@ -452,6 +490,8 @@ public class CosmeticsModule extends Module {
 
 	/** Whether you (or whoever this is) are already wearing a watch from here. */
 	public boolean showsWatch(AvatarRenderState state) {
+		Worn peer = peer(state);
+		if (peer != null) return peer.watch() != Watch.OFF && !state.isInvisible;
 		return !watch.is(Watch.OFF) && wears(state);
 	}
 

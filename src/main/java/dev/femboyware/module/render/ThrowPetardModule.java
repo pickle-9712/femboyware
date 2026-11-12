@@ -47,6 +47,10 @@ public class ThrowPetardModule extends Module {
 	private void burst(Player player) {
 		FireworkExplosion explosion = new FireworkExplosion(shape.get(),
 			IntList.of(color.get() & 0xFFFFFF), IntList.of(fade.get() & 0xFFFFFF), trail.get(), twinkle.get());
+		//? if >=26.3 {
+		/*mc.level.createFireworks(player.getX(), player.getY() + player.getBbHeight() + 1.5, player.getZ(), 0, 0, 0, List.of(explosion), true);
+		*///?} else {
 		mc.level.createFireworks(player.getX(), player.getY() + player.getBbHeight() + 1.5, player.getZ(), 0, 0, 0, List.of(explosion));
+		//?}
 	}
 }

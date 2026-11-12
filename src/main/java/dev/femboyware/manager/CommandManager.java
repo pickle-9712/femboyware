@@ -30,6 +30,8 @@ public class CommandManager {
 			case "hat", "hats" -> FemboyWare.getModules().get(dev.femboyware.module.render.RobloxHatsModule.class).command(args);
 			case "heli", "helicopter", "chopper" -> FemboyWare.getModules().get(dev.femboyware.module.larp.HelicopterModule.class).command(args);
 			case "hangar", "hanger" -> FemboyWare.getModules().get(dev.femboyware.module.larp.HangarModule.class).command(args);
+			case "mansion", "manson", "house", "home" -> FemboyWare.getModules().get(dev.femboyware.module.larp.MansionModule.class).command(args);
+			case "yacht", "yaught", "yatch", "boat" -> FemboyWare.getModules().get(dev.femboyware.module.larp.YachtModule.class).command(args);
 			case "jet", "plane" -> FemboyWare.getModules().get(dev.femboyware.module.larp.JetModule.class).command(args);
 			case "car", "cars" -> FemboyWare.getModules().get(dev.femboyware.module.larp.CarsModule.class).command(args);
 			case "phone" -> FemboyWare.getModules().get(dev.femboyware.module.larp.PhoneModule.class).command(args);

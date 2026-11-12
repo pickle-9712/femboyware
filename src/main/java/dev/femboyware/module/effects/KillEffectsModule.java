@@ -100,7 +100,11 @@ public class KillEffectsModule extends TargetFxModule {
 			case FIREWORK -> {
 				IntList colors = IntList.of(palette.at(0) & 0xFFFFFF, palette.at(0.33f) & 0xFFFFFF, palette.at(0.66f) & 0xFFFFFF);
 				FireworkExplosion burst = new FireworkExplosion(FireworkExplosion.Shape.LARGE_BALL, colors, IntList.of(0xFFFFFF), true, true);
+				//? if >=26.3 {
+				/*mc.level.createFireworks(x, y + height + 0.5, z, 0, 0, 0, List.of(burst), true);
+				*///?} else {
 				mc.level.createFireworks(x, y + height + 0.5, z, 0, 0, 0, List.of(burst));
+				//?}
 			}
 			case EXPLOSION -> mc.level.addParticle(ParticleTypes.EXPLOSION_EMITTER, x, y + height / 2, z, 0, 0, 0);
 			case TOTEM -> {

@@ -19,7 +19,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class WorldRendererMixin {
 	/** While you fly, the sections you and the captain are in count as visible, so you're both drawn over unloaded ground. */
 	@Inject(method = "isSectionCompiledAndVisible", at = @At("HEAD"), cancellable = true)
+	//? if >=26.3 {
+	/*private void femboyware$keepFlyersVisible(net.minecraft.core.BlockPos pos, long fadeDuration, org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable<Boolean> cir) {
+	*///?} else {
 	private void femboyware$keepFlyersVisible(net.minecraft.core.BlockPos pos, org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable<Boolean> cir) {
+	//?}
 		if (dev.femboyware.module.larp.FarGround.keepsVisible(pos)) cir.setReturnValue(true);
 	}
 
@@ -29,7 +33,14 @@ public class WorldRendererMixin {
 	private static final String BLOCK_OUTLINE = "renderBlockOutline";
 	//?}
 
-	//? if >=26.1 {
+	//? if >=26.3 {
+	/*@Inject(method = "render", at = @At("HEAD"))
+	private void femboyware$captureMatrices(GraphicsResourceAllocator allocator, boolean renderBlockOutline,
+											net.minecraft.client.renderer.state.level.CameraRenderState camera,
+											GpuBufferSlice fogBuffer, Vector4f fogColor, boolean renderSky, boolean consistentDepth, CallbackInfo ci) {
+		ProjectionUtil.update(camera.viewRotationMatrix, camera.projectionMatrix, camera.pos);
+	}
+	*///?} else if >=26.1 {
 	/*@Inject(method = "render", at = @At("HEAD"))
 	private void femboyware$captureMatrices(GraphicsResourceAllocator allocator, DeltaTracker tickCounter, boolean renderBlockOutline,
 											net.minecraft.client.renderer.state.level.CameraRenderState camera, org.joml.Matrix4fc modelViewMatrix,

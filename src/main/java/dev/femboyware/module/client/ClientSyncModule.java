@@ -95,16 +95,20 @@ public class ClientSyncModule extends Module {
 	private record Snap(UUID uuid, long ts, long time, String dim, boolean gone, String emote, int emoteTicks, double[] showCar, String song,
 						double[] body, String pose, int flags, int swings, String main, String off, String seatIn, double[] seat,
 						double[] jet, int[] jetLook, double[] heli, int[] heliLook, List<double[]> cars, int[] carLook,
-						double[] hangar, int[] hangarLook, List<double[]> valets, List<SharedFake> fakes, long interval) {
+						double[] hangar, int[] hangarLook, List<double[]> valets, List<SharedFake> fakes, JsonObject looks, double[] yacht, int[] yachtLook, double[] mansion, int[] mansionLook, List<SharedSchem> schems, long interval) {
 		/** The same update, at {@code time} on our clock. */
 		Snap at(long time) {
 			return new Snap(uuid, ts, time, dim, gone, emote, emoteTicks, showCar, song, body, pose, flags, swings, main, off, seatIn, seat,
-				jet, jetLook, heli, heliLook, cars, carLook, hangar, hangarLook, valets, fakes, interval);
+				jet, jetLook, heli, heliLook, cars, carLook, hangar, hangarLook, valets, fakes, looks, yacht, yachtLook, mansion, mansionLook, schems, interval);
 		}
 	}
 
+	/** A schematic someone's larping: its file's SHA-256, its name, where its origin is, and how it's turned and mirrored. */
+	private record SharedSchem(String sha256, String name, int x, int y, int z, int rotation, int mirror) {
+	}
+
 	/** One of someone's fake players: its name, where it is and how it moves (x, y, z, yaw, head, body, walk speed, walk position, sneaking), and its emote. */
-	private record SharedFake(String name, double[] v, String emote, int emoteTicks) {
+	private record SharedFake(String name, double[] v, String emote, int emoteTicks, UUID uuid, boolean accountSkin, String horns) {
 	}
 
 	private static final class Peer {
@@ -133,7 +137,7 @@ public class ClientSyncModule extends Module {
 		final List<RemotePlayer> fakes = new ArrayList<>();
 		final List<Float> fakeWalk = new ArrayList<>();
 		/** Their props as they are this tick, for bumping into. */
-		double[] solidJet, solidHeli, solidHangar;
+		double[] solidJet, solidHeli, solidHangar, solidYacht, solidMansion;
 		List<double[]> solidCars;
 		/** Their emote song, playing here quietly or loud depending how close they are. */
 		PeerSong song;
@@ -175,6 +179,10 @@ public class ClientSyncModule extends Module {
 		}
 		link = null;
 		sharing = false;
+		// Other people's schematics go with them
+		ServerLarpModule larp = FemboyWare.getModules().get(ServerLarpModule.class);
+		for (String key : larp.peerSchematics()) larp.removePeerSchematic(key);
+		wantedSchems = Set.of();
 		releaseAll(true);
 		peers.clear();
 		emotes.clear();
@@ -205,6 +213,9 @@ public class ClientSyncModule extends Module {
 
 	/** This server's address, the room everyone on it meets in; null in singleplayer. */
 	private String serverAddress() {
+		// For testing in singleplayer against a local relay (-Dfemboyware.syncServer=name)
+		String forced = System.getProperty("femboyware.syncServer");
+		if (forced != null && !forced.isBlank()) return forced;
 		if (mc.getCurrentServer() == null || mc.getSingleplayerServer() != null) return null;
 		String ip = mc.getCurrentServer().ip;
 		return ip == null || ip.isBlank() ? null : ip.trim().toLowerCase(Locale.ROOT);
@@ -329,6 +340,11 @@ public class ClientSyncModule extends Module {
 				f.addProperty("n", fake.getGameProfile().name());
 				f.add("b", numbers(fake.getX(), fake.getY(), fake.getZ(), fake.getYRot(), fake.getYHeadRot(), fake.yBodyRot,
 					fake.walkAnimation.speed(), fake.walkAnimation.position(), fake.isShiftKeyDown() ? 1 : 0));
+				// Its id (its default skin comes from it), whether it wears its account's skin, and its own horns
+				f.addProperty("id", fake.getUUID().toString());
+				f.addProperty("as", fakeModule.usesAccountSkins());
+				var horns = FemboyWare.getModules().get(dev.femboyware.module.render.CosmeticsModule.class).fakeHorns(fake);
+				if (horns != null) f.addProperty("h", horns.name());
 				Object[] doing = emote.fakeDoing(fake.getId());
 				if (doing != null) {
 					f.addProperty("e", ((EmotesModule.Emote) doing[0]).name());
@@ -355,11 +371,192 @@ public class ClientSyncModule extends Module {
 			s.add("gc", ints(hangar.shareLook()));
 			any = true;
 		}
+		var yachtModule = FemboyWare.getModules().get(dev.femboyware.module.larp.YachtModule.class);
+		double[] yachtState = yachtModule.shareState();
+		if (yachtState != null) {
+			s.add("yt", numbers(yachtState));
+			s.add("yc", ints(yachtModule.shareLook()));
+			any = true;
+		}
+		var mansionModule = FemboyWare.getModules().get(dev.femboyware.module.larp.MansionModule.class);
+		double[] mansionState = mansionModule.shareState();
+		if (mansionState != null) {
+			s.add("mn", numbers(mansionState));
+			s.add("mc", ints(mansionModule.shareLook()));
+			any = true;
+		}
+		// The schematics you're larping, so others larping here build them too
+		var schematics = FemboyWare.getModules().get(ServerLarpModule.class).shareSchematics();
+		if (!schematics.isEmpty()) {
+			JsonArray list = new JsonArray();
+			for (var schematic : schematics) {
+				if (list.size() >= 8) break;
+				JsonObject o = new JsonObject();
+				o.addProperty("h", schematic.sha256());
+				o.addProperty("n", schematic.name());
+				o.add("o", ints(schematic.origin().getX(), schematic.origin().getY(), schematic.origin().getZ()));
+				o.addProperty("r", schematic.rotation());
+				o.addProperty("m", schematic.mirror());
+				list.add(o);
+				upload(schematic);
+			}
+			s.add("sc", list);
+			any = true;
+		}
+		// What you're wearing: sent along with anything else, and on its own every so often
+		JsonObject worn = wornState();
+		if (worn != null) {
+			s.add("w", worn);
+			any = true;
+		}
 		if (!any) return null;
 		s.addProperty("u", mc.player.getUUID().toString());
 		s.addProperty("d", mc.level.dimension().identifier().toString());
 		s.addProperty("ts", System.currentTimeMillis());
 		return s;
+	}
+
+	/** Your cosmetics and Roblox hats, and whether your fake players wear them; null if you've neither on. */
+	private JsonObject wornState() {
+		var cosmetics = FemboyWare.getModules().get(dev.femboyware.module.render.CosmeticsModule.class);
+		var hats = FemboyWare.getModules().get(dev.femboyware.module.render.RobloxHatsModule.class);
+		var c = cosmetics.shareWorn();
+		var h = hats.shareWorn();
+		var fu = FemboyWare.getModules().get(dev.femboyware.module.render.FurryModule.class).shareWorn();
+		if (c == null && h == null && fu == null) return null;
+		JsonObject worn = new JsonObject();
+		if (fu != null) {
+			JsonObject o = new JsonObject();
+			o.add("c", ints(fu.fur(), fu.belly(), fu.paws()));
+			o.addProperty("sk", fu.skin());
+			o.addProperty("e", fu.ears());
+			o.addProperty("t", fu.tail());
+			o.addProperty("ts", Math.round(fu.tailSize() * 100) / 100.0);
+			o.addProperty("ha", fu.hideArmor());
+			worn.add("fu", o);
+		}
+		if (c != null) {
+			JsonObject o = new JsonObject();
+			o.addProperty("k", c.korblox());
+			o.addProperty("hd", c.headless());
+			o.addProperty("h", c.horns().name());
+			o.addProperty("s", Math.round(c.hornSize() * 100) / 100.0);
+			o.addProperty("f", c.fire());
+			o.addProperty("w", c.watch().name());
+			o.addProperty("fk", cosmetics.sharesWithFakes());
+			worn.add("c", o);
+		}
+		if (h != null) {
+			JsonObject o = new JsonObject();
+			JsonArray ids = new JsonArray();
+			for (long id : h.ids()) if (ids.size() < 8) ids.add(id);
+			o.add("i", ids);
+			o.addProperty("s", Math.round(h.size() * 100) / 100.0);
+			o.addProperty("r", Math.round(h.raise() * 100) / 100.0);
+			o.addProperty("fk", hats.sharesWithFakes());
+			worn.add("h", o);
+		}
+		return worn;
+	}
+
+	/** What someone's wearing, read from their update; cached per update so it's only read once. */
+	private record Looks(dev.femboyware.module.render.CosmeticsModule.Worn cosmetics, boolean cosmeticsOnFakes,
+						 dev.femboyware.module.render.RobloxHatsModule.Worn hats, boolean hatsOnFakes,
+						 dev.femboyware.module.render.FurryModule.Worn furry) {
+	}
+
+	private final Map<Integer, dev.femboyware.module.render.FurryModule.Worn> furryById = new HashMap<>();
+
+	public dev.femboyware.module.render.FurryModule.Worn furryOf(int entityId) {
+		return isEnabled() && showOthers.get() ? furryById.get(entityId) : null;
+	}
+
+	private final Map<JsonObject, Looks> looksRead = new java.util.WeakHashMap<>();
+	/** Who's wearing what this tick, by entity id: other players and their fake players. */
+	private final Map<Integer, dev.femboyware.module.render.CosmeticsModule.Worn> cosmeticsById = new HashMap<>();
+	private final Map<Integer, dev.femboyware.module.render.RobloxHatsModule.Worn> hatsById = new HashMap<>();
+
+	public dev.femboyware.module.render.CosmeticsModule.Worn cosmeticsOf(int entityId) {
+		return isEnabled() && showOthers.get() ? cosmeticsById.get(entityId) : null;
+	}
+
+	public dev.femboyware.module.render.RobloxHatsModule.Worn hatsOf(int entityId) {
+		return isEnabled() && showOthers.get() ? hatsById.get(entityId) : null;
+	}
+
+	private Looks readLooks(JsonObject w) {
+		return looksRead.computeIfAbsent(w, key -> {
+			dev.femboyware.module.render.CosmeticsModule.Worn cosmetics = null;
+			dev.femboyware.module.render.RobloxHatsModule.Worn hats = null;
+			boolean cFakes = false, hFakes = false;
+			try {
+				if (key.has("c")) {
+					JsonObject o = key.getAsJsonObject("c");
+					var horns = dev.femboyware.module.render.CosmeticsModule.Horns.valueOf(o.get("h").getAsString());
+					var watch = dev.femboyware.module.render.CosmeticsModule.Watch.valueOf(o.get("w").getAsString());
+					cosmetics = new dev.femboyware.module.render.CosmeticsModule.Worn(o.get("k").getAsBoolean(), o.get("hd").getAsBoolean(), horns,
+						o.get("s").getAsFloat(), o.get("f").getAsBoolean(), watch);
+					cFakes = o.has("fk") && o.get("fk").getAsBoolean();
+				}
+			} catch (RuntimeException ignored) {
+				cosmetics = null;
+			}
+			try {
+				if (key.has("h")) {
+					JsonObject o = key.getAsJsonObject("h");
+					List<Long> ids = new ArrayList<>();
+					for (JsonElement id : o.getAsJsonArray("i")) if (ids.size() < 8 && id.getAsLong() > 0) ids.add(id.getAsLong());
+					if (!ids.isEmpty()) hats = new dev.femboyware.module.render.RobloxHatsModule.Worn(List.copyOf(ids), o.get("s").getAsFloat(), o.get("r").getAsFloat());
+					hFakes = o.has("fk") && o.get("fk").getAsBoolean();
+				}
+			} catch (RuntimeException ignored) {
+				hats = null;
+			}
+			dev.femboyware.module.render.FurryModule.Worn furry = null;
+			try {
+				if (key.has("fu")) {
+					JsonObject o = key.getAsJsonObject("fu");
+					int[] colors = ints(o.get("c"), 3);
+					if (colors.length == 3) {
+						furry = new dev.femboyware.module.render.FurryModule.Worn(colors[0] | 0xFF000000, colors[1] | 0xFF000000, colors[2] | 0xFF000000,
+							o.get("sk").getAsBoolean(), o.get("e").getAsBoolean(), o.get("t").getAsBoolean(), o.get("ts").getAsFloat(), o.get("ha").getAsBoolean());
+					}
+				}
+			} catch (RuntimeException ignored) {
+				furry = null;
+			}
+			return new Looks(cosmetics, cFakes, hats, hFakes, furry);
+		});
+	}
+
+	/** Puts what this peer's wearing on them (and on their fake players, if theirs wear it), for the cosmetics to draw. */
+	private void wear(Peer peer, Snap a, Player entity) {
+		if (a == null || a.looks == null) return;
+		Looks looks = readLooks(a.looks);
+		if (looks.hats != null) FemboyWare.getModules().get(dev.femboyware.module.render.RobloxHatsModule.class).ensureLoaded(looks.hats.ids());
+		if (entity != null) {
+			if (looks.furry != null) furryById.put(entity.getId(), looks.furry);
+			if (looks.cosmetics != null) cosmeticsById.put(entity.getId(), looks.cosmetics);
+			if (looks.hats != null) hatsById.put(entity.getId(), looks.hats);
+		}
+		List<SharedFake> shared = a.fakes == null ? List.of() : a.fakes;
+		for (int i = 0; i < peer.fakes.size(); i++) {
+			RemotePlayer fake = peer.fakes.get(i);
+			if (looks.cosmetics != null && looks.cosmeticsOnFakes) {
+				// Each of their fake players has its own horns
+				var worn = looks.cosmetics;
+				String horns = i < shared.size() ? shared.get(i).horns() : null;
+				if (horns != null) {
+					try {
+						var style = dev.femboyware.module.render.CosmeticsModule.Horns.valueOf(horns);
+						worn = new dev.femboyware.module.render.CosmeticsModule.Worn(worn.korblox(), worn.headless(), style, worn.hornSize(), worn.fire(), worn.watch());
+					} catch (IllegalArgumentException ignored) {
+					}
+				}
+				cosmeticsById.put(fake.getId(), worn);
+			}
+			if (looks.hats != null && looks.hatsOnFakes) hatsById.put(fake.getId(), looks.hats);
+		}
 	}
 
 	private static JsonArray numbers(double... values) {
@@ -380,10 +577,14 @@ public class ClientSyncModule extends Module {
 	private void receive(String message) {
 		JsonObject s = JsonParser.parseString(message).getAsJsonObject();
 		UUID uuid = UUID.fromString(s.get("u").getAsString());
+		if (s.has("tp")) {
+			receiveTeleport(uuid, s.getAsJsonObject("tp"));
+			return;
+		}
 		long ts = s.get("ts").getAsLong();
 		if (s.has("x")) {
 			incoming.add(new Snap(uuid, ts, System.nanoTime(), null, true, null, 0, null, null, null, null, 0, 0, null, null, null, null,
-				null, null, null, null, null, null, null, null, null, null, 0));
+				null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0));
 			return;
 		}
 		String emote = null, song = null;
@@ -438,14 +639,35 @@ public class ClientSyncModule extends Module {
 				double[] v = doubles(f.get("b"), 9);
 				String name = f.has("n") ? f.get("n").getAsString() : null;
 				if (v == null || name == null || !name.matches("[A-Za-z0-9_.]{1,17}")) continue;
-				fakes.add(new SharedFake(name, v, f.has("e") ? f.get("e").getAsString() : null, f.has("t") ? f.get("t").getAsInt() : 0));
+				UUID id = null;
+				try {
+					if (f.has("id")) id = UUID.fromString(f.get("id").getAsString());
+				} catch (IllegalArgumentException ignored) {
+				}
+				fakes.add(new SharedFake(name, v, f.has("e") ? f.get("e").getAsString() : null, f.has("t") ? f.get("t").getAsInt() : 0,
+					id, !f.has("as") || f.get("as").getAsBoolean(), f.has("h") ? f.get("h").getAsString() : null));
+			}
+		}
+		List<SharedSchem> schems = null;
+		if (s.has("sc") && s.get("sc").isJsonArray()) {
+			schems = new ArrayList<>();
+			for (JsonElement element : s.getAsJsonArray("sc")) {
+				if (!element.isJsonObject() || schems.size() >= 8) continue;
+				JsonObject o = element.getAsJsonObject();
+				int[] at = ints(o.get("o"), 3);
+				String sha = o.has("h") ? o.get("h").getAsString() : "";
+				if (at.length < 3 || !sha.matches("[0-9a-f]{64}")) continue;
+				String name = o.has("n") ? o.get("n").getAsString() : "schematic";
+				schems.add(new SharedSchem(sha, name.length() > 64 ? name.substring(0, 64) : name, at[0], at[1], at[2],
+					o.has("r") ? Math.floorMod(o.get("r").getAsInt(), 4) : 0, o.has("m") ? Math.floorMod(o.get("m").getAsInt(), 3) : 0));
 			}
 		}
 		long interval = s.has("i") ? Mth.clamp(s.get("i").getAsLong(), 50, 5000) : 1000;
 		incoming.add(new Snap(uuid, ts, System.nanoTime(), s.has("d") ? s.get("d").getAsString() : null, false, emote, emoteTicks, showCar, song,
 			body, pose, flags, swingCount, main, off, seatIn, seat,
 			doubles(s.get("j"), 10), ints(s.get("jc"), 3), doubles(s.get("hl"), 13), ints(s.get("hc"), 2), cars, ints(s.get("cc"), 7),
-			doubles(s.get("g"), 4), ints(s.get("gc"), 2), valets, fakes, interval * 1_000_000L));
+			doubles(s.get("g"), 4), ints(s.get("gc"), 2), valets, fakes, s.has("w") && s.get("w").isJsonObject() ? s.getAsJsonObject("w") : null,
+			doubles(s.get("yt"), 4), ints(s.get("yc"), 4), doubles(s.get("mn"), 4), ints(s.get("mc"), 3), schems, interval * 1_000_000L));
 	}
 
 	/** A list of at least {@code size} finite numbers, or null. */
@@ -540,6 +762,9 @@ public class ClientSyncModule extends Module {
 		long now = System.nanoTime() - DELAY;
 		Map<Integer, EmotesModule.Shared> nextEmotes = new HashMap<>();
 		EmotesModule emotesModule = FemboyWare.getModules().get(EmotesModule.class);
+		cosmeticsById.clear();
+		hatsById.clear();
+		furryById.clear();
 		for (Peer peer : peers.values()) {
 			Moment m = at(peer, now);
 			Snap a = m == null ? null : m.a;
@@ -555,13 +780,192 @@ public class ClientSyncModule extends Module {
 			peer.solidHeli = show ? a.heli : null;
 			peer.solidCars = show ? a.cars : null;
 			peer.solidHangar = show ? a.hangar : null;
+			peer.solidYacht = show ? a.yacht : null;
+			peer.solidMansion = show ? a.mansion : null;
 			tickActors(peer, show ? m : null, nextEmotes);
+			if (show) wear(peer, a, found);
 			peer.emoter = shared != null ? entity : null;
 			tickSounds(peer, shared, show ? a.song : null, emotesModule);
 		}
 		emotes.clear();
 		emotes.putAll(nextEmotes);
 		tickRide();
+		tickSchematics(now);
+	}
+
+	// ---------------------------------------------------------------- schematics
+
+	/** Your schematics already on the relay (by room and hash), being put there, or that failed until when. */
+	private final Set<String> uploaded = ConcurrentHashMap.newKeySet(), uploading = ConcurrentHashMap.newKeySet();
+	/** Other people's schematics being fetched and read, the ones wanted right now, and ones to try again later. */
+	private final Set<String> loadingSchems = ConcurrentHashMap.newKeySet();
+	private volatile Set<String> wantedSchems = Set.of();
+	private final Map<String, Long> retrySchems = new ConcurrentHashMap<>();
+
+	/** Puts your schematic on the relay, once, so the others can fetch it. */
+	private void upload(ServerLarpModule.SharedSchematic schematic) {
+		PeerLink l = link;
+		if (l == null || schematic.file() == null) return;
+		String key = l.server() + "|" + schematic.sha256();
+		Long retry = retrySchems.get(key);
+		if (uploaded.contains(key) || retry != null && retry > System.currentTimeMillis() || !uploading.add(key)) return;
+		Thread thread = new Thread(() -> {
+			try {
+				l.uploadFile(schematic.sha256(), java.nio.file.Files.readAllBytes(schematic.file()));
+				uploaded.add(key);
+			} catch (java.io.IOException | RuntimeException | OutOfMemoryError e) {
+				retrySchems.put(key, System.currentTimeMillis() + 60_000);
+				mc.execute(() -> dev.femboyware.util.ChatUtil.info("Couldn't share " + schematic.name() + " with Client Sync: " + e.getMessage()));
+			} finally {
+				uploading.remove(key);
+			}
+		}, "femboyware schematic upload");
+		thread.setDaemon(true);
+		thread.start();
+	}
+
+	/**
+	 * Other people's schematics: while you're both larping here, theirs are built in your larp like
+	 * your own (fetched once from the relay, then kept), and go again when they take one away or
+	 * leave. Not while you aren't larping: they're real blocks on your screen, and walking on blocks
+	 * the server doesn't have would get you pulled back.
+	 */
+	private void tickSchematics(long now) {
+		ServerLarpModule larp = FemboyWare.getModules().get(ServerLarpModule.class);
+		Map<String, SharedSchem> want = new HashMap<>();
+		Map<String, String> owner = new HashMap<>();
+		if (larp.isLarping() && showOthers.get() && link != null) {
+			for (Peer peer : peers.values()) {
+				Snap a = peer.snaps.peekLast();
+				if (a == null || a.schems == null || !here(a)) continue;
+				for (SharedSchem schem : a.schems) {
+					String key = peer.uuid + "|" + schem.sha256() + "|" + schem.x() + "," + schem.y() + "," + schem.z() + "," + schem.rotation() + "," + schem.mirror();
+					want.put(key, schem);
+					owner.put(key, nameOf(peer.uuid));
+				}
+			}
+		}
+		wantedSchems = Set.copyOf(want.keySet());
+		for (String key : larp.peerSchematics()) if (!want.containsKey(key)) larp.removePeerSchematic(key);
+		Set<String> present = larp.peerSchematics();
+		long millis = System.currentTimeMillis();
+		for (var entry : want.entrySet()) {
+			String key = entry.getKey();
+			Long retry = retrySchems.get(key);
+			if (present.contains(key) || loadingSchems.contains(key) || retry != null && retry > millis) continue;
+			loadSchematic(key, entry.getValue(), owner.get(key));
+		}
+	}
+
+	/** Fetches someone's schematic (or finds it from before), reads it off the main thread, then builds it. */
+	private void loadSchematic(String key, SharedSchem schem, String who) {
+		PeerLink l = link;
+		if (l == null || !loadingSchems.add(key)) return;
+		var blocks = dev.femboyware.module.larp.LarpSchematics.blockLookup();
+		var level = mc.level;
+		Thread thread = new Thread(() -> {
+			try {
+				java.nio.file.Path dir = net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().resolve("femboyware").resolve("shared-schematics");
+				java.nio.file.Files.createDirectories(dir);
+				java.nio.file.Path file = dir.resolve(schem.sha256() + ".litematic");
+				if (!java.nio.file.Files.exists(file) || !schem.sha256().equals(sha256(java.nio.file.Files.readAllBytes(file)))) {
+					byte[] data = l.downloadFile(schem.sha256());
+					if (data == null) {
+						// Not up yet: they're probably still uploading it
+						retrySchems.put(key, System.currentTimeMillis() + 5_000);
+						return;
+					}
+					java.nio.file.Files.write(file, data);
+				}
+				var schematic = dev.femboyware.module.larp.LarpSchematics.read(file, new net.minecraft.core.BlockPos(schem.x(), schem.y(), schem.z()),
+					net.minecraft.world.level.block.Rotation.values()[schem.rotation()], net.minecraft.world.level.block.Mirror.values()[schem.mirror()], blocks);
+				mc.execute(() -> {
+					if (mc.level != level || !wantedSchems.contains(key)) return;
+					FemboyWare.getModules().get(ServerLarpModule.class).addPeerSchematic(key, schem.name(), schematic);
+					dev.femboyware.util.ChatUtil.info(who + " is larping " + schem.name() + ": building it here too");
+				});
+			} catch (Exception | OutOfMemoryError e) {
+				retrySchems.put(key, System.currentTimeMillis() + 30_000);
+				FemboyWare.LOGGER.debug("Couldn't load a shared schematic", e);
+			} finally {
+				loadingSchems.remove(key);
+			}
+		}, "femboyware shared schematic");
+		thread.setDaemon(true);
+		thread.start();
+	}
+
+	private static String sha256(byte[] data) {
+		try {
+			return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(data));
+		} catch (java.security.NoSuchAlgorithmException e) {
+			return "";
+		}
+	}
+
+	private String nameOf(UUID uuid) {
+		var info = mc.getConnection() == null ? null : mc.getConnection().getPlayerInfo(uuid);
+		return info == null ? "Someone" : info.getProfile().name();
+	}
+
+	// ---------------------------------------------------------------- teleports
+
+	/** Where someone using Client Sync really is while they larp, by name; null if they aren't larping (or aren't here). */
+	public Vec3 larpPositionOf(String name) {
+		Peer peer = peerNamed(name);
+		Snap last = peer == null ? null : peer.snaps.peekLast();
+		return last == null || last.body == null || !here(last) ? null : new Vec3(last.body[0], last.body[1], last.body[2]);
+	}
+
+	private Peer peerNamed(String name) {
+		if (!isEnabled() || mc.getConnection() == null) return null;
+		var info = mc.getConnection().getPlayerInfo(name);
+		return info == null ? null : peers.get(info.getProfile().id());
+	}
+
+	/** Teleports someone larping here, in their larp; null if it was sent, or why it couldn't be. */
+	public String teleport(String name, Vec3 to) {
+		if (link == null || !link.connected()) return "Client Sync isn't connected, so you can only teleport yourself";
+		Peer peer = peerNamed(name);
+		if (peer == null) return name + " isn't using femboyware with Client Sync here";
+		if (larpPositionOf(name) == null) return name + " isn't larping, so there's nothing to teleport (it only moves them in their larp)";
+		sendTeleport(peer.uuid.toString(), to);
+		return null;
+	}
+
+	/** Teleports everyone larping here, in their larps; how many that is. */
+	public int teleportEveryone(Vec3 to) {
+		if (link == null || !link.connected()) return 0;
+		int larping = 0;
+		for (Peer peer : peers.values()) {
+			Snap last = peer.snaps.peekLast();
+			if (last != null && last.body != null && here(last)) larping++;
+		}
+		if (larping > 0) sendTeleport("*", to);
+		return larping;
+	}
+
+	private void sendTeleport(String target, Vec3 to) {
+		JsonObject message = new JsonObject();
+		message.addProperty("u", mc.player.getUUID().toString());
+		message.addProperty("ts", System.currentTimeMillis());
+		JsonObject tp = new JsonObject();
+		tp.addProperty("to", target);
+		tp.add("p", numbers(to.x, to.y, to.z));
+		message.add("tp", tp);
+		link.sendInOrder(message.toString());
+	}
+
+	/** On a network thread: someone teleported you (or everyone). */
+	private void receiveTeleport(UUID from, JsonObject tp) {
+		String target = tp.has("to") ? tp.get("to").getAsString() : "";
+		double[] p = doubles(tp.get("p"), 3);
+		if (p == null) return;
+		mc.execute(() -> {
+			if (mc.player == null || !isEnabled() || from.equals(mc.player.getUUID())) return;
+			if (!target.equals("*") && !target.equals(mc.player.getUUID().toString())) return;
+			FemboyWare.getModules().get(ServerLarpModule.class).teleportedBy(nameOf(from), new Vec3(p[0], p[1], p[2]));
+		});
 	}
 
 	// ---------------------------------------------------------------- their captains and valets
@@ -730,11 +1134,13 @@ public class ClientSyncModule extends Module {
 			peer.fakes.clear();
 			peer.fakeWalk.clear();
 			for (SharedFake f : list) {
-				RemotePlayer actor = new RemotePlayer(mc.level, new com.mojang.authlib.GameProfile(UUID.randomUUID(), f.name()));
+				// The same id as theirs, so it gets the same default skin and the same random horns
+				UUID id = f.uuid() != null && mc.level.getEntity(f.uuid()) == null ? f.uuid() : UUID.randomUUID();
+				RemotePlayer actor = new RemotePlayer(mc.level, new com.mojang.authlib.GameProfile(id, f.name()));
 				actor.setId(nextActorId--);
 				actor.snapTo(f.v()[0], f.v()[1], f.v()[2], (float) f.v()[3], 0);
 				mc.level.addEntity(actor);
-				fakeNames.put(actor.getId(), f.name());
+				if (f.accountSkin()) fakeNames.put(actor.getId(), f.name());
 				peer.fakes.add(actor);
 				peer.fakeWalk.add(0f);
 			}
@@ -819,6 +1225,9 @@ public class ClientSyncModule extends Module {
 
 	/** For the skin mixin: their captains wear the uniform, their valets the suit. */
 	public net.minecraft.world.entity.player.PlayerSkin skinFor(AbstractClientPlayer player, net.minecraft.world.entity.player.PlayerSkin textures) {
+		// Someone with femboyware who's wearing their fursona skin
+		var furry = furryOf(player.getId());
+		if (furry != null && furry.skin()) return dev.femboyware.module.render.FurryModule.fursonaSkin(textures);
 		if (player.getId() >= 0) return textures;
 		if (captains.contains(player.getId())) return JetModule.CAPTAIN;
 		if (valetIds.contains(player.getId())) return CarsModule.SUIT;
@@ -846,6 +1255,8 @@ public class ClientSyncModule extends Module {
 			if (peer.solidHeli != null) shapes.addAll(FemboyWare.getModules().get(HelicopterModule.class).sharedCollisions(entity, area, peer.solidHeli));
 			if (peer.solidCars != null) shapes.addAll(FemboyWare.getModules().get(CarsModule.class).sharedCollisions(area, peer.solidCars));
 			if (peer.solidHangar != null) shapes.addAll(FemboyWare.getModules().get(HangarModule.class).sharedCollisions(entity, area, peer.solidHangar));
+			if (peer.solidYacht != null) shapes.addAll(FemboyWare.getModules().get(dev.femboyware.module.larp.YachtModule.class).sharedCollisions(entity, area, peer.solidYacht));
+			if (peer.solidMansion != null) shapes.addAll(FemboyWare.getModules().get(dev.femboyware.module.larp.MansionModule.class).sharedCollisions(entity, area, peer.solidMansion));
 		}
 		return shapes;
 	}
@@ -1156,6 +1567,8 @@ public class ClientSyncModule extends Module {
 				FemboyWare.getModules().get(CarsModule.class).drawShared(event, close, a.carLook);
 			}
 			if (a.hangar != null && near(cam, a.hangar)) FemboyWare.getModules().get(HangarModule.class).drawShared(event, a.hangar, a.hangarLook);
+			if (a.yacht != null && near(cam, a.yacht)) FemboyWare.getModules().get(dev.femboyware.module.larp.YachtModule.class).drawShared(event, a.yacht, a.yachtLook);
+			if (a.mansion != null && near(cam, a.mansion)) FemboyWare.getModules().get(dev.femboyware.module.larp.MansionModule.class).drawShared(event, a.mansion, a.mansionLook);
 		}
 	}
 
@@ -1165,6 +1578,9 @@ public class ClientSyncModule extends Module {
 		if (!showOthers.get()) return;
 		EmotesModule emote = FemboyWare.getModules().get(EmotesModule.class);
 		if (!emote.isEnabled() && !emotes.isEmpty()) emote.renderEffects(event);
+		// Their horn fires, with your own Cosmetics off
+		var cosmetics = FemboyWare.getModules().get(dev.femboyware.module.render.CosmeticsModule.class);
+		if (!cosmetics.isEnabled() && !cosmeticsById.isEmpty()) cosmetics.onRender3DLate(event);
 	}
 
 	private static boolean near(Vec3 cam, double[] s) {

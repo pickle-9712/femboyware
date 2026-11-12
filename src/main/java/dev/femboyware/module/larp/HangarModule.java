@@ -207,7 +207,7 @@ public class HangarModule extends Module {
 		for (float x : new float[]{-12, 0, 12}) {
 			for (float z = -16; z <= 16; z += 8) {
 				Vector3f p = new Vector3f(x, roof(x) - 0.6f, z).rotate(turn);
-				FxRender.billboard(event, glow, ox + p.x, oy + p.y, oz + p.z, 1.6f, 0, 0x70FFF4DC);
+				FxRender.billboard(event, glow, ox + p.x, oy + p.y, oz + p.z, 1.6f, 0, LarpLight.glow(0x90FFF4DC));
 			}
 		}
 	}

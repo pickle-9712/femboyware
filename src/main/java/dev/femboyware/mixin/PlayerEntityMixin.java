@@ -46,6 +46,7 @@ public class PlayerEntityMixin {
 		return FemboyWare.getModules().get(FakePlayerModule.class).nametag((Player) (Object) this, name);
 	}
 
+	//? if <26.3 {
 	/** Server Larp: items thrown out of a screen land here; on the client vanilla only swings the arm. */
 	@org.spongepowered.asm.mixin.injection.Inject(method = "drop(Lnet/minecraft/world/item/ItemStack;Z)Lnet/minecraft/world/entity/item/ItemEntity;", at = @At("HEAD"))
 	private void femboyware$larpThrow(net.minecraft.world.item.ItemStack stack, boolean randomly,
@@ -53,4 +54,5 @@ public class PlayerEntityMixin {
 		if ((Object) this != Minecraft.getInstance().player || FemboyWare.getModules() == null) return;
 		FemboyWare.getModules().get(dev.femboyware.module.utility.ServerLarpModule.class).dropLocally(stack, randomly);
 	}
+	//?}
 }

@@ -45,7 +45,11 @@ public class AutoBoneMealModule extends Module {
 		for (BlockPos pos : BlockPos.betweenClosed(feet.offset(-r, -r, -r), feet.offset(r, r, r))) {
 			if (eyes.distanceToSqr(Vec3.atCenterOf(pos)) > range.get() * range.get()) continue;
 			BlockState state = mc.level.getBlockState(pos);
+			//? if >=26.3 {
+			/*if (!(state.getBlock() instanceof BonemealableBlock fertilizable) || !fertilizable.isValidBonemealTarget(mc.level, pos, state, net.minecraft.world.level.block.BonemealSource.INTERACTION)) continue;
+			*///?} else {
 			if (!(state.getBlock() instanceof BonemealableBlock fertilizable) || !fertilizable.isValidBonemealTarget(mc.level, pos, state)) continue;
+			//?}
 			if (cropsOnly.get() && !isCrop(state.getBlock())) continue;
 
 			BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(pos), Direction.UP, pos.immutable(), false);

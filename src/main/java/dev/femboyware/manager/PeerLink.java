@@ -192,6 +192,105 @@ public final class PeerLink {
 		}
 	}
 
+	// ---------------------------------------------------------------- files
+
+	/** Biggest file shared through the relay, and the size of each part it's sent in. */
+	public static final int MAX_FILE = 60 * 1024 * 1024, PART = 1024 * 1024;
+
+	/** Where a file shared in this room is kept on the relay: a hash of it and the room that the relay can't undo. */
+	private String blobUrl(String sha256) {
+		String id = HexFormat.of().formatHex(hash("femboyware client sync blob v1|" + server + "|" + sha256));
+		return RELAY.replaceFirst("^ws", "http") + room + "/blob/" + id;
+	}
+
+	/** Whether everyone here can already fetch this file. Blocks: call off the main thread. */
+	public boolean hasFile(String sha256) {
+		try {
+			var response = HTTP.send(java.net.http.HttpRequest.newBuilder(URI.create(blobUrl(sha256))).timeout(Duration.ofSeconds(20)).GET().build(),
+				java.net.http.HttpResponse.BodyHandlers.discarding());
+			return response.statusCode() == 200;
+		} catch (Exception e) {
+			return false;
+		}
+	}
+
+	/**
+	 * Puts a file on the relay for everyone here, encrypted like everything else, in parts. Its
+	 * SHA-256 (hex) is how others ask for it. Blocks: call off the main thread.
+	 */
+	public void uploadFile(String sha256, byte[] data) throws java.io.IOException {
+		if (data.length > MAX_FILE) throw new java.io.IOException("too big to share (" + data.length / 1_000_000 + " MB)");
+		if (hasFile(sha256)) return;
+		int parts = Math.max(1, (data.length + PART - 1) / PART);
+		for (int i = 0; i < parts; i++) {
+			byte[] sealed = sealBytes(java.util.Arrays.copyOfRange(data, i * PART, Math.min(data.length, (i + 1) * PART)));
+			if (sealed == null) throw new java.io.IOException("couldn't encrypt");
+			try {
+				var response = HTTP.send(java.net.http.HttpRequest.newBuilder(URI.create(blobUrl(sha256) + "/" + i + "?n=" + parts))
+						.timeout(Duration.ofSeconds(60)).PUT(java.net.http.HttpRequest.BodyPublishers.ofByteArray(sealed)).build(),
+					java.net.http.HttpResponse.BodyHandlers.ofString());
+				if (response.statusCode() != 200) throw new java.io.IOException("relay said " + response.statusCode() + " " + response.body());
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				throw new java.io.IOException("interrupted");
+			}
+		}
+	}
+
+	/** A file someone here shared, checked against its hash; null if it isn't there (yet). Blocks: call off the main thread. */
+	public byte[] downloadFile(String sha256) throws java.io.IOException {
+		try {
+			var count = HTTP.send(java.net.http.HttpRequest.newBuilder(URI.create(blobUrl(sha256))).timeout(Duration.ofSeconds(20)).GET().build(),
+				java.net.http.HttpResponse.BodyHandlers.ofString());
+			if (count.statusCode() == 404) return null;
+			if (count.statusCode() != 200) throw new java.io.IOException("relay said " + count.statusCode());
+			int parts = Integer.parseInt(count.body().trim());
+			if (parts < 1 || parts > MAX_FILE / PART + 1) throw new java.io.IOException("bad file");
+			java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+			for (int i = 0; i < parts; i++) {
+				var part = HTTP.send(java.net.http.HttpRequest.newBuilder(URI.create(blobUrl(sha256) + "/" + i)).timeout(Duration.ofSeconds(60)).GET().build(),
+					java.net.http.HttpResponse.BodyHandlers.ofByteArray());
+				if (part.statusCode() != 200) throw new java.io.IOException("relay said " + part.statusCode());
+				byte[] plain = openBytes(part.body());
+				if (plain == null) throw new java.io.IOException("couldn't decrypt");
+				out.write(plain);
+				if (out.size() > MAX_FILE) throw new java.io.IOException("too big");
+			}
+			byte[] data = out.toByteArray();
+			if (!HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(data)).equals(sha256)) throw new java.io.IOException("doesn't match");
+			return data;
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new java.io.IOException("interrupted");
+		} catch (java.security.NoSuchAlgorithmException | NumberFormatException e) {
+			throw new java.io.IOException(e.getMessage());
+		}
+	}
+
+	private byte[] sealBytes(byte[] plain) {
+		try {
+			byte[] iv = new byte[IV];
+			RANDOM.nextBytes(iv);
+			Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+			cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(128, iv));
+			byte[] sealed = cipher.doFinal(plain);
+			return ByteBuffer.allocate(IV + sealed.length).put(iv).put(sealed).array();
+		} catch (Exception e) {
+			return null;
+		}
+	}
+
+	private byte[] openBytes(byte[] frame) {
+		if (frame.length <= IV + 16) return null;
+		try {
+			Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+			cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, frame, 0, IV));
+			return cipher.doFinal(frame, IV, frame.length - IV);
+		} catch (Exception e) {
+			return null;
+		}
+	}
+
 	public void stop() {
 		running = false;
 		WebSocket ws = socket;

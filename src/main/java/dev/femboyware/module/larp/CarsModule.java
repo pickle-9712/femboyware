@@ -78,6 +78,8 @@ public class CarsModule extends Module {
 	private int nextValetId = -32000;
 
 	private final List<Car> cars = new ArrayList<>();
+	/** Tinted glass you can see through, from outside and in. */
+	private static final int SUV_GLASS = 0x9A13171D, JESKO_GLASS = 0x8013171D;
 	private static final int GLASS = 0xFF13171D, TIRE = 0xFF141416, BLACK = 0xFF0A0A0B, HEADLIGHT = 0xFFF4F6FF, TAILLIGHT = 0xFFC2121F;
 
 	/**
@@ -87,10 +89,12 @@ public class CarsModule extends Module {
 	public void drawShowCar(Render3DEvent event, Vec3 pos, float yaw, float seconds) {
 		Car car = new Car(Model.SUV, pos, yaw, 0);
 		Builder b = new Builder(FxRender.solidQuads(event), event.matrices().last(), car, event.camera().pos);
-		b.lift = showLift(seconds);
-		b.pitch = 0.05f * (float) Math.sin(seconds * 1.3f);
+		Builder glass = new Builder(null, event.matrices().last(), car, event.camera().pos);
+		b.lift = glass.lift = showLift(seconds);
+		b.pitch = glass.pitch = 0.05f * (float) Math.sin(seconds * 1.3f);
 		// Parked: the wheels sit still while the body bounces
-		suv(b, 0);
+		suv(b, glass, 0);
+		glass.flush(FxRender.quads(event, false, false));
 	}
 
 	/** How high the show car's body is bouncing at {@code seconds}. */
@@ -116,7 +120,10 @@ public class CarsModule extends Module {
 		List<net.minecraft.world.phys.shapes.VoxelShape> shapes = new ArrayList<>();
 		// Valets find their own way round the cars, and get in and out of them, so cars aren't solid for them
 		if (!isEnabled() || cars.isEmpty() || isValet(entity) || !LarpProps.solidFor(entity)) return shapes;
-		return carShapes(cars, area);
+		if (riding == null) return carShapes(cars, area);
+		List<Car> others = new ArrayList<>(cars);
+		others.remove(riding);
+		return carShapes(others, area);
 	}
 
 	/** Whether this is one of your valets. */
@@ -253,6 +260,8 @@ public class CarsModule extends Module {
 
 	@Override
 	public void onTick() {
+		tickRide();
+		tickGettingIn();
 		long now = System.nanoTime();
 		// A car's parked: its valet gets out of the driver's door
 		for (java.util.Iterator<Car> it = awaitingValet.iterator(); it.hasNext(); ) {
@@ -403,6 +412,7 @@ public class CarsModule extends Module {
 	/** For the skin mixin: valets wear the suit. */
 	public net.minecraft.world.entity.player.PlayerSkin skinFor(net.minecraft.client.player.AbstractClientPlayer player, net.minecraft.world.entity.player.PlayerSkin textures) {
 		for (Valet v : valets) if (v.entity == player) return SUIT;
+		if (chauffeur != null && player == chauffeur) return SUIT;
 		return textures;
 	}
 
@@ -416,8 +426,449 @@ public class CarsModule extends Module {
 
 	@Override
 	protected void onDisable() {
+		if (riding != null) getOut(null);
 		removeValets();
 		cars.clear();
+	}
+
+	// ---------------------------------------------------------------- driving and being driven
+
+	/** The car you're in, and whether a chauffeur's driving it (the Maybach) or you are (the Jesko). */
+	private Car riding;
+	private boolean chauffeured;
+	/** Where it is this tick and last, which way it faces, how fast it's going (blocks a tick), and how far it's gone (for the wheels). */
+	private Vec3 rideAt, rideAtOld;
+	private float rideYaw, rideYawOld;
+	private double rideSpeed, rideDistance;
+	/** The chauffeur's loop: its middle and how far round he's got, and how long he's been stuck. */
+	private Vec3 loopCenter;
+	private double loopAngle, loopRadius;
+	private int stuckTicks;
+	private net.minecraft.client.player.RemotePlayer chauffeur;
+	private static final int CHAUFFEUR_ID = -33000;
+	/** The wheel: eases towards where A and D point it instead of snapping, so turns sweep in and out. */
+	private float steer;
+	/** How fast the car's turning, degrees a tick, eased the same way for the chauffeur. */
+	private float yawRate;
+	/** How hard you're on the throttle, eased, for the engine note. */
+	private float throttle;
+	private EngineSound engineSound;
+
+	/** Seats in each car's own space (x right, y up, z forward): where your feet go, so you sit on the cushion. */
+	private static final float[] JESKO_SEAT = {-0.36f, -0.62f, 0.05f}, MAYBACH_REAR = {0.45f, 0.0f, -1.35f}, MAYBACH_DRIVER = {-0.45f, 0.0f, 0.3f};
+	private static final double JESKO_TOP = 1.6, CHAUFFEUR_CRUISE = 0.42, SEATED_EYE = 1.62;
+
+	private static boolean larping() {
+		return dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.utility.ServerLarpModule.class).isLarping();
+	}
+
+	public boolean riding() {
+		return riding != null;
+	}
+
+	/** The car nearest you of a model, parked and within reach, or null. */
+	private Car nearestParked(Model which, double range) {
+		if (mc.player == null) return null;
+		long now = System.nanoTime();
+		Car best = null;
+		double bestDistance = range * range;
+		for (Car car : cars) {
+			if (car.model != which || !car.parked(now)) continue;
+			double d = car.pos.distanceToSqr(mc.player.position());
+			if (d < bestDistance) {
+				best = car;
+				bestDistance = d;
+			}
+		}
+		return best;
+	}
+
+	/** Whether you're looking at this car from close by. */
+	private boolean aimingAt(Car car) {
+		Vec3 eye = mc.player.getEyePosition(), reach = eye.add(mc.player.getViewVector(1).scale(5));
+		net.minecraft.world.phys.AABB area = new net.minecraft.world.phys.AABB(eye, reach).inflate(1);
+		for (var shape : carShapes(List.of(car), area)) {
+			if (shape.bounds().contains(eye) || shape.bounds().clip(eye, reach).isPresent()) return true;
+		}
+		return false;
+	}
+
+	/** Gets in: the driver's seat of the Jesko, or the back of the Maybach with the chauffeur up front. */
+	private void getIn(Car car) {
+		if (!larping()) {
+			ChatUtil.info("Turn on Server Larp to get in, so the server never sees you drive off");
+			return;
+		}
+		riding = car;
+		chauffeured = car.model == Model.SUV;
+		rideAt = rideAtOld = car.pos;
+		rideYaw = rideYawOld = car.yaw;
+		rideSpeed = 0;
+		rideDistance = 0;
+		stuckTicks = 0;
+		steer = yawRate = throttle = 0;
+		mc.player.setNoGravity(true);
+		// The engine catches, then keeps running under you
+		boolean jesko = car.model == Model.JESKO;
+		LarpSounds.play(LarpSounds.CAR_START, jesko ? 1.0f : 0.8f, jesko ? 0.8f : 0.4f);
+		if (engineSound != null) engineSound.end();
+		engineSound = new EngineSound();
+		mc.getSoundManager().play(engineSound);
+		if (chauffeured) {
+			// A big loop round from here, turning right, back to where it started
+			loopRadius = 26;
+			double rad = Math.toRadians(car.yaw);
+			Vec3 right = new Vec3(-Math.cos(rad), 0, -Math.sin(rad));
+			loopCenter = car.pos.add(right.scale(loopRadius));
+			Vec3 from = car.pos.subtract(loopCenter);
+			loopAngle = Math.atan2(from.z, from.x);
+			dev.femboyware.util.Mc.addChat(net.minecraft.network.chat.Component.literal("<Chauffeur> Good evening. Sit back and enjoy the ride. Sneak whenever you'd like to step out."));
+		} else {
+			ChatUtil.info("You're in the Jesko: W and S to drive and brake, A and D to steer, sneak to get out");
+		}
+	}
+
+	/** Gets out beside the car, which stays where it stopped. */
+	private void getOut(String message) {
+		Car car = riding;
+		riding = null;
+		chauffeured = false;
+		removeChauffeur();
+		if (engineSound != null) {
+			engineSound.end();
+			engineSound = null;
+		}
+		if (mc.player == null || car == null) return;
+		mc.player.setNoGravity(false);
+		mc.player.setDeltaMovement(Vec3.ZERO);
+		mc.player.resetFallDistance();
+		// Out of the door on the side you sat
+		float side = car.model == Model.SUV ? 1.6f : -1.5f;
+		double rad = Math.toRadians(car.yaw);
+		Vec3 right = new Vec3(-Math.cos(rad), 0, -Math.sin(rad));
+		Vec3 out = car.pos.add(right.scale(side));
+		mc.player.snapTo(out.x, out.y, out.z, mc.player.getYRot(), mc.player.getXRot());
+		mc.player.setOldPosAndRot();
+		if (message != null) ChatUtil.info(message);
+	}
+
+	/** The top of the ground under a point, looking a little up and down from {@code fromY}; NaN if there's none in reach. */
+	private double groundAt(double x, double fromY, double z) {
+		net.minecraft.core.BlockPos.MutableBlockPos pos = new net.minecraft.core.BlockPos.MutableBlockPos();
+		for (int dy = 2; dy >= -4; dy--) {
+			pos.set(net.minecraft.util.Mth.floor(x), net.minecraft.util.Mth.floor(fromY) + dy, net.minecraft.util.Mth.floor(z));
+			var state = mc.level.getBlockState(pos);
+			var shape = state.getCollisionShape(mc.level, pos);
+			if (shape.isEmpty()) continue;
+			double top = pos.getY() + shape.max(net.minecraft.core.Direction.Axis.Y);
+			if (top <= fromY + 1.05) return top;
+		}
+		return Double.NaN;
+	}
+
+	/** One tick of the car moving: on along its heading at its speed, following the ground, stopped by walls. */
+	private void moveCar() {
+		double rad = Math.toRadians(rideYaw);
+		Vec3 next = rideAt.add(-Math.sin(rad) * rideSpeed, 0, Math.cos(rad) * rideSpeed);
+		// The ground at the front of the car decides whether it can go there
+		double ground = groundAt(next.x, rideAt.y, next.z);
+		if (Double.isNaN(ground)) {
+			// Nothing within a few blocks down: let it roll off, falling
+			next = new Vec3(next.x, rideAt.y - 0.4, next.z);
+		} else if (ground > rideAt.y + 1.05) {
+			// A wall: it stops dead
+			rideSpeed = 0;
+			stuckTicks++;
+			return;
+		} else {
+			// Eased onto the ground's height rather than snapped to it, so steps and slopes ride like suspension
+			next = new Vec3(next.x, ground < rideAt.y - 0.5 ? Math.max(ground, rideAt.y - 0.5) : rideAt.y + (ground - rideAt.y) * 0.35, next.z);
+		}
+		rideDistance += Math.abs(rideSpeed);
+		if (Math.abs(rideSpeed) > 0.02) stuckTicks = 0;
+		rideAt = next;
+	}
+
+	/** The Jesko, driven by you: throttle, brake and reverse on W and S, steering on A and D. */
+	private void driveJesko() {
+		var input = mc.player.input.getMoveVector();
+		if (input.y > 0) rideSpeed = Math.min(JESKO_TOP, rideSpeed + 0.03 * (1 - Math.max(0, rideSpeed) / JESKO_TOP * 0.6));
+		else if (input.y < 0) rideSpeed = rideSpeed > 0.02 ? Math.max(0, rideSpeed - 0.07) : Math.max(-0.3, rideSpeed - 0.02);
+		else rideSpeed *= 0.985;
+		if (Math.abs(rideSpeed) < 0.003) rideSpeed = 0;
+		throttle += ((input.y != 0 ? 1 : 0) - throttle) * 0.25f;
+		// The wheel turns in and back out over a few ticks instead of snapping
+		steer += (input.x - steer) * 0.22f;
+		if (Math.abs(steer) < 0.01f && input.x == 0) steer = 0;
+		// Steering bites harder at low speed, gentler flat out; no turning on the spot
+		float grip = (float) Math.min(1, Math.abs(rideSpeed) * 4);
+		float rate = (float) (3.6 - 1.6 * Math.min(1, Math.abs(rideSpeed) / JESKO_TOP));
+		rideYaw -= steer * rate * grip * Math.signum(rideSpeed);
+		moveCar();
+	}
+
+	/** The Maybach, driven by the chauffeur: a slow, smooth loop round, steering for the next point on it. */
+	private void chauffeurDrive() {
+		double ahead = loopAngle + 0.35;
+		Vec3 target = loopCenter.add(Math.cos(ahead) * loopRadius, 0, Math.sin(ahead) * loopRadius);
+		Vec3 to = target.subtract(rideAt);
+		float want = (float) Math.toDegrees(Math.atan2(-to.x, to.z));
+		float turn = net.minecraft.util.Mth.wrapDegrees(want - rideYaw);
+		// Turning in and out gradually, like a careful driver, rather than at a fixed rate the moment he decides to
+		yawRate += net.minecraft.util.Mth.clamp(net.minecraft.util.Mth.clamp(turn * 0.5f, -3f, 3f) - yawRate, -0.3f, 0.3f);
+		rideYaw += yawRate;
+		throttle += (0.4f - throttle) * 0.1f;
+		// Easing off for tight turns, then up to cruising
+		double speedFor = CHAUFFEUR_CRUISE * (1 - Math.min(0.6, Math.abs(turn) / 90));
+		rideSpeed += net.minecraft.util.Mth.clamp(speedFor - rideSpeed, -0.03, 0.015);
+		moveCar();
+		// How far round the loop the car is now
+		Vec3 from = rideAt.subtract(loopCenter);
+		double angle = Math.atan2(from.z, from.x);
+		if (net.minecraft.util.Mth.wrapDegrees((float) Math.toDegrees(angle - loopAngle)) > 0) loopAngle = angle;
+		// Stuck against something: he tries further round
+		if (stuckTicks > 20) {
+			loopAngle += 0.6;
+			stuckTicks = 0;
+		}
+	}
+
+	/** Runs the ride each tick: the car moves, you're carried along in your seat. */
+	private void tickRide() {
+		if (riding == null || mc.player == null) return;
+		// Where it was before this tick's steering and moving, so both are smoothed between frames
+		// (and you turn with it); taken after the steering, the turn would jump once a tick
+		rideAtOld = rideAt;
+		rideYawOld = rideYaw;
+		if (!larping() || !cars.contains(riding)) {
+			getOut("Server Larp went off, so you're out of the car");
+			return;
+		}
+		if (mc.options.keyShift.isDown()) {
+			// Stopping first, then out
+			rideSpeed = Math.abs(rideSpeed) < 0.06 ? 0 : rideSpeed * 0.8;
+			rideAtOld = rideAt;
+			rideYawOld = rideYaw;
+			if (rideSpeed == 0) {
+				boolean wasChauffeured = chauffeured;
+				getOut(wasChauffeured ? null : "You're out of the Jesko");
+				if (wasChauffeured) dev.femboyware.util.Mc.addChat(net.minecraft.network.chat.Component.literal("<Chauffeur> We've arrived. Have a wonderful evening."));
+				return;
+			}
+		} else if (chauffeured) chauffeurDrive();
+		else driveJesko();
+		// The car in the list moves with it; it's put back where it stops when you get out
+		int index = cars.indexOf(riding);
+		Car moved = new Car(riding.model, rideAt, rideYaw, riding.born, rideAt.add(rideDistance, 0, 0), riding.born);
+		cars.set(index, moved);
+		riding = moved;
+		// You turn with the car
+		mc.player.setYRot(mc.player.getYRot() + (rideYaw - rideYawOld));
+		seat(mc.player, chauffeured ? MAYBACH_REAR : JESKO_SEAT, rideAt, rideYaw);
+		mc.player.setDeltaMovement(Vec3.ZERO);
+		mc.player.setOnGround(true);
+		mc.player.resetFallDistance();
+		placeChauffeur(rideAt, rideYaw);
+	}
+
+	/**
+	 * The engine while you're in a car: one seamless loop, its pitch following the revs. The Jesko
+	 * pulls up through its gears (the note climbs, drops back a little at each shift and climbs
+	 * again) and is louder on the throttle; the Maybach is a low, quiet hum. It fades out once
+	 * you're out.
+	 */
+	private final class EngineSound extends net.minecraft.client.resources.sounds.AbstractTickableSoundInstance {
+		private boolean ending;
+
+		EngineSound() {
+			super(LarpSounds.CAR_ENGINE, net.minecraft.sounds.SoundSource.PLAYERS, net.minecraft.util.RandomSource.create());
+			this.looping = true;
+			this.delay = 0;
+			this.relative = true;
+			this.attenuation = Attenuation.NONE;
+			this.volume = 0.01f;
+			this.pitch = 0.5f;
+		}
+
+		@Override
+		public boolean canStartSilent() {
+			return true;
+		}
+
+		@Override
+		public void tick() {
+			if (ending || riding == null) {
+				volume -= 0.06f;
+				if (volume <= 0.01f) stop();
+				return;
+			}
+			float speed = (float) Math.min(1, Math.abs(rideSpeed) / (chauffeured ? CHAUFFEUR_CRUISE * 1.6 : JESKO_TOP));
+			float wantPitch, wantVolume;
+			if (chauffeured) {
+				wantPitch = 0.5f + 0.35f * speed;
+				wantVolume = 0.16f + 0.1f * speed;
+			} else {
+				// Seven gears: each one revs up from where the last shift dropped it to
+				float gears = speed * 7, inGear = gears - (float) Math.floor(Math.min(6.999f, gears));
+				wantPitch = speed < 0.02f ? 0.55f : 0.62f + 0.12f * Math.min(6, (float) Math.floor(gears)) / 6 + 0.75f * inGear;
+				wantVolume = 0.3f + 0.25f * speed + 0.3f * throttle;
+			}
+			pitch += (Math.min(2, wantPitch) - pitch) * 0.35f;
+			volume += (wantVolume - volume) * 0.25f;
+		}
+
+		void end() {
+			ending = true;
+		}
+	}
+
+	/** Puts someone in a seat of a car at {@code at} facing {@code yaw}. */
+	private static void seat(net.minecraft.world.entity.Entity who, float[] seat, Vec3 at, float yaw) {
+		double rad = Math.toRadians(yaw);
+		double rx = -Math.cos(rad), rz = -Math.sin(rad), fx = -Math.sin(rad), fz = Math.cos(rad);
+		who.setPos(at.x + rx * seat[0] + fx * seat[2], at.y + seat[1], at.z + rz * seat[0] + fz * seat[2]);
+	}
+
+	/** Called from CameraMixin each frame: you, and the car, exactly where they are this frame, so nothing judders. */
+	public void placeFrame() {
+		if (riding == null || mc.player == null || rideAtOld == null) return;
+		float partial = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
+		Vec3 at = rideAtOld.lerp(rideAt, partial);
+		float yaw = net.minecraft.util.Mth.rotLerp(partial, rideYawOld, rideYaw);
+		seat(mc.player, chauffeured ? MAYBACH_REAR : JESKO_SEAT, at, yaw);
+		mc.player.xo = mc.player.xOld = mc.player.getX();
+		mc.player.yo = mc.player.yOld = mc.player.getY();
+		mc.player.zo = mc.player.zOld = mc.player.getZ();
+		mc.player.yBodyRot = mc.player.yBodyRotO = yaw;
+		placeChauffeur(at, yaw);
+	}
+
+	/**
+	 * For CameraMixin: where the camera is this frame while you're in a car. In first person, your
+	 * eyes in your seat exactly where the car is drawn; in third person, orbiting the car with the
+	 * mouse. Handed straight to the camera, so it never trails the car by a frame. Null when you
+	 * aren't in one.
+	 */
+	public CinematicCameraModule.View view(float tickProgress) {
+		if (riding == null || mc.player == null || rideAtOld == null) return null;
+		Vec3 at = rideAtOld.lerp(rideAt, tickProgress);
+		float carYaw = net.minecraft.util.Mth.rotLerp(tickProgress, rideYawOld, rideYaw);
+		// Where you look relative to the car, on top of the car's own turn this frame: the car's yaw is
+		// smooth between ticks, so turning with it is too (your own yaw only steps once a tick)
+		float yaw = carYaw + net.minecraft.util.Mth.wrapDegrees(mc.player.getYRot() - rideYaw), pitch = mc.player.getViewXRot(tickProgress);
+		float[] seatPos = chauffeured ? MAYBACH_REAR : JESKO_SEAT;
+		double rad = Math.toRadians(carYaw);
+		double rx = -Math.cos(rad), rz = -Math.sin(rad), fx = -Math.sin(rad), fz = Math.cos(rad);
+		Vec3 seatAt = new Vec3(at.x + rx * seatPos[0] + fx * seatPos[2], at.y + seatPos[1], at.z + rz * seatPos[0] + fz * seatPos[2]);
+		// Your standing eye height, always: holding sneak to get out would otherwise drop your eyes into the floor
+		if (mc.options.getCameraType().isFirstPerson()) return new CinematicCameraModule.View(seatAt.add(0, SEATED_EYE, 0), yaw, pitch);
+		boolean front = mc.options.getCameraType() == net.minecraft.client.CameraType.THIRD_PERSON_FRONT;
+		float lookYaw = front ? yaw + 180 : yaw, lookPitch = front ? -pitch : pitch;
+		double yr = Math.toRadians(lookYaw), pr = Math.toRadians(lookPitch);
+		Vec3 dir = new Vec3(-Math.sin(yr) * Math.cos(pr), -Math.sin(pr), Math.cos(yr) * Math.cos(pr));
+		Vec3 target = at.add(0, 1.2, 0);
+		Vec3 cam = target.subtract(dir.scale(chauffeured ? 7 : 5.5));
+		if (cam.y < at.y + 0.4) cam = new Vec3(cam.x, at.y + 0.4, cam.z);
+		Vec3 look = target.subtract(cam);
+		return new CinematicCameraModule.View(cam, (float) Math.toDegrees(Math.atan2(-look.x, look.z)),
+			(float) Math.toDegrees(-Math.atan2(look.y, Math.sqrt(look.x * look.x + look.z * look.z))));
+	}
+
+	/** The car you're in, where it's drawn this frame. */
+	private Car frameCar(Car car, long now) {
+		if (car != riding || rideAtOld == null) return new Car(car.model, car.at(now), car.yaw, car.born, car.from, car.arrive);
+		float partial = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
+		return new Car(car.model, rideAtOld.lerp(rideAt, partial), net.minecraft.util.Mth.rotLerp(partial, rideYawOld, rideYaw), car.born, car.from, car.arrive);
+	}
+
+	private void placeChauffeur(Vec3 at, float yaw) {
+		if (!chauffeured || mc.level == null) return;
+		if (chauffeur == null || chauffeur.isRemoved() || chauffeur.level() != mc.level) {
+			chauffeur = new net.minecraft.client.player.RemotePlayer(mc.level, new com.mojang.authlib.GameProfile(java.util.UUID.randomUUID(), "Chauffeur"));
+			chauffeur.setId(CHAUFFEUR_ID);
+			mc.level.addEntity(chauffeur);
+		}
+		seat(chauffeur, MAYBACH_DRIVER, at, yaw);
+		chauffeur.setOldPosAndRot();
+		chauffeur.setYRot(yaw);
+		chauffeur.yRotO = yaw;
+		chauffeur.yBodyRot = chauffeur.yBodyRotO = yaw;
+		chauffeur.yHeadRot = chauffeur.yHeadRotO = yaw;
+	}
+
+	private void removeChauffeur() {
+		if (chauffeur != null && mc.level != null && chauffeur.level() == mc.level) mc.level.removeEntity(chauffeur.getId(), net.minecraft.world.entity.Entity.RemovalReason.DISCARDED);
+		chauffeur = null;
+	}
+
+	/** Called from PlayerModelMixin: you and the chauffeur sit, his hands on the wheel. */
+	public void poseRiders(net.minecraft.client.model.player.PlayerModel model, net.minecraft.client.renderer.entity.state.AvatarRenderState state) {
+		if (riding == null || mc.player == null) return;
+		boolean you = state.id == mc.player.getId(), driver = chauffeur != null && state.id == CHAUFFEUR_ID;
+		if (!you && !driver) return;
+		model.rightLeg.xRot = -1.45f;
+		model.leftLeg.xRot = -1.45f;
+		model.rightLeg.yRot = 0.1f;
+		model.leftLeg.yRot = -0.1f;
+		if (driver || !chauffeured) {
+			model.rightArm.xRot = -1.0f;
+			model.leftArm.xRot = -1.0f;
+			model.rightArm.zRot = 0;
+			model.leftArm.zRot = 0;
+		}
+	}
+
+	/** Handles getting in by right-clicking a car while larping. */
+	private void tickGettingIn() {
+		if (riding != null || mc.player == null || !larping() || dev.femboyware.util.Mc.screen() != null) return;
+		long now = System.nanoTime();
+		Car target = null;
+		for (Car car : cars) {
+			if (car.parked(now) && car.pos.distanceToSqr(mc.player.position()) < 8 * 8 && aimingAt(car)) target = car;
+		}
+		if (target == null) return;
+		boolean clicked = false;
+		while (mc.options.keyUse.consumeClick()) clicked = true;
+		if (clicked) getIn(target);
+	}
+
+	// ---------------------------------------------------------------- the valet app
+
+	/** For the phone's valet app: has a valet bring a car round to you. */
+	public void summon(Model which) {
+		Model was = model.get();
+		model.set(which);
+		command(new String[]{"car", "spawn"});
+		model.set(was);
+	}
+
+	/** For the valet app: your cars, by model, and how far away. */
+	public List<String> parkedSummary() {
+		List<String> out = new ArrayList<>();
+		if (mc.player == null) return out;
+		for (Car car : cars) {
+			int distance = (int) Math.round(car.pos.distanceTo(mc.player.position()));
+			out.add((car.model == Model.SUV ? "Maybach" : "Jesko") + (car == riding ? "  ·  you're in it" : "  ·  " + distance + " blocks away"));
+		}
+		return out;
+	}
+
+	/** For the valet app: takes your most recent car away. */
+	public void sendAway() {
+		for (int i = cars.size() - 1; i >= 0; i--) {
+			if (cars.get(i) == riding) continue;
+			cars.remove(i);
+			return;
+		}
+	}
+
+	/** For the valet app: gets you into the nearest car of a model, if it's near enough. */
+	public String getInNearest(Model which) {
+		if (riding != null) return "You're already in a car";
+		Car car = nearestParked(which, 12);
+		if (car == null) return "Have the valet bring it round first";
+		getIn(car);
+		return riding != null ? null : "Turn on Server Larp first";
 	}
 
 	// ---------------------------------------------------------------- drawing
@@ -433,9 +884,15 @@ public class CarsModule extends Module {
 		/** How much taller than built the body is drawn; wheels and their arch trims aren't stretched. */
 		float stretch = 1;
 
+		/** How lit the car is where it's parked (see LarpLight); interiors keep a softer floor. */
+		float light;
+		/** Vertices held back to draw later, when built without a consumer (for see-through glass). */
+		final List<float[]> held = new ArrayList<>();
+
 		Builder(VertexConsumer c, PoseStack.Pose pose, Car car, Vec3 cam) {
 			this.c = c;
 			this.pose = pose;
+			this.light = LarpLight.at(car.pos.x, car.pos.y + 1.2, car.pos.z);
 			double rad = Math.toRadians(car.yaw);
 			// Car +z points where the yaw faces; +x to its right
 			cos = (float) Math.cos(rad);
@@ -451,7 +908,15 @@ public class CarsModule extends Module {
 			}
 			// Facing yaw: forward is (-sin, cos); right is (-cos, -sin)
 			float wx = ox - x * cos - z * sin, wz = oz - x * sin + z * cos;
-			FxRender.vertex(c, pose, wx, oy + y, wz, color);
+			color = LarpLight.shade(color, light);
+			if (c == null) held.add(new float[]{wx, oy + y, wz, Float.intBitsToFloat(color)});
+			else FxRender.vertex(c, pose, wx, oy + y, wz, color);
+		}
+
+		/** Draws what was held back into {@code into}. */
+		void flush(VertexConsumer into) {
+			for (float[] v : held) FxRender.vertex(into, pose, v[0], v[1], v[2], Float.floatToRawIntBits(v[3]));
+			held.clear();
 		}
 
 		void quad(float[] a, float[] b, float[] cc, float[] d, int color) {
@@ -566,6 +1031,181 @@ public class CarsModule extends Module {
 		}
 	}
 
+	// ---------------------------------------------------------------- interiors
+
+	private static final int CREAM = 0xFFEDE3CE, CREAM_DARK = 0xFFD9CCB0, WOOD = 0xFF5A3A22, PIANO = 0xFF141416, CHROME = 0xFFD6DAE0, CARPET = 0xFF2B2420;
+
+	/**
+	 * The Maybach's cabin: cream leather executive seats in the back that recline with leg rests and
+	 * pillows, a console between them with a champagne cooler, a bottle and two flutes, fold-out wood
+	 * tables and screens on the front seat backs, front seats, a wood and leather dashboard with a
+	 * widescreen display and the wheel, wood-trimmed doors with armrests, deep carpet, and a dark
+	 * headliner for the starlight (drawn with the glows).
+	 */
+	private void maybachInterior(Builder b) {
+		// Floor
+		b.box(-0.9f, 0.43f, -2.3f, 0.9f, 0.47f, 1.2f, CARPET);
+		for (int side = -1; side <= 1; side += 2) {
+			float x = side * 0.45f;
+			// The executive seat: quilted cushion, reclined back, headrest with a pillow, a leg rest out front
+			b.box(x - 0.31f, 0.47f, -1.8f, x + 0.31f, 0.72f, -0.95f, CREAM);
+			for (int q = 0; q < 4; q++) b.box(x - 0.3f, 0.721f, -1.72f + q * 0.2f, x + 0.3f, 0.726f, -1.7f + q * 0.2f, CREAM_DARK);
+			b.box(x - 0.31f, 0.72f, -1.97f, x + 0.31f, 1.45f, -1.78f, CREAM);
+			for (int q = 0; q < 3; q++) b.box(x - 0.3f, 0.82f + q * 0.2f, -1.781f, x + 0.3f, 0.84f + q * 0.2f, -1.775f, CREAM_DARK);
+			b.box(x - 0.2f, 1.45f, -1.95f, x + 0.2f, 1.66f, -1.8f, CREAM);
+			b.box(x - 0.16f, 1.46f, -1.8f, x + 0.16f, 1.6f, -1.74f, 0xFFF7F3EA);
+			b.box(x - 0.26f, 0.5f, -0.95f, x + 0.26f, 0.64f, -0.5f, CREAM);
+			// Outer armrest
+			b.box(side * 0.86f - 0.05f, 0.72f, -1.85f, side * 0.86f + 0.05f, 0.86f, -0.95f, CREAM);
+			// A fold-out wood table on the back of the seat in front, and its screen
+			b.box(x - 0.22f, 0.98f, -0.52f, x + 0.22f, 1.0f, -0.2f, WOOD);
+			b.box(x - 0.21f, 1.0f, -0.51f, x + 0.21f, 1.003f, -0.21f, 0xFF7A5232);
+			// The front seat: cushion, back with the screen facing you, headrest
+			b.box(x - 0.3f, 0.47f, 0.1f, x + 0.3f, 0.72f, 0.75f, CREAM);
+			b.box(x - 0.3f, 0.72f, -0.12f, x + 0.3f, 1.5f, 0.1f, CREAM);
+			b.box(x - 0.18f, 1.5f, -0.1f, x + 0.18f, 1.68f, 0.06f, CREAM);
+			b.box(x - 0.21f, 1.07f, -0.135f, x + 0.21f, 1.37f, -0.121f, PIANO);
+			b.box(x - 0.19f, 1.09f, -0.14f, x + 0.19f, 1.35f, -0.136f, 0xFF2D5FB8);
+			// The door: wood trim, an armrest, and leather above and below
+			float dx = side * 0.9f;
+			b.box(dx - 0.02f, 1.0f, -2.2f, dx + 0.02f, 1.06f, 1.15f, WOOD);
+			b.box(side * 0.86f - 0.05f, 0.9f, -1.9f, side * 0.86f + 0.05f, 0.96f, -0.6f, CREAM_DARK);
+			b.box(dx - 0.015f, 0.47f, -2.2f, dx + 0.015f, 1.0f, 1.15f, CREAM_DARK);
+		}
+		// The console between the back seats: piano black, a wood top, the champagne cooler, bottle and flutes
+		b.box(-0.13f, 0.47f, -1.95f, 0.13f, 0.86f, -0.9f, PIANO);
+		b.box(-0.13f, 0.86f, -1.95f, 0.13f, 0.875f, -0.9f, WOOD);
+		b.box(-0.1f, 0.875f, -1.28f, 0.1f, 0.89f, -1.02f, CHROME);
+		b.box(-0.035f, 0.89f, -1.19f, 0.035f, 1.18f, -1.11f, 0xFF123A22);
+		b.box(-0.025f, 1.18f, -1.18f, 0.025f, 1.25f, -1.12f, 0xFFC9A14A);
+		for (int side = -1; side <= 1; side += 2) {
+			float fx = side * 0.07f, fz = -1.5f;
+			b.box(fx - 0.012f, 0.875f, fz - 0.012f, fx + 0.012f, 0.88f, fz + 0.012f, CHROME);
+			b.box(fx - 0.004f, 0.88f, fz - 0.004f, fx + 0.004f, 0.96f, fz + 0.004f, 0xFFE8F0F5);
+			b.box(fx - 0.018f, 0.96f, fz - 0.018f, fx + 0.018f, 1.06f, fz + 0.018f, 0xFFE8D79A);
+		}
+		// The front: centre console with a crystal gear selector, the dashboard with a widescreen display, and the wheel
+		b.box(-0.18f, 0.47f, 0.0f, 0.18f, 0.8f, 1.0f, PIANO);
+		b.box(-0.17f, 0.8f, 0.0f, 0.17f, 0.815f, 1.0f, WOOD);
+		b.box(-0.03f, 0.815f, 0.55f, 0.03f, 0.9f, 0.61f, 0xFFE8F0F5);
+		b.box(-0.93f, 0.95f, 1.0f, 0.93f, 1.2f, 1.28f, 0xFF1A1714);
+		b.box(-0.92f, 1.0f, 0.985f, 0.92f, 1.06f, 1.0f, WOOD);
+		b.box(-0.85f, 1.075f, 0.975f, 0.25f, 1.2f, 0.985f, PIANO);
+		b.box(-0.83f, 1.085f, 0.968f, 0.23f, 1.19f, 0.975f, 0xFF1F3A5A);
+		float wx = -0.45f, wy = 1.06f, wz = 0.82f, r = 0.17f;
+		for (int k = 0; k < 12; k++) {
+			double a = Math.PI * 2 * k / 12;
+			float px = wx + (float) Math.cos(a) * r, py = wy + (float) Math.sin(a) * r;
+			b.box(px - 0.025f, py - 0.025f, wz - 0.02f, px + 0.025f, py + 0.025f, wz + 0.02f, 0xFF1A1714);
+		}
+		b.box(wx - 0.06f, wy - 0.06f, wz - 0.01f, wx + 0.06f, wy + 0.06f, wz + 0.03f, CHROME);
+		b.box(wx - 0.03f, wy - 0.03f, wz + 0.03f, wx + 0.03f, wy + 0.03f, 1.0f, PIANO);
+		// The rear shelf, and the headliner the stars shine from
+		b.box(-0.9f, 1.8f, -2.2f, 0.9f, 1.84f, 0.6f, 0xFF0B0C14);
+	}
+
+	/** The Maybach's lights inside: a starlight roof that twinkles, ambient strips along the doors, and the glowing screens. */
+	private void maybachGlows(Render3DEvent event, VertexConsumer glow, Builder b) {
+		long ms = System.currentTimeMillis();
+		java.util.Random stars = new java.util.Random(7);
+		for (int i = 0; i < 70; i++) {
+			float x = -0.85f + stars.nextFloat() * 1.7f, z = -2.1f + stars.nextFloat() * 2.6f;
+			float twinkle = 0.55f + 0.45f * (float) Math.sin(ms / 400.0 + i * 1.7);
+			int color = FxRender.fade(stars.nextInt(5) == 0 ? 0xFFBFD8FF : 0xFFFFFFFF, twinkle);
+			glowAt(event, glow, b, x, 1.795f, z, 0.022f, LarpLight.glow(color));
+		}
+		for (int side = -1; side <= 1; side += 2) {
+			for (float z = -2.1f; z < 1.1f; z += 0.22f) glowAt(event, glow, b, side * 0.87f, 0.99f, z, 0.07f, LarpLight.glow(0x70B45CFF));
+			glowAt(event, glow, b, side * 0.45f, 1.22f, -0.15f, 0.16f, LarpLight.glow(0x603D7BE0));
+		}
+		glowAt(event, glow, b, -0.3f, 1.14f, 0.96f, 0.3f, LarpLight.glow(0x403D7BE0));
+	}
+
+	/** A glow at a point in a car's own space, riding the body's lift and pitch like the rest of it. */
+	private static void glowAt(Render3DEvent event, VertexConsumer glow, Builder b, float x, float y, float z, float size, int color) {
+		float yy = y + b.lift + z * b.pitch;
+		float wx = b.ox - x * b.cos - z * b.sin, wz = b.oz - x * b.sin + z * b.cos;
+		FxRender.billboard(event, glow, wx, b.oy + yy, wz, size, 0, color);
+	}
+
+	/**
+	 * A glass canopy from a side outline: both sides, and the strips over the top for the first
+	 * {@code over} edges of the outline, leaving the bottom open so you can see in and out.
+	 */
+	/** The Jesko's cockpit opening: from the windshield's foot back to behind the seats, inside the canopy's glass. */
+	private static final float COCKPIT_FRONT = 1.05f, COCKPIT_BACK = -0.95f, COCKPIT_SIDE = 0.72f;
+
+	/**
+	 * A body piece drawn round the Jesko's cockpit instead of over it: the part ahead of it, the part
+	 * behind, and a sill down each side, so no lid covers the seats and you can see out from inside.
+	 */
+	private static void aroundCockpit(Builder b, float[][] outline, float x1, float x2, int color) {
+		float[][] front = clipZ(outline, COCKPIT_FRONT, Float.MAX_VALUE), back = clipZ(outline, -Float.MAX_VALUE, COCKPIT_BACK), middle = clipZ(outline, COCKPIT_BACK, COCKPIT_FRONT);
+		if (front.length >= 3) b.prism(front, x1, x2, color);
+		if (back.length >= 3) b.prism(back, x1, x2, color);
+		if (middle.length >= 3) {
+			b.prism(middle, x1, -COCKPIT_SIDE, color);
+			b.prism(middle, COCKPIT_SIDE, x2, color);
+		}
+	}
+
+	/** A side profile ({z, y} points) cut down to the part between {@code from} and {@code to} along the car. */
+	private static float[][] clipZ(float[][] outline, float from, float to) {
+		List<float[]> points = new ArrayList<>(List.of(outline));
+		for (int pass = 0; pass < 2; pass++) {
+			List<float[]> kept = new ArrayList<>();
+			for (int i = 0; i < points.size(); i++) {
+				float[] p = points.get(i), q = points.get((i + 1) % points.size());
+				boolean pIn = pass == 0 ? p[0] >= from : p[0] <= to, qIn = pass == 0 ? q[0] >= from : q[0] <= to;
+				float edge = pass == 0 ? from : to;
+				if (pIn) kept.add(p);
+				if (pIn != qIn) {
+					float t = (edge - p[0]) / (q[0] - p[0]);
+					kept.add(new float[]{edge, p[1] + (q[1] - p[1]) * t});
+				}
+			}
+			points = kept;
+			if (points.isEmpty()) break;
+		}
+		return points.toArray(new float[0][]);
+	}
+
+	private static void glassShell(Builder glass, float[][] outline, int over, float x1, float x2, int color) {
+		for (float x : new float[]{x1, x2}) {
+			for (int i = 1; i < outline.length - 1; i++) {
+				float[] a = outline[0], p = outline[i], q = outline[i + 1];
+				glass.quad(new float[]{x, a[1], a[0]}, new float[]{x, p[1], p[0]}, new float[]{x, q[1], q[0]}, new float[]{x, q[1], q[0]}, color);
+			}
+		}
+		for (int i = 0; i < over && i + 1 < outline.length; i++) {
+			float[] p = outline[i], q = outline[i + 1];
+			glass.quad(new float[]{x1, p[1], p[0]}, new float[]{x2, p[1], p[0]}, new float[]{x2, q[1], q[0]}, new float[]{x1, q[1], q[0]}, color);
+		}
+	}
+
+	/** The Jesko's cockpit, under its glass canopy: carbon bucket seats with accent stripes, the dash and its screen, and the wheel. */
+	private void jeskoInterior(Builder b, int accent) {
+		int alcantara = 0xFF1C1D21, carbon = 0xFF141518;
+		for (int side = -1; side <= 1; side += 2) {
+			float x = side * 0.36f;
+			b.box(x - 0.24f, 0.36f, -0.5f, x + 0.24f, 1.02f, -0.34f, alcantara);
+			b.box(x - 0.03f, 0.5f, -0.341f, x + 0.03f, 1.0f, -0.335f, accent);
+			b.box(x - 0.24f, 0.3f, -0.34f, x + 0.24f, 0.42f, 0.25f, alcantara);
+		}
+		b.box(-0.06f, 0.3f, -0.4f, 0.06f, 0.62f, 0.5f, carbon);
+		b.box(-0.7f, 0.83f, 0.45f, 0.7f, 0.9f, 0.78f, carbon);
+		b.box(-0.55f, 0.88f, 0.44f, -0.15f, 0.96f, 0.455f, PIANO);
+		b.box(-0.53f, 0.89f, 0.435f, -0.17f, 0.95f, 0.44f, 0xFF2D5FB8);
+		float wx = -0.36f, wy = 0.86f, wz = 0.33f, r = 0.13f;
+		for (int k = 0; k < 10; k++) {
+			double a = Math.PI * 2 * k / 10;
+			float px = wx + (float) Math.cos(a) * r, py = wy + (float) Math.sin(a) * r;
+			b.box(px - 0.02f, py - 0.02f, wz - 0.015f, px + 0.02f, py + 0.02f, wz + 0.015f, alcantara);
+		}
+		b.box(wx - 0.015f, wy + r - 0.02f, wz - 0.02f, wx + 0.015f, wy + r + 0.025f, wz + 0.02f, accent);
+		b.box(wx - 0.04f, wy - 0.04f, wz, wx + 0.04f, wy + 0.04f, 0.45f, carbon);
+	}
+
 	private static int shade(int color, float by) {
 		int r = (int) (((color >> 16) & 0xFF) * by), g = (int) (((color >> 8) & 0xFF) * by), b = (int) ((color & 0xFF) * by);
 		return (color & 0xFF000000) | Math.min(255, r) << 16 | Math.min(255, g) << 8 | Math.min(255, b);
@@ -634,34 +1274,52 @@ public class CarsModule extends Module {
 		if (cars.isEmpty()) return;
 		long now = System.nanoTime();
 		List<Car> shown = new ArrayList<>();
-		for (Car car : cars) shown.add(new Car(car.model, car.at(now), car.yaw, car.born, car.from, car.arrive));
+		for (Car car : cars) shown.add(frameCar(car, now));
 		draw(event, shown, now);
+	}
+
+	/** Whether a car drawn this frame is the one you're riding in (drawn copies are new records). */
+	private static boolean sameSpot(Car drawn, Car riding) {
+		return riding != null && drawn.model == riding.model && drawn.born == riding.born;
 	}
 
 	private void draw(Render3DEvent event, List<Car> shown, long now) {
 		Vec3 cam = event.camera().pos;
 		Look look = look();
 		VertexConsumer solid = FxRender.solidQuads(event);
+		List<Builder> glasses = new ArrayList<>();
+		List<Builder> builders = new ArrayList<>();
 		for (Car car : shown) {
 			float t = (now - car.born) / 1e9f;
 			Builder b = new Builder(solid, event.matrices().last(), car, cam);
-			// Hydraulics are the Maybach's thing; the Jesko sits low and still
-			if (look.hydraulics && car.model == Model.SUV) {
-				b.lift = look.bounce * Math.abs((float) Math.sin(t * 2.6f));
-				b.pitch = 0.04f * (float) Math.sin(t * 1.3f);
+			Builder glass = new Builder(null, event.matrices().last(), car, cam);
+			// Hydraulics are the Maybach's thing; the Jesko sits low and still. Not while someone's riding in it
+			if (look.hydraulics && car.model == Model.SUV && !sameSpot(car, riding)) {
+				b.lift = glass.lift = look.bounce * Math.abs((float) Math.sin(t * 2.6f));
+				b.pitch = glass.pitch = 0.04f * (float) Math.sin(t * 1.3f);
 			}
+			glasses.add(glass);
+			builders.add(b);
 			// Rolling as it drives in and still once it's stopped; spinners coast on a little, then wind down
 			float rolled = (float) car.from.distanceTo(car.pos) / 0.38f;
 			float stopped = Math.max(0, (now - car.arrive) / 1e9f);
 			float coast = look.spinningRims ? 7 / 0.6f * (1 - (float) Math.exp(-0.6f * stopped)) : 0;
 			float spin = coast - rolled;
 			switch (car.model) {
-				case SUV -> suv(b, spin);
-				case JESKO -> jesko(b, spin);
+				case SUV -> suv(b, glass, spin);
+				case JESKO -> jesko(b, glass, spin);
 			}
 		}
-		// Glows go after everything solid: underglow on the ground, headlights in front
+		// The see-through glass after everything solid
+		if (!glasses.isEmpty()) {
+			VertexConsumer translucent = FxRender.quads(event, false, false);
+			for (Builder glass : glasses) glass.flush(translucent);
+		}
+		// Glows go after everything solid: underglow on the ground, headlights in front, and the Maybach's starlight roof
 		VertexConsumer glow = FxRender.textured(event, FxRender.GLOW, true, false);
+		for (int i = 0; i < shown.size(); i++) {
+			if (shown.get(i).model == Model.SUV) maybachGlows(event, glow, builders.get(i));
+		}
 		for (Car car : shown) {
 			float t = (now - car.born) / 1e9f;
 			float half = car.model == Model.SUV ? 2.65f : 2.38f;
@@ -669,7 +1327,7 @@ public class CarsModule extends Module {
 			float fx = (float) -Math.sin(rad), fz = (float) Math.cos(rad), rx = (float) -Math.cos(rad), rz = (float) -Math.sin(rad);
 			float cx = (float) (car.pos.x - cam.x), cy = (float) (car.pos.y - cam.y), cz = (float) (car.pos.z - cam.z);
 			if (look.underglow) {
-				int color = FxRender.fade(look.glowColor, 0.7f + 0.15f * (float) Math.sin(t * 3));
+				int color = LarpLight.glow(FxRender.fade(look.glowColor, 0.7f + 0.15f * (float) Math.sin(t * 3)));
 				float w = 2.2f, l = half + 1.2f, y = cy + 0.03f;
 				FxRender.textured(glow, event.matrices().last(), cx - rx * w - fx * l, y, cz - rz * w - fz * l, 0, 0, color);
 				FxRender.textured(glow, event.matrices().last(), cx + rx * w - fx * l, y, cz + rz * w - fz * l, 1, 0, color);
@@ -681,8 +1339,8 @@ public class CarsModule extends Module {
 				float lightY = cy + (car.model == Model.JESKO ? 0.46f : 0.92f) + lift;
 				for (int side = -1; side <= 1; side += 2) {
 					float spread = car.model == Model.JESKO ? 0.78f : 0.72f, lx = cx + fx * (half + 0.05f) + rx * side * spread, lz = cz + fz * (half + 0.05f) + rz * side * spread;
-					FxRender.billboard(event, glow, lx, lightY, lz, 0.45f, 0, 0x90FFF6E0);
-					FxRender.billboard(event, glow, lx, lightY, lz, 0.18f, 0, 0xF0FFFFFF);
+					FxRender.billboard(event, glow, lx, lightY, lz, 0.45f, 0, LarpLight.glow(0x90FFF6E0));
+					FxRender.billboard(event, glow, lx, lightY, lz, 0.18f, 0, LarpLight.glow(0xF0FFFFFF));
 				}
 			}
 		}
@@ -693,14 +1351,24 @@ public class CarsModule extends Module {
 	 * rear glass, pillars and chrome window frames, door seams and handles, mirrors, roof rails, a
 	 * long chrome sill strip, a tall slatted grille, slim lights and many-spoke chrome wheels.
 	 */
-	private void suv(Builder b, float spin) {
+	private void suv(Builder b, Builder glass, float spin) {
 		Look look = look();
 		int p = look.paint, chrome = look.trim, seam = shade(p, 0.45f);
-		// The body, side on: front bumper, bonnet sloping up to the windshield base, flat to the back
-		b.prism(new float[][]{{2.78f, 0.42f}, {2.8f, 0.78f}, {2.7f, 1.12f}, {1.3f, 1.2f}, {-2.58f, 1.2f}, {-2.74f, 1.08f}, {-2.76f, 0.42f}}, -1.0f, 1.0f, p);
+		// The body in three parts, so the cabin is open inside: the bonnet sloping up to the windshield base,
+		// the boot behind the back seats, and the doors along the sides between them
+		b.prism(new float[][]{{2.78f, 0.42f}, {2.8f, 0.78f}, {2.7f, 1.12f}, {1.3f, 1.2f}, {1.3f, 0.42f}}, -1.0f, 1.0f, p);
+		b.prism(new float[][]{{-2.0f, 1.2f}, {-2.58f, 1.2f}, {-2.74f, 1.08f}, {-2.76f, 0.42f}, {-2.0f, 0.42f}}, -1.0f, 1.0f, p);
+		for (int side = -1; side <= 1; side += 2) b.box(side > 0 ? 0.93f : -1.0f, 0.42f, -1.99f, side > 0 ? 1.0f : -0.93f, 1.2f, 1.29f, p);
 		b.box(-0.96f, 0.3f, -2.6f, 0.96f, 0.42f, 2.62f, BLACK);
-		// The glasshouse: raked windshield, tall side windows, sloped rear glass
-		b.prism(new float[][]{{1.3f, 1.2f}, {0.5f, 1.86f}, {-2.28f, 1.88f}, {-2.58f, 1.2f}}, -0.93f, 0.93f, GLASS);
+		// The glass: raked windshield, tall side windows, sloped rear glass. Just the panes, no floor to them
+		float gx = 0.93f;
+		for (int side = -1; side <= 1; side += 2) {
+			float x = side * gx;
+			glass.quad(new float[]{x, 1.2f, 1.3f}, new float[]{x, 1.86f, 0.5f}, new float[]{x, 1.88f, -2.28f}, new float[]{x, 1.2f, -2.58f}, SUV_GLASS);
+		}
+		glass.quad(new float[]{-gx, 1.2f, 1.3f}, new float[]{gx, 1.2f, 1.3f}, new float[]{gx, 1.86f, 0.5f}, new float[]{-gx, 1.86f, 0.5f}, SUV_GLASS);
+		glass.quad(new float[]{-gx, 1.88f, -2.28f}, new float[]{gx, 1.88f, -2.28f}, new float[]{gx, 1.2f, -2.58f}, new float[]{-gx, 1.2f, -2.58f}, SUV_GLASS);
+		maybachInterior(b);
 		b.box(-0.96f, 1.86f, -2.32f, 0.96f, 1.94f, 0.55f, p);
 		for (int side = -1; side <= 1; side += 2) {
 			float sx = side * 0.938f, cx = side * 0.945f;
@@ -751,7 +1419,7 @@ public class CarsModule extends Module {
 	 * intake, a sculpted door, a low swan-neck wing, a mesh tail with an oval exhaust and a finned
 	 * diffuser, lime accents and Y-spoke wheels with lime calipers.
 	 */
-	private void jesko(Builder b, float spin) {
+	private void jesko(Builder b, Builder glass, float spin) {
 		Look look = look();
 		int p = look.jeskoPaint, accent = look.jeskoAccent, carbon = 0xFF141518, seam = shade(p, 0.55f), rims = 0xFF1C1D21;
 		int shadow = shade(p, 0.78f);
@@ -761,22 +1429,26 @@ public class CarsModule extends Module {
 		// The body side on: nose, the long bonnet line, under the canopy, the deck and the tail
 		float[][] body = {{2.34f, 0.18f}, {2.42f, 0.3f}, {2.34f, 0.42f}, {2.05f, 0.54f}, {1.6f, 0.66f}, {1.05f, 0.8f}, {0.5f, 0.84f}, {-0.6f, 0.86f},
 			{-1.3f, 0.9f}, {-2.05f, 0.88f}, {-2.3f, 0.78f}, {-2.36f, 0.5f}, {-2.3f, 0.18f}};
-		b.prism(body, -0.92f, 0.92f, p);
+		// Each is left open over the cockpit (between the canopy's ends, inside its glass) so you can sit in it and see out
+		aroundCockpit(b, body, -0.92f, 0.92f, p);
 		// The full-width lower body, and a chamfer stepping in to the shoulders
-		b.prism(new float[][]{{2.38f, 0.2f}, {2.44f, 0.32f}, {2.3f, 0.45f}, {2.05f, 0.5f}, {-2.3f, 0.5f}, {-2.38f, 0.4f}, {-2.32f, 0.2f}}, -1.0f, 1.0f, p);
+		aroundCockpit(b, new float[][]{{2.38f, 0.2f}, {2.44f, 0.32f}, {2.3f, 0.45f}, {2.05f, 0.5f}, {-2.3f, 0.5f}, {-2.38f, 0.4f}, {-2.32f, 0.2f}}, -1.0f, 1.0f, p);
 		float[][] chamfer = new float[body.length][];
 		for (int i = 0; i < body.length; i++) chamfer[i] = new float[]{body[i][0], Math.max(0.5f, Math.min(body[i][1], 0.5f + (body[i][1] - 0.5f) * 0.7f))};
-		b.prism(chamfer, -0.975f, 0.975f, p);
+		aroundCockpit(b, chamfer, -0.975f, 0.975f, p);
 		for (int side = -1; side <= 1; side += 2) {
-			// Front fender cresting over the wheel, with a softer crown
-			b.prism(new float[][]{{2.2f, 0.48f}, {2.0f, 0.62f}, {1.7f, 0.72f}, {1.35f, 0.78f}, {1.05f, 0.79f}, {0.9f, 0.74f}, {0.9f, 0.48f}}, side > 0 ? 0.6f : -1.0f, side > 0 ? 1.0f : -0.6f, p);
-			b.prism(new float[][]{{1.95f, 0.66f}, {1.7f, 0.745f}, {1.35f, 0.8f}, {1.08f, 0.81f}, {1.08f, 0.72f}, {1.95f, 0.6f}}, side > 0 ? 0.66f : -0.93f, side > 0 ? 0.93f : -0.66f, p);
-			// Rear haunch swelling over the back wheel and running out to the tail
-			b.prism(new float[][]{{-0.55f, 0.82f}, {-0.95f, 0.92f}, {-1.45f, 0.97f}, {-1.95f, 0.95f}, {-2.25f, 0.84f}, {-2.34f, 0.62f}, {-0.55f, 0.55f}}, side > 0 ? 0.55f : -1.05f, side > 0 ? 1.05f : -0.55f, p);
+			// Front fender cresting over the wheel, with a softer crown. Its back sweeps down into the
+			// door rather than ending in a wall, and it sits just proud of the body instead of level
+			// with it (two faces in the same place flicker)
+			b.prism(new float[][]{{2.2f, 0.48f}, {2.0f, 0.62f}, {1.7f, 0.72f}, {1.35f, 0.78f}, {1.05f, 0.79f}, {0.8f, 0.7f}, {0.62f, 0.52f}, {0.62f, 0.48f}}, side > 0 ? 0.6f : -1.012f, side > 0 ? 1.012f : -0.6f, p);
+			b.prism(new float[][]{{1.95f, 0.66f}, {1.7f, 0.745f}, {1.35f, 0.8f}, {1.08f, 0.81f}, {0.9f, 0.76f}, {0.9f, 0.72f}, {1.95f, 0.6f}}, side > 0 ? 0.66f : -0.93f, side > 0 ? 0.93f : -0.66f, p);
+			// Rear haunch swelling over the back wheel and running out to the tail; its front rakes back
+			// from the door to the intake instead of standing up as a wall
+			b.prism(new float[][]{{-0.5f, 0.8f}, {-0.95f, 0.92f}, {-1.45f, 0.97f}, {-1.95f, 0.95f}, {-2.25f, 0.84f}, {-2.34f, 0.62f}, {-2.3f, 0.5f}, {-1.3f, 0.5f}}, side > 0 ? 0.55f : -1.04f, side > 0 ? 1.04f : -0.55f, p);
 			b.prism(new float[][]{{-0.95f, 0.95f}, {-1.45f, 0.995f}, {-1.95f, 0.975f}, {-1.95f, 0.9f}, {-0.95f, 0.88f}}, side > 0 ? 0.6f : -0.99f, side > 0 ? 0.99f : -0.6f, p);
-			// Dark trim round each arch
-			b.arch(side * 1.003f, 0.36f, frontWheel, 0.4f, 0.45f, carbon);
-			b.arch(side * 1.053f, 0.38f, rearWheel, 0.42f, 0.47f, carbon);
+			// Dark trim round each arch, clear of the panels under it
+			b.arch(side * 1.022f, 0.36f, frontWheel, 0.4f, 0.45f, carbon);
+			b.arch(side * 1.052f, 0.38f, rearWheel, 0.42f, 0.47f, carbon);
 		}
 		// Bonnet: ridges either side of a slatted vent, following its slope
 		for (int side = -1; side <= 1; side += 2) b.prism(new float[][]{{2.0f, 0.56f}, {1.1f, 0.785f}, {1.1f, 0.805f}, {2.0f, 0.58f}}, side * 0.33f - 0.035f, side * 0.33f + 0.035f, shade(p, 1.05f));
@@ -800,7 +1472,8 @@ public class CarsModule extends Module {
 		b.box(-1.02f, 0.13f, 2.12f, 1.02f, 0.17f, 2.54f, carbon);
 		b.box(-1.0f, 0.17f, 2.51f, 1.0f, 0.18f, 2.54f, accent);
 		// The canopy: windshield rising from the bonnet line, cresting over the doors, sloping to the deck
-		b.prism(new float[][]{{1.05f, 0.8f}, {0.75f, 0.95f}, {0.45f, 1.06f}, {0.0f, 1.12f}, {-0.5f, 1.11f}, {-0.95f, 1.03f}, {-1.3f, 0.92f}, {-1.3f, 0.86f}, {0.5f, 0.84f}}, -0.72f, 0.72f, GLASS);
+		glassShell(glass, new float[][]{{1.05f, 0.8f}, {0.75f, 0.95f}, {0.45f, 1.06f}, {0.0f, 1.12f}, {-0.5f, 1.11f}, {-0.95f, 1.03f}, {-1.3f, 0.92f}, {-1.3f, 0.86f}, {0.5f, 0.84f}}, 7, -0.72f, 0.72f, JESKO_GLASS);
+		jeskoInterior(b, accent);
 		b.prism(new float[][]{{0.45f, 1.06f}, {0.0f, 1.125f}, {-0.5f, 1.115f}, {-0.8f, 1.07f}, {-0.8f, 1.04f}, {-0.5f, 1.085f}, {0.0f, 1.095f}, {0.45f, 1.035f}}, -0.56f, 0.56f, p);
 		// Engine cover behind the cabin: louvres and a spine
 		b.prism(new float[][]{{-1.0f, 1.0f}, {-1.6f, 0.95f}, {-2.1f, 0.9f}, {-2.1f, 0.84f}, {-1.0f, 0.86f}}, -0.45f, 0.45f, p);
@@ -811,8 +1484,8 @@ public class CarsModule extends Module {
 			// Door: front and back seams, and the scallop sweeping from the front wheel up into the intake
 			b.box(ox - 0.004f, 0.3f, 0.88f, ox + 0.004f, 0.62f, 0.92f, seam);
 			b.box(ox - 0.004f, 0.32f, -0.5f, ox + 0.004f, 0.72f, -0.46f, seam);
-			b.strip(side * 1.006f, 0.85f, 0.34f, -0.5f, 0.56f, 0.1f, shadow);
-			b.strip(side * 1.007f, 0.85f, 0.29f, -0.5f, 0.51f, 0.025f, seam);
+			b.strip(side * 1.008f, 0.6f, 0.3f, -0.5f, 0.44f, 0.1f, shadow);
+			b.strip(side * 1.015f, 0.6f, 0.25f, -0.5f, 0.39f, 0.025f, seam);
 			// The big side intake in front of the rear wheel, with a mesh and slats
 			b.box(side * 1.02f - 0.03f, 0.24f, -1.25f, side * 1.02f + 0.03f, 0.72f, -0.55f, carbon);
 			b.box(side * 1.04f - 0.02f, 0.28f, -1.2f, side * 1.04f + 0.02f, 0.68f, -0.6f, BLACK);

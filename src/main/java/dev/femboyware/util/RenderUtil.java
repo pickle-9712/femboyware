@@ -8,7 +8,11 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.rendertype.LayeringTransform;
+//? if >=26.3 {
+/*
+*///?} else {
 import net.minecraft.client.renderer.rendertype.OutputTarget;
+//?}
 import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
@@ -27,7 +31,11 @@ public final class RenderUtil {
 		.withCull(false), false, false)
 		.build());
 	private static final RenderType LINES_THROUGH_WALLS = RenderType.create("femboyware_lines_through_walls",
+		//? if >=26.3 {
+		/*RenderSetup.builder(LINES_THROUGH_WALLS_PIPELINE).setLayeringTransform(LayeringTransform.VIEW_OFFSET_Z_LAYERING).createRenderSetup());
+		*///?} else {
 		RenderSetup.builder(LINES_THROUGH_WALLS_PIPELINE).setLayeringTransform(LayeringTransform.VIEW_OFFSET_Z_LAYERING).setOutputTarget(OutputTarget.ITEM_ENTITY_TARGET).createRenderSetup());
+		//?}
 	private static final RenderType QUADS_THROUGH_WALLS = RenderType.create("femboyware_quads_through_walls",
 		RenderSetup.builder(QUADS_THROUGH_WALLS_PIPELINE).sortOnUpload().createRenderSetup());
 

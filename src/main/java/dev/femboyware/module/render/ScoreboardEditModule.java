@@ -37,17 +37,61 @@ public class ScoreboardEditModule extends Module {
 	private record Rule(Kind kind, String match, String text) {
 	}
 
+	/** Edits made with the command. */
 	private final StringSetting rulesSetting = add(new StringSetting("Rules", "", "[]")).visibleWhen(() -> false);
 	private List<Rule> rules = new ArrayList<>();
 	private String parsedFrom;
 
+	/** The same edits, typed straight into the settings: each value box changes what shows after that label. Empty leaves it alone. */
+	private final StringSetting title = add(new StringSetting("Title", "The scoreboard's title, & colour codes work (like &d&lDonutSMP). Empty leaves it", ""));
+	private final StringSetting money = add(new StringSetting("Money", "What shows after Money, like $50M. Empty leaves it", ""));
+	private final StringSetting shards = add(new StringSetting("Shards", "What shows after Shards. Empty leaves it", ""));
+	private final StringSetting kills = add(new StringSetting("Kills", "What shows after Kills. Empty leaves it", ""));
+	private final StringSetting deaths = add(new StringSetting("Deaths", "What shows after Deaths. Empty leaves it", ""));
+	private final StringSetting playtime = add(new StringSetting("Playtime", "What shows after Playtime. Empty leaves it", ""));
+	private final StringSetting name = add(new StringSetting("Name", "Shows this instead of your name wherever it's on the scoreboard. Empty leaves it", ""));
+	private final StringSetting customLabel = add(new StringSetting("Custom Label", "Any other line's label, like Team or Keyall", ""));
+	private final StringSetting customValue = add(new StringSetting("Custom Value", "What shows after the custom label", ""));
+	private final StringSetting customLabel2 = add(new StringSetting("Custom Label 2", "Another line's label", ""));
+	private final StringSetting customValue2 = add(new StringSetting("Custom Value 2", "What shows after the second custom label", ""));
+	private List<Rule> settingRules = new ArrayList<>();
+	private String settingsFrom;
+
+	/** The rules from the settings boxes, worked out again only when one of them changes. */
+	private List<Rule> settingRules() {
+		String self = mc.player == null ? "" : mc.player.getGameProfile().name();
+		String key = String.join("\u0000", title.get(), money.get(), shards.get(), kills.get(), deaths.get(), playtime.get(), name.get(),
+			customLabel.get(), customValue.get(), customLabel2.get(), customValue2.get(), self);
+		if (key.equals(settingsFrom)) return settingRules;
+		settingsFrom = key;
+		List<Rule> list = new ArrayList<>();
+		if (!title.get().isBlank()) list.add(new Rule(Kind.TITLE, "", title.get()));
+		String[][] values = {{"Money", money.get()}, {"Shards", shards.get()}, {"Kills", kills.get()}, {"Deaths", deaths.get()}, {"Playtime", playtime.get()},
+			{customLabel.get(), customValue.get()}, {customLabel2.get(), customValue2.get()}};
+		for (String[] v : values) if (!v[0].isBlank() && !v[1].isBlank()) list.add(new Rule(Kind.VALUE, v[0].trim(), v[1].trim()));
+		if (!name.get().isBlank() && !self.isEmpty()) list.add(new Rule(Kind.REPLACE, self, name.get().trim()));
+		settingRules = list;
+		return list;
+	}
+
 	public ScoreboardEditModule() {
-		super("Scoreboard Edit", "Change your balance, stats and name on the scoreboard, on your screen only. Use " + CommandManager.PREFIX + "sb", Category.LARP);
+		super("Scoreboard Edit", "Change your balance, stats and name on the scoreboard, on your screen only: fill in its settings, or use " + CommandManager.PREFIX + "sb", Category.LARP);
 	}
 
 	@Override
 	public String getInfo() {
-		return rules().isEmpty() ? null : String.valueOf(rules().size());
+		int count = rules().size() + settingRules().size();
+		return count == 0 ? null : String.valueOf(count);
+	}
+
+	/** Everything to apply: the settings boxes first, then command edits on top. */
+	private List<Rule> allRules() {
+		List<Rule> fromSettings = settingRules(), fromCommands = rules();
+		if (fromSettings.isEmpty()) return fromCommands;
+		if (fromCommands.isEmpty()) return fromSettings;
+		List<Rule> all = new ArrayList<>(fromSettings);
+		all.addAll(fromCommands);
+		return all;
 	}
 
 	private List<Rule> rules() {
@@ -81,16 +125,16 @@ public class ScoreboardEditModule extends Module {
 	/** Called from InGameHudMixin for the sidebar title. */
 	public Component title(Component title) {
 		if (!isEnabled()) return title;
-		for (Rule rule : rules()) {
-			if (rule.kind() == Kind.TITLE) return LegacyText.parse(rule.text());
-		}
+		Rule last = null;
+		for (Rule rule : allRules()) if (rule.kind() == Kind.TITLE) last = rule;
+		if (last != null) return LegacyText.parse(last.text());
 		return line(title);
 	}
 
 	/** Called from InGameHudMixin for each sidebar line and score. */
 	public Component line(Component line) {
 		if (!isEnabled() || line == null) return line;
-		List<Rule> list = rules();
+		List<Rule> list = allRules();
 		if (list.isEmpty()) return line;
 		Component out = line;
 		for (Rule rule : list) {

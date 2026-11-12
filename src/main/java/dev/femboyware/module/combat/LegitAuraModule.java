@@ -220,7 +220,11 @@ public class LegitAuraModule extends Module {
 		// The moment they swing (or hit us) their weapon starts recharging, and that's when we hit
 		boolean selecting = hitSelect.get() && !breaking && under != null && under.hurtTime == 0
 			&& TargetUtil.isFacing(under, mc.player.getEyePosition());
+		//? if >=26.3 {
+		/*boolean theySwung = under != null && (under.isSwinging() && under.getSwingAnimation(1) <= 0.35f || mc.player.hurtTime > 0 && mc.player.hurtTime >= mc.player.hurtDuration - 2);
+		*///?} else {
 		boolean theySwung = under != null && (under.swinging && under.swingTime <= 2 || mc.player.hurtTime > 0 && mc.player.hurtTime >= mc.player.hurtDuration - 2);
+		//?}
 		if (!selecting) selectWait = 0;
 		boolean quick = charge > 0.9f && (selecting ? theySwung : firstHit.get() && fresh);
 		if (charge < 1 && !breaking && !quick) {

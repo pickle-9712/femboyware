@@ -57,11 +57,17 @@ public class ForceDispenserModule extends Module {
 	public void fire(BlockPos pos, BlockState state) {
 		if (mc.level == null) return;
 		Item forced = isEnabled() ? picked() : null;
+		ServerLarpModule larp = FemboyWare.getModules().get(ServerLarpModule.class);
 		if (forced != null) {
+			// The rigged item comes out in place of what's in it: what's in the dispenser goes down as
+			// it fires, instead of staying put while the rigged item appears from nowhere
+			for (int i = 0; i < count.getInt(); i++) {
+				if (larp.takeForDispenser(pos).isEmpty()) break;
+			}
 			shoot(pos, state, forced, count.getInt());
 			return;
 		}
-		ItemStack inside = FemboyWare.getModules().get(ServerLarpModule.class).takeForDispenser(pos);
+		ItemStack inside = larp.takeForDispenser(pos);
 		if (inside.isEmpty()) {
 			mc.level.levelEvent(1001, pos, 0);
 			return;

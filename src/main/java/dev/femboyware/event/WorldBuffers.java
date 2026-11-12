@@ -137,6 +137,11 @@ public final class WorldBuffers {
 			return this;
 		}
 
+		/^* 26.3's extra uv (glint only): not recorded. *^/
+		public VertexConsumer setUv3(float u, float v) {
+			return this;
+		}
+
 		@Override
 		public VertexConsumer setNormal(float x, float y, float z) {
 			data[base() + O_NORMAL] = x;

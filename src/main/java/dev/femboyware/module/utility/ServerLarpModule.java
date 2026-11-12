@@ -148,6 +148,7 @@ public class ServerLarpModule extends Module {
 	private final BoolSetting resumePosition = add(new BoolSetting("Resume Position", "Turning it back on puts you where you were last larping here, instead of where you're standing", true));
 	private final BoolSetting worthAlways = add(new BoolSetting("Worth Always", "Show item worth in tooltips even when not larping. Set prices with " + CommandManager.PREFIX + "larp worth", false));
 	private final BoolSetting autoResume = add(new BoolSetting("Auto Resume", "Re-enable and restore your larp when joining back after a relog or restart", true));
+	private final BoolSetting allowTeleports = add(new BoolSetting("Allow Teleports", "Other femboyware users larping here can teleport you in your larp with /tp <your name> <where> (only on your screen, like the rest of the larp)", true));
 	/** Prices per item, as item_id=price pairs. */
 	private final StringSetting prices = add(new StringSetting("Worth Prices", "", "")).visibleWhen(() -> false);
 	private Map<String, Double> priceMap = new HashMap<>();
@@ -162,6 +163,11 @@ public class ServerLarpModule extends Module {
 	private Vec3 startPos;
 	private float startYaw, startPitch;
 	private GameType startMode;
+	/** Your health when larp started, put back at the end; the larp's own health meanwhile is only on your screen. */
+	private float startHealth;
+	/** The highest you've been since you last stood on something, for fall damage; NaN on the ground. */
+	private double fallTop = Double.NaN;
+	private int regenTicks, hurtCooldown;
 	private final List<ItemStack> startInventory = new ArrayList<>();
 	private int startSlot;
 	private ItemStack startCursor = ItemStack.EMPTY;
@@ -394,6 +400,9 @@ public class ServerLarpModule extends Module {
 		startYaw = player.getYRot();
 		startPitch = player.getXRot();
 		startMode = mc.gameMode.getPlayerMode();
+		startHealth = player.getHealth();
+		fallTop = Double.NaN;
+		hurtCooldown = 0;
 		Inventory inventory = player.getInventory();
 		startInventory.clear();
 		for (int i = 0; i < inventory.getContainerSize(); i++) startInventory.add(inventory.getItem(i).copy());
@@ -511,7 +520,11 @@ public class ServerLarpModule extends Module {
 		redstone.reset();
 		// Every block placed or broken was a prediction the server never answered; this rolls them all back
 		mc.level.handleBlockChangedAck(Integer.MAX_VALUE);
+		// Then whatever the schematics replaced (those aren’t predictions: millions of them would never fit)
+		restoreSchematics();
 		if (mc.gameMode.getPlayerMode() != startMode) mc.gameMode.setLocalMode(startMode);
+		// The larp's falls and fights never happened
+		player.setHealth(startHealth);
 		Inventory inventory = player.getInventory();
 		for (int i = 0; i < startInventory.size() && i < inventory.getContainerSize(); i++) inventory.setItem(i, startInventory.get(i));
 		inventory.setSelectedSlot(startSlot);
@@ -545,7 +558,11 @@ public class ServerLarpModule extends Module {
 		crystals.clear();
 		drops.clear();
 		localShots.clear();
+		arrows.clear();
+		arrowPunch.clear();
+		arrowDamage.clear();
 		redstone.reset();
+		clearSchematics();
 		startInventory.clear();
 		startLevel = null;
 		serverBox = null;
@@ -560,7 +577,10 @@ public class ServerLarpModule extends Module {
 		if (larping && mc.player != null) {
 			stopGlidingIfNeeded(mc.player);
 			tickDrops(mc.player);
+			tickHealth(mc.player);
+			tickArrows(mc.player);
 			redstone.tick();
+			tickSchematics();
 			localShots.entrySet().removeIf(shot -> {
 				if (shot.getKey().isRemoved()) return true;
 				if (shot.setValue(shot.getValue() + 1) < 1200) return false;
@@ -862,6 +882,286 @@ public class ServerLarpModule extends Module {
 		return true;
 	}
 
+	// ---------------------------------------------------------------- schematics
+
+	/**
+	 * One schematic in the larp, yours or someone else's through Client Sync: what it is, what each
+	 * chunk had before it (pairs of position in the chunk and block state id) to put back, and for
+	 * yours, its file and hash so Client Sync can share it.
+	 */
+	private static final class Build {
+		final dev.femboyware.module.larp.LarpSchematics.Schematic schematic;
+		final String name;
+		/** Your schematic's file and its SHA-256, for sharing; null for someone else's. */
+		final java.nio.file.Path file;
+		final String sha256;
+		/** Someone else's: which of theirs it is, so it goes when they take it away. */
+		final String peerKey;
+		final java.util.Map<Long, it.unimi.dsi.fastutil.ints.IntArrayList> originals = new java.util.HashMap<>();
+
+		Build(dev.femboyware.module.larp.LarpSchematics.Schematic schematic, String name, java.nio.file.Path file, String sha256, String peerKey) {
+			this.schematic = schematic;
+			this.name = name;
+			this.file = file;
+			this.sha256 = sha256;
+			this.peerKey = peerKey;
+		}
+	}
+
+	/** Every schematic in the larp, oldest first. */
+	private final List<Build> builds = new ArrayList<>();
+	/**
+	 * What's still to build, by chunk. Only chunks you can see (loaded, within your render distance)
+	 * are built, nearest first and as many as fit in a slice of each tick, so a big build shows up
+	 * around you straight away instead of grinding through parts you can't see. The rest waits and
+	 * fills in as you get near. The schematics stay packed; blocks are read out a chunk at a time, so
+	 * even a whole server spawn fits in memory.
+	 */
+	private final java.util.Map<Long, List<Build>> placing = new java.util.LinkedHashMap<>();
+	/** How long each tick may spend building, in nanoseconds. */
+	private static final long BUILD_NANOS_PER_TICK = 25_000_000L;
+	private long placedBlocks;
+	/** Whether "built what's in view" has been said for this build of yours. */
+	private boolean saidInView = true;
+
+	private void tickSchematics() {
+		if (mc.level == null || mc.player == null || builds.isEmpty()) return;
+		// A built chunk that unloaded lost our blocks (and what was under them): build it again when it's back
+		for (Build build : builds) {
+			for (var it = build.originals.keySet().iterator(); it.hasNext(); ) {
+				long key = it.next();
+				if (mc.level.hasChunk(chunkX(key), chunkZ(key))) continue;
+				it.remove();
+				placing.computeIfAbsent(key, k -> new ArrayList<>()).add(build);
+			}
+		}
+		if (placing.isEmpty()) return;
+		int px = mc.player.getBlockX() >> 4, pz = mc.player.getBlockZ() >> 4, range = mc.options.getEffectiveRenderDistance();
+		List<Long> inView = new ArrayList<>();
+		boolean yoursWaiting = false;
+		for (var entry : placing.entrySet()) {
+			long key = entry.getKey();
+			int cx = chunkX(key), cz = chunkZ(key);
+			if (Math.max(Math.abs(cx - px), Math.abs(cz - pz)) <= range && mc.level.hasChunk(cx, cz)) inView.add(key);
+			else if (!yoursWaiting) for (Build build : entry.getValue()) yoursWaiting |= build.peerKey == null;
+		}
+		if (inView.isEmpty()) {
+			if (!saidInView && yoursWaiting) {
+				saidInView = true;
+				ChatUtil.info("Built what's in view (" + String.format(java.util.Locale.ROOT, "%,d", placedBlocks)
+					+ " blocks); the rest of the schematic fills in as you get near it");
+			}
+			return;
+		}
+		inView.sort(java.util.Comparator.comparingInt(key -> {
+			int dx = chunkX(key) - px, dz = chunkZ(key) - pz;
+			return dx * dx + dz * dz;
+		}));
+		long until = System.nanoTime() + BUILD_NANOS_PER_TICK;
+		for (long key : inView) {
+			if (System.nanoTime() > until) break;
+			for (Build build : placing.remove(key)) {
+				var before = build.originals.computeIfAbsent(key, k -> new it.unimi.dsi.fastutil.ints.IntArrayList());
+				build.schematic.forEachInChunk(chunkX(key), chunkZ(key), (pos, state) -> {
+					BlockState was = mc.level.getBlockState(pos);
+					if (was == state) return;
+					// Remembered to put back when larp ends; no neighbour updates, the schematic's blocks are already right
+					before.add(packLocal(pos));
+					before.add(net.minecraft.world.level.block.Block.getId(was));
+					mc.level.setBlock(pos, state, 2 | 16);
+					if (build.peerKey == null) placedBlocks++;
+				});
+			}
+		}
+		boolean yoursLeft = false;
+		for (List<Build> waiting : placing.values()) for (Build build : waiting) yoursLeft |= build.peerKey == null;
+		if (!yoursLeft && !saidInView) {
+			saidInView = true;
+			ChatUtil.info("Schematic built: " + String.format(java.util.Locale.ROOT, "%,d", placedBlocks) + " blocks. Break and build on it like anything else while larping");
+		}
+	}
+
+	/** A position within its chunk as one int: y (from -2048) in the high bits, then x and z in the chunk. */
+	private static int packLocal(BlockPos pos) {
+		return (pos.getY() + 2048) << 8 | (pos.getX() & 15) << 4 | (pos.getZ() & 15);
+	}
+
+	/** Puts back what one schematic replaced, newest first, in chunks that are still here, and stops building it. */
+	private void restore(Build build) {
+		for (List<Build> waiting : placing.values()) waiting.remove(build);
+		placing.values().removeIf(List::isEmpty);
+		if (mc.level == null) return;
+		BlockPos.MutableBlockPos at = new BlockPos.MutableBlockPos();
+		for (var entry : build.originals.entrySet()) {
+			int cx = chunkX(entry.getKey()), cz = chunkZ(entry.getKey());
+			if (!mc.level.hasChunk(cx, cz)) continue;
+			var pairs = entry.getValue();
+			for (int i = pairs.size() - 2; i >= 0; i -= 2) {
+				int packed = pairs.getInt(i);
+				at.set((cx << 4) | (packed >> 4 & 15), (packed >>> 8) - 2048, (cz << 4) | (packed & 15));
+				mc.level.setBlock(at, net.minecraft.world.level.block.Block.stateById(pairs.getInt(i + 1)), 2 | 16);
+			}
+		}
+		build.originals.clear();
+	}
+
+	/** Puts back everything every schematic replaced, newest first. */
+	private void restoreSchematics() {
+		for (int i = builds.size() - 1; i >= 0; i--) restore(builds.get(i));
+		builds.clear();
+		placing.clear();
+	}
+
+	private void queue(Build build) {
+		builds.add(build);
+		for (int[] chunk : build.schematic.chunks()) placing.computeIfAbsent(chunkKey(chunk[0], chunk[1]), k -> new ArrayList<>()).add(build);
+		if (build.peerKey == null) saidInView = false;
+	}
+
+	private static long chunkKey(int cx, int cz) {
+		return (long) cx << 32 | (cz & 0xFFFFFFFFL);
+	}
+
+	private static int chunkX(long key) {
+		return (int) (key >> 32);
+	}
+
+	private static int chunkZ(long key) {
+		return (int) key;
+	}
+
+	/** Stops building schematics and forgets them (and what they replaced: only for when the world's gone). */
+	private void clearSchematics() {
+		placing.clear();
+		builds.clear();
+		placedBlocks = 0;
+		saidInView = true;
+	}
+
+	/** One of your schematics, for Client Sync to share: its file's hash and name, and where it's placed. */
+	public record SharedSchematic(String sha256, String name, java.nio.file.Path file, BlockPos origin, int rotation, int mirror) {
+	}
+
+	/** Your schematics in the larp, for Client Sync; empty when you're not larping. */
+	public List<SharedSchematic> shareSchematics() {
+		if (!larping) return List.of();
+		List<SharedSchematic> out = new ArrayList<>();
+		for (Build build : builds) {
+			if (build.peerKey != null || build.sha256 == null) continue;
+			var s = build.schematic;
+			out.add(new SharedSchematic(build.sha256, build.name, build.file, s.origin(), s.rotation().ordinal(), s.mirror().ordinal()));
+		}
+		return out;
+	}
+
+	/** The keys of the other people's schematics in the larp. */
+	public java.util.Set<String> peerSchematics() {
+		java.util.Set<String> keys = new java.util.HashSet<>();
+		for (Build build : builds) if (build.peerKey != null) keys.add(build.peerKey);
+		return keys;
+	}
+
+	/** From Client Sync: someone else's schematic, to build like yours (only while you're larping, where blocks are safe to add). */
+	public void addPeerSchematic(String key, String name, dev.femboyware.module.larp.LarpSchematics.Schematic schematic) {
+		if (!larping || schematic.isEmpty() || peerSchematics().contains(key)) return;
+		queue(new Build(schematic, name, null, null, key));
+	}
+
+	/** From Client Sync: someone took a schematic away (or left); what it replaced comes back. */
+	public void removePeerSchematic(String key) {
+		for (java.util.Iterator<Build> it = builds.iterator(); it.hasNext(); ) {
+			Build build = it.next();
+			if (!key.equals(build.peerKey)) continue;
+			restore(build);
+			it.remove();
+		}
+	}
+
+	/**
+	 * Reads a schematic off the main thread (a big one is tens of megabytes to unpack), then, back on
+	 * the main thread, places it and starts building. {@code centreOn} puts its middle there instead
+	 * of its origin.
+	 */
+	private void load(java.nio.file.Path file, String name, BlockPos origin, net.minecraft.world.level.block.Rotation rotation,
+					  net.minecraft.world.level.block.Mirror mirror, BlockPos centreOn) {
+		var blocks = dev.femboyware.module.larp.LarpSchematics.blockLookup();
+		var level = mc.level;
+		Thread reader = new Thread(() -> {
+			try {
+				var schematic = dev.femboyware.module.larp.LarpSchematics.read(file, origin, rotation, mirror, blocks);
+				// Its hash, so Client Sync can share it and others can ask for it
+				String sha256 = null;
+				try {
+					sha256 = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(java.nio.file.Files.readAllBytes(file)));
+				} catch (java.security.NoSuchAlgorithmException ignored) {
+				}
+				String hash = sha256;
+				mc.execute(() -> {
+					if (!larping || mc.level != level) return;
+					if (schematic.isEmpty()) {
+						ChatUtil.info(name + " has nothing in it");
+						return;
+					}
+					if (centreOn != null) schematic.centreOn(centreOn);
+					queue(new Build(schematic, name, file, hash, null));
+					ChatUtil.info("Building " + name + (centreOn != null ? " centred on you" : "") + " (" + (schematic.maxX - schematic.minX + 1) + "x"
+						+ (schematic.maxY - schematic.minY + 1) + "x" + (schematic.maxZ - schematic.minZ + 1) + "), nearest first");
+				});
+			} catch (IOException | RuntimeException | OutOfMemoryError e) {
+				mc.execute(() -> ChatUtil.info("Couldn't read " + name + ": " + e.getMessage()));
+			}
+		}, "femboyware schematic reader");
+		reader.setDaemon(true);
+		reader.start();
+	}
+
+	/** Handles {@code .larp schem [list|name|clear]}. */
+	private void schematicCommand(String[] args) {
+		String what = args.length > 2 ? String.join(" ", java.util.Arrays.copyOfRange(args, 2, args.length)) : "";
+		if (what.equalsIgnoreCase("list")) {
+			var files = dev.femboyware.module.larp.LarpSchematics.files();
+			if (files.isEmpty()) ChatUtil.info("No schematics in " + dev.femboyware.module.larp.LarpSchematics.folder());
+			for (var f : files) ChatUtil.info(f.getFileName().toString().replace(".litematic", ""));
+			return;
+		}
+		if (what.equalsIgnoreCase("stop") || what.equalsIgnoreCase("clear")) {
+			// Yours stop; other people's carry on
+			for (List<Build> waiting : placing.values()) waiting.removeIf(build -> build.peerKey == null);
+			placing.values().removeIf(List::isEmpty);
+			ChatUtil.info("Stopped building the schematic (what's built stays until larp ends; " + CommandManager.PREFIX + "larp reset clears it)");
+			return;
+		}
+		if (what.isEmpty()) {
+			// Whatever Litematica has placed, where it has it
+			var placements = dev.femboyware.module.larp.LarpSchematics.litematicaPlacements();
+			if (placements.isEmpty()) {
+				ChatUtil.info("Nothing placed in Litematica. Use " + CommandManager.PREFIX + "larp schem <name> to build one centred on you, or "
+					+ CommandManager.PREFIX + "larp schem list");
+				return;
+			}
+			ChatUtil.info("Loading " + placements.size() + " Litematica placement" + (placements.size() == 1 ? "" : "s") + "...");
+			for (var p : placements) load(p.file(), p.name(), p.origin(), p.rotation(), p.mirror(), null);
+			return;
+		}
+		var file = dev.femboyware.module.larp.LarpSchematics.find(what);
+		if (file == null) {
+			ChatUtil.info("No schematic called " + what + " in " + dev.femboyware.module.larp.LarpSchematics.folder() + " (" + CommandManager.PREFIX + "larp schem list)");
+			return;
+		}
+		// Centred on you, turned the way you face, like placing it yourself
+		float yaw = mc.player.getYRot();
+		var rotation = switch (Math.floorMod(Math.round(yaw / 90f), 4)) {
+			case 1 -> net.minecraft.world.level.block.Rotation.CLOCKWISE_90;
+			case 2 -> net.minecraft.world.level.block.Rotation.CLOCKWISE_180;
+			case 3 -> net.minecraft.world.level.block.Rotation.COUNTERCLOCKWISE_90;
+			default -> net.minecraft.world.level.block.Rotation.NONE;
+		};
+		String name = file.getFileName().toString().replace(".litematic", "");
+		ChatUtil.info("Loading " + name + "...");
+		BlockPos feet = mc.player.blockPosition();
+		load(file, name, feet, rotation, net.minecraft.world.level.block.Mirror.NONE, feet);
+	}
+
 	/** A block changed (placed, broken, or from the server): the redstone looks again. */
 	@Override
 	public void onBlockUpdate(BlockPos pos, BlockState state) {
@@ -879,6 +1179,64 @@ public class ServerLarpModule extends Module {
 		ItemStack one = container.getItem(slot).split(1);
 		container.setChanged();
 		return one;
+	}
+
+	/**
+	 * Called from ClientPlayerInteractionManagerMixin once a block's broken: while larping in survival
+	 * it drops what it would, close enough. The loot tables only exist on the server, so this follows
+	 * the usual rules by hand: nothing without the right tool, the block itself with silk touch, ores'
+	 * raw materials, stone as cobblestone, and so on.
+	 */
+	public void onLarpBroken(BlockPos pos, BlockState state) {
+		if (!larping || mc.player == null || mc.level == null || mc.gameMode.getPlayerMode() != GameType.SURVIVAL) return;
+		if (state.isAir() || state.getBlock() instanceof net.minecraft.world.level.block.LiquidBlock) return;
+		ItemStack tool = mc.player.getMainHandItem();
+		if (state.requiresCorrectToolForDrops() && !tool.isCorrectToolForDrops(state)) return;
+		boolean silk = false;
+		try {
+			var silkTouch = mc.level.registryAccess().lookupOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT)
+				.get(net.minecraft.world.item.enchantment.Enchantments.SILK_TOUCH);
+			silk = silkTouch.isPresent() && net.minecraft.world.item.enchantment.EnchantmentHelper.getItemEnchantmentLevel(silkTouch.get(), tool) > 0;
+		} catch (RuntimeException ignored) {
+		}
+		ItemStack drop = silk ? new ItemStack(state.getBlock().asItem()) : larpDrop(state);
+		if (drop.isEmpty()) return;
+		java.util.concurrent.ThreadLocalRandom r = java.util.concurrent.ThreadLocalRandom.current();
+		Vec3 at = Vec3.atCenterOf(pos);
+		spawnLocalItem(drop, at, new Vec3((r.nextDouble() - 0.5) * 0.1, 0.2, (r.nextDouble() - 0.5) * 0.1));
+	}
+
+	/** What a block drops without silk touch, for the ones that don't just drop themselves. */
+	private static ItemStack larpDrop(BlockState state) {
+		java.util.concurrent.ThreadLocalRandom r = java.util.concurrent.ThreadLocalRandom.current();
+		var b = state.getBlock();
+		if (state.is(net.minecraft.tags.BlockTags.LEAVES)) return r.nextInt(20) == 0 ? new ItemStack(Items.STICK) : ItemStack.EMPTY;
+		if (b == Blocks.STONE) return new ItemStack(Items.COBBLESTONE);
+		if (b == Blocks.DEEPSLATE) return new ItemStack(Items.COBBLED_DEEPSLATE);
+		if (b == Blocks.GRASS_BLOCK || b == Blocks.MYCELIUM || b == Blocks.PODZOL || b == Blocks.DIRT_PATH || b == Blocks.FARMLAND) return new ItemStack(Items.DIRT);
+		if (b == Blocks.COAL_ORE || b == Blocks.DEEPSLATE_COAL_ORE) return new ItemStack(Items.COAL);
+		if (b == Blocks.IRON_ORE || b == Blocks.DEEPSLATE_IRON_ORE) return new ItemStack(Items.RAW_IRON);
+		if (b == Blocks.GOLD_ORE || b == Blocks.DEEPSLATE_GOLD_ORE) return new ItemStack(Items.RAW_GOLD);
+		if (b == Blocks.COPPER_ORE || b == Blocks.DEEPSLATE_COPPER_ORE) return new ItemStack(Items.RAW_COPPER, 2 + r.nextInt(4));
+		if (b == Blocks.DIAMOND_ORE || b == Blocks.DEEPSLATE_DIAMOND_ORE) return new ItemStack(Items.DIAMOND);
+		if (b == Blocks.EMERALD_ORE || b == Blocks.DEEPSLATE_EMERALD_ORE) return new ItemStack(Items.EMERALD);
+		if (b == Blocks.LAPIS_ORE || b == Blocks.DEEPSLATE_LAPIS_ORE) return new ItemStack(Items.LAPIS_LAZULI, 4 + r.nextInt(6));
+		if (b == Blocks.REDSTONE_ORE || b == Blocks.DEEPSLATE_REDSTONE_ORE) return new ItemStack(Items.REDSTONE, 4 + r.nextInt(2));
+		if (b == Blocks.NETHER_QUARTZ_ORE) return new ItemStack(Items.QUARTZ);
+		if (b == Blocks.NETHER_GOLD_ORE) return new ItemStack(Items.GOLD_NUGGET, 2 + r.nextInt(5));
+		if (b == Blocks.GILDED_BLACKSTONE) return r.nextInt(10) == 0 ? new ItemStack(Items.GOLD_NUGGET, 2 + r.nextInt(4)) : new ItemStack(Items.GILDED_BLACKSTONE);
+		if (b == Blocks.GLOWSTONE) return new ItemStack(Items.GLOWSTONE_DUST, 2 + r.nextInt(3));
+		if (b == Blocks.CLAY) return new ItemStack(Items.CLAY_BALL, 4);
+		if (b == Blocks.GRAVEL) return new ItemStack(r.nextInt(10) == 0 ? Items.FLINT : Items.GRAVEL);
+		if (b == Blocks.BOOKSHELF) return new ItemStack(Items.BOOK, 3);
+		if (b == Blocks.MELON) return new ItemStack(Items.MELON_SLICE, 3 + r.nextInt(5));
+		if (b == Blocks.SNOW_BLOCK) return new ItemStack(Items.SNOWBALL, 4);
+		if (b == Blocks.SHORT_GRASS || b == Blocks.TALL_GRASS || b == Blocks.FERN || b == Blocks.LARGE_FERN) {
+			return r.nextInt(8) == 0 ? new ItemStack(Items.WHEAT_SEEDS) : ItemStack.EMPTY;
+		}
+		if (state.is(net.minecraft.tags.BlockTags.IMPERMEABLE) || b == Blocks.ICE || b == Blocks.GLASS_PANE || b instanceof net.minecraft.world.level.block.StainedGlassPaneBlock) return ItemStack.EMPTY;
+		var item = b.asItem();
+		return item == Items.AIR ? ItemStack.EMPTY : new ItemStack(item);
 	}
 
 	/** An item that only exists here, landing and picked up like ones you drop while larping. */
@@ -1011,7 +1369,9 @@ public class ServerLarpModule extends Module {
 			}
 			case "off" -> setEnabled(false);
 			case "give", "i" -> give(args);
+			case "schem", "schematic", "schematics", "litematica", "litematic" -> schematicCommand(args);
 			case "reset" -> resetLarp();
+			case "tp", "teleport" -> teleportCommand(java.util.Arrays.copyOfRange(args, 2, args.length));
 			case "paste" -> {
 				// Long commands don't fit in chat (it stops at 256 characters), so this runs the one on the clipboard
 				String command = mc.keyboardHandler.getClipboard().replaceAll("[\r\n\t]+", " ").trim();
@@ -1031,8 +1391,245 @@ public class ServerLarpModule extends Module {
 				mc.gameMode.setLocalMode(GameType.SURVIVAL);
 				ChatUtil.info("Survival mode, client-side");
 			}
-			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "larp <on|off|give <item> [count]|paste|creative|survival|clear|reset|worth>");
+			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "larp <on|off|give <item> [count]|schem [name|list|stop]|tp <x y z|player> [x y z|player]|paste|creative|survival|clear|reset|worth>");
 		}
+	}
+
+	// ---------------------------------------------------------------- bows
+
+	/** Arrows you've shot while larping, and the arrow you get back for picking each one up (empty if you don't). */
+	private final Map<Entity, ItemStack> arrows = new IdentityHashMap<>();
+	/** Each arrow's Punch level. */
+	private final Map<Entity, Integer> arrowPunch = new IdentityHashMap<>();
+	/** Each arrow's base damage: 2, more with Power. */
+	private final Map<Entity, Double> arrowDamage = new IdentityHashMap<>();
+
+	private static int enchantLevel(ItemStack stack, net.minecraft.resources.ResourceKey<net.minecraft.world.item.enchantment.Enchantment> which) {
+		for (var entry : stack.getEnchantments().entrySet()) if (entry.getKey().is(which)) return entry.getIntValue();
+		return 0;
+	}
+
+	/**
+	 * From the interaction mixin, as you let go of a drawn bow: shoots the arrow here, as BowItem
+	 * would on the server (charge, a crit at full draw, Power, Flame, Punch and Infinity, tipped and
+	 * spectral arrows), uses one up and wears the bow.
+	 */
+	public void onReleaseUsing(net.minecraft.world.entity.player.Player player) {
+		if (!larping || player != mc.player || mc.level == null) return;
+		ItemStack bow = player.getUseItem();
+		if (!(bow.getItem() instanceof net.minecraft.world.item.BowItem)) return;
+		float power = net.minecraft.world.item.BowItem.getPowerForTime(player.getTicksUsingItem());
+		if (power < 0.1f) return;
+		boolean creative = player.getAbilities().instabuild;
+		ItemStack ammo = player.getProjectile(bow);
+		if (ammo.isEmpty() && !creative) return;
+		if (ammo.isEmpty()) ammo = new ItemStack(Items.ARROW);
+		boolean infinite = creative || ammo.is(Items.ARROW) && enchantLevel(bow, net.minecraft.world.item.enchantment.Enchantments.INFINITY) > 0;
+		ItemStack one = ammo.copyWithCount(1);
+		var kind = ammo.getItem() instanceof net.minecraft.world.item.ArrowItem arrowItem ? arrowItem : (net.minecraft.world.item.ArrowItem) Items.ARROW;
+		var arrow = kind.createArrow(mc.level, one, player, bow);
+		arrow.shootFromRotation(player, player.getXRot(), player.getYRot(), 0, power * 3, 1);
+		if (power >= 1) arrow.setCritArrow(true);
+		int powerLevel = enchantLevel(bow, net.minecraft.world.item.enchantment.Enchantments.POWER);
+		double baseDamage = 2.0 + (powerLevel > 0 ? powerLevel * 0.5 + 0.5 : 0);
+		arrow.setBaseDamage(baseDamage);
+		if (enchantLevel(bow, net.minecraft.world.item.enchantment.Enchantments.FLAME) > 0) arrow.igniteForSeconds(100);
+		arrow.setId(nextRocketId--);
+		localShots.put(arrow, 0);
+		arrows.put(arrow, infinite ? ItemStack.EMPTY : one);
+		arrowPunch.put(arrow, enchantLevel(bow, net.minecraft.world.item.enchantment.Enchantments.PUNCH));
+		arrowDamage.put(arrow, baseDamage);
+		mc.level.addEntity(arrow);
+		mc.level.playLocalSound(player.getX(), player.getY(), player.getZ(), SoundEvents.ARROW_SHOOT, SoundSource.PLAYERS, 1,
+			1 / (java.util.concurrent.ThreadLocalRandom.current().nextFloat() * 0.4f + 1.2f) + power * 0.5f, false);
+		if (!infinite) ammo.shrink(1);
+		if (!creative && bow.isDamageableItem()) {
+			bow.setDamageValue(bow.getDamageValue() + 1);
+			if (bow.getDamageValue() >= bow.getMaxDamage()) {
+				bow.shrink(1);
+				mc.level.playLocalSound(player.getX(), player.getY(), player.getZ(), SoundEvents.ITEM_BREAK.value(), SoundSource.PLAYERS, 0.8f, 0.8f, false);
+			}
+		}
+	}
+
+	/**
+	 * Your arrows in flight hit fake players in their way (the arrow's own hits only happen on a
+	 * server); stuck ones can be walked over and picked up.
+	 */
+	private void tickArrows(LocalPlayer player) {
+		var fakes = dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.client.FakePlayerModule.class);
+		for (var it = arrows.entrySet().iterator(); it.hasNext(); ) {
+			var entry = it.next();
+			var arrow = (net.minecraft.world.entity.projectile.arrow.AbstractArrow) entry.getKey();
+			if (arrow.isRemoved()) {
+				arrowPunch.remove(arrow);
+				arrowDamage.remove(arrow);
+				it.remove();
+				continue;
+			}
+			Vec3 velocity = arrow.getDeltaMovement();
+			if (velocity.lengthSqr() > 0.01) {
+				Vec3 from = arrow.position(), to = from.add(velocity);
+				for (var target : fakes.fakeEntities()) {
+					if (target.isDeadOrDying() || target.getBoundingBox().inflate(0.3).clip(from, to).isEmpty()) continue;
+					// As AbstractArrow#onHitEntity: speed times base damage, and a random extra for a crit
+					int damage = net.minecraft.util.Mth.ceil(net.minecraft.util.Mth.clamp(velocity.length() * arrowDamage.getOrDefault(arrow, 2.0), 0, Integer.MAX_VALUE));
+					if (arrow.isCritArrow()) damage = (int) Math.min((long) java.util.concurrent.ThreadLocalRandom.current().nextInt(damage / 2 + 2) + damage, Integer.MAX_VALUE);
+					fakes.hitByArrow(target, damage, player, arrow, velocity, arrowPunch.getOrDefault(arrow, 0));
+					mc.level.playLocalSound(player.getX(), player.getY(), player.getZ(), SoundEvents.ARROW_HIT_PLAYER, SoundSource.PLAYERS, 0.18f, 0.45f, false);
+					arrow.discard();
+					break;
+				}
+				continue;
+			}
+			// Stuck in something: walk over it to pick it back up
+			ItemStack back = entry.getValue();
+			if (back.isEmpty() || !player.getBoundingBox().inflate(1, 0.5, 1).intersects(arrow.getBoundingBox())) continue;
+			if (!player.getInventory().add(back.copy())) continue;
+			mc.level.playLocalSound(player.getX(), player.getY(), player.getZ(), SoundEvents.ITEM_PICKUP, SoundSource.PLAYERS, 0.2f,
+				(java.util.concurrent.ThreadLocalRandom.current().nextFloat() - java.util.concurrent.ThreadLocalRandom.current().nextFloat()) * 1.4f + 2, false);
+			arrow.discard();
+		}
+	}
+
+	// ---------------------------------------------------------------- health
+
+	/** Whether you can be hurt in the larp right now (not in creative or spectator). */
+	private boolean hurtable(LocalPlayer player) {
+		return larping && !player.getAbilities().invulnerable && !player.isSpectator() && !player.isCreative();
+	}
+
+	/**
+	 * Fall damage and healing while larping. The server never sees you fall, so it never hurts you:
+	 * this does it on your screen, as vanilla would. A fall is measured from the highest point since
+	 * you last stood on something; water, ladders, gliding, flying and slow falling all break it.
+	 */
+	private void tickHealth(LocalPlayer player) {
+		if (hurtCooldown > 0) hurtCooldown--;
+		// Fell into the void: back to where the larp started, whatever mode you're in
+		if (player.getY() < mc.level.getMinY() - 64) {
+			player.snapTo(startPos.x, startPos.y, startPos.z, startYaw, startPitch);
+			player.setOldPosAndRot();
+			player.setDeltaMovement(Vec3.ZERO);
+			player.resetFallDistance();
+			fallTop = Double.NaN;
+			ChatUtil.info("You fell out of the world: back where the larp started");
+			return;
+		}
+		if (!hurtable(player)) {
+			fallTop = Double.NaN;
+			return;
+		}
+		boolean breaksFall = player.isInWater() || player.isInLava() || player.onClimbable() || player.isFallFlying() || player.getAbilities().flying
+			|| player.hasEffect(net.minecraft.world.effect.MobEffects.SLOW_FALLING) || player.hasEffect(net.minecraft.world.effect.MobEffects.LEVITATION)
+			|| player.isPassenger() || player.isNoGravity();
+		if (breaksFall) fallTop = Double.NaN;
+		else if (!player.onGround()) fallTop = Double.isNaN(fallTop) ? player.getY() : Math.max(fallTop, player.getY());
+		else {
+			if (!Double.isNaN(fallTop)) land(player, fallTop - player.getY());
+			fallTop = Double.NaN;
+		}
+		// Healing slowly with a full enough hunger bar, as natural regeneration does
+		if (player.getHealth() < player.getMaxHealth() && player.getFoodData().getFoodLevel() >= 18 && ++regenTicks >= 80) {
+			regenTicks = 0;
+			player.setHealth(Math.min(player.getMaxHealth(), player.getHealth() + 1));
+		}
+	}
+
+	/** Protection levels on your armour, and Feather Falling counted three times over for falls. */
+	private static int protectionOf(LocalPlayer player, boolean falling) {
+		int protection = 0;
+		for (net.minecraft.world.entity.EquipmentSlot slot : new net.minecraft.world.entity.EquipmentSlot[]{net.minecraft.world.entity.EquipmentSlot.HEAD,
+			net.minecraft.world.entity.EquipmentSlot.CHEST, net.minecraft.world.entity.EquipmentSlot.LEGS, net.minecraft.world.entity.EquipmentSlot.FEET}) {
+			for (var entry : player.getItemBySlot(slot).getEnchantments().entrySet()) {
+				if (entry.getKey().is(net.minecraft.world.item.enchantment.Enchantments.PROTECTION)) protection += entry.getIntValue();
+				else if (falling && entry.getKey().is(net.minecraft.world.item.enchantment.Enchantments.FEATHER_FALLING)) protection += 3 * entry.getIntValue();
+			}
+		}
+		return Math.min(20, protection);
+	}
+
+	/** You landed after falling {@code fell} blocks: the damage vanilla would do. */
+	private void land(LocalPlayer player, double fell) {
+		double safe = player.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.SAFE_FALL_DISTANCE);
+		double damage = Math.ceil((fell - safe) * player.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.FALL_DAMAGE_MULTIPLIER));
+		if (damage <= 0) return;
+		// What you land on: slime bounces you (unless you're sneaking), hay and honey soften it, beds a bit
+		BlockState on = mc.level.getBlockState(BlockPos.containing(player.getX(), player.getY() - 0.2, player.getZ()));
+		if (on.is(net.minecraft.world.level.block.Blocks.SLIME_BLOCK) && !player.isSuppressingBounce()) return;
+		if (on.is(net.minecraft.world.level.block.Blocks.POWDER_SNOW) || on.is(net.minecraft.world.level.block.Blocks.COBWEB)) return;
+		if (on.is(net.minecraft.world.level.block.Blocks.HAY_BLOCK) || on.is(net.minecraft.world.level.block.Blocks.HONEY_BLOCK)) damage *= 0.2;
+		else if (on.is(net.minecraft.tags.BlockTags.BEDS)) damage *= 0.5;
+		// Feather Falling and Protection take some off; armour doesn't
+		float amount = net.minecraft.world.damagesource.CombatRules.getDamageAfterMagicAbsorb((float) damage, protectionOf(player, true));
+		hurt(player, amount, mc.level.damageSources().fall(), null);
+	}
+
+	/**
+	 * For fake players fighting back: one of them hit you, while you're larping. Your armour and
+	 * Protection count, and you get knocked back away from them.
+	 */
+	public void hitByFake(Entity attacker, float damage) {
+		LocalPlayer player = mc.player;
+		if (player == null || !hurtable(player) || hurtCooldown > 0) return;
+		var source = attacker instanceof net.minecraft.world.entity.player.Player p ? mc.level.damageSources().playerAttack(p) : mc.level.damageSources().generic();
+		damage = net.minecraft.world.damagesource.CombatRules.getDamageAfterAbsorb(player, damage, source, player.getArmorValue(),
+			(float) player.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.ARMOR_TOUGHNESS));
+		damage = net.minecraft.world.damagesource.CombatRules.getDamageAfterMagicAbsorb(damage, protectionOf(player, false));
+		hurt(player, damage, source, attacker);
+		if (!larping || player.getHealth() <= 0 || player.distanceToSqr(attacker) > 64) return;
+		// Knocked back away from them, as LivingEntity#knockback does
+		double awayX = attacker.getX() - player.getX(), awayZ = attacker.getZ() - player.getZ(), length = Math.hypot(awayX, awayZ);
+		if (length < 1e-5) return;
+		Vec3 was = player.getDeltaMovement();
+		player.setDeltaMovement(was.x / 2 - awayX / length * 0.4, player.onGround() ? Math.min(0.4, was.y / 2 + 0.4) : was.y, was.z / 2 - awayZ / length * 0.4);
+	}
+
+	/** Takes {@code amount} off you in the larp: absorption first, then health. A totem saves you; otherwise dying puts you back at the start, healed. */
+	private void hurt(LocalPlayer player, float amount, net.minecraft.world.damagesource.DamageSource source, Entity attacker) {
+		if (amount <= 0 || !hurtable(player)) return;
+		var resistance = player.getEffect(net.minecraft.world.effect.MobEffects.RESISTANCE);
+		if (resistance != null) {
+			amount *= Math.max(0, 1 - (resistance.getAmplifier() + 1) * 0.2f);
+			if (amount <= 0) return;
+		}
+		hurtCooldown = 10;
+		float absorbed = Math.min(player.getAbsorptionAmount(), amount);
+		player.setAbsorptionAmount(player.getAbsorptionAmount() - absorbed);
+		float health = player.getHealth() - (amount - absorbed);
+		// The red flash, the camera shake and the hurt sound
+		player.handleDamageEvent(source);
+		if (health > 0) {
+			player.setHealth(health);
+			return;
+		}
+		for (net.minecraft.world.InteractionHand hand : net.minecraft.world.InteractionHand.values()) {
+			ItemStack held = player.getItemInHand(hand);
+			if (!held.is(net.minecraft.world.item.Items.TOTEM_OF_UNDYING)) continue;
+			held.shrink(1);
+			player.setHealth(1);
+			player.removeAllEffects();
+			player.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.REGENERATION, 900, 1));
+			player.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.ABSORPTION, 100, 1));
+			player.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.FIRE_RESISTANCE, 800, 0));
+			mc.particleEngine.createTrackingEmitter(player, net.minecraft.core.particles.ParticleTypes.TOTEM_OF_UNDYING, 30);
+			mc.level.playLocalSound(player.getX(), player.getY(), player.getZ(), SoundEvents.TOTEM_USE, player.getSoundSource(), 1, 1, false);
+			//? if >=26.3 {
+			/*mc.player.displayItemActivation(new ItemStack(net.minecraft.world.item.Items.TOTEM_OF_UNDYING));
+			*///?} else {
+			mc.gameRenderer.displayItemActivation(new ItemStack(net.minecraft.world.item.Items.TOTEM_OF_UNDYING));
+			//?}
+			return;
+		}
+		mc.level.playLocalSound(player.getX(), player.getY(), player.getZ(), SoundEvents.PLAYER_DEATH, player.getSoundSource(), 1, 1, false);
+		String how = attacker != null ? "were slain by " + attacker.getName().getString() : source.is(net.minecraft.tags.DamageTypeTags.IS_FALL) ? "fell from a high place" : "died";
+		ChatUtil.info("You " + how + " (in the larp): back where you started, healed");
+		player.setHealth(player.getMaxHealth());
+		player.snapTo(startPos.x, startPos.y, startPos.z, startYaw, startPitch);
+		player.setOldPosAndRot();
+		player.setDeltaMovement(Vec3.ZERO);
+		player.resetFallDistance();
+		fallTop = Double.NaN;
 	}
 
 	/** Forgets the saved larp; if larping now, starts a fresh one from your real spot and inventory. */
@@ -1149,26 +1746,99 @@ public class ServerLarpModule extends Module {
 				inventory.clearContent();
 				reply(removed == 0 ? Component.translatable("clear.failed.single", you) : Component.translatable("commands.clear.success.single", removed, you));
 			}
-			case "tp", "teleport" -> {
-				int from = afterTarget(words, 1);
-				if (from + 2 >= words.length) {
-					reply(Component.literal("Usage: /tp <x> <y> <z>"));
-					return;
-				}
-				try {
-					double x = coordinate(words[from], player.getX()), y = coordinate(words[from + 1], player.getY()), z = coordinate(words[from + 2], player.getZ());
-					player.snapTo(x, y, z, player.getYRot(), player.getXRot());
-					player.setDeltaMovement(Vec3.ZERO);
-					player.resetFallDistance();
-					reply(Component.translatable("commands.teleport.success.location.single", you,
-						String.format(java.util.Locale.ROOT, "%f", x), String.format(java.util.Locale.ROOT, "%f", y), String.format(java.util.Locale.ROOT, "%f", z)));
-				} catch (NumberFormatException e) {
-					reply(Component.literal("Usage: /tp <x> <y> <z>"));
-				}
-			}
+			case "tp", "teleport" -> teleportCommand(java.util.Arrays.copyOfRange(words, 1, words.length));
 			default -> {
 			}
 		}
+	}
+
+	private static final String TP_USAGE = "Usage: /tp <x y z | player>, or /tp <player | @a> <x y z | player> to move other femboyware users larping here";
+
+	/**
+	 * /tp while larping: you to a spot or to someone, or (through Client Sync) other femboyware users
+	 * who are larping here, to a spot or to someone. @a is everyone larping, you included. Someone
+	 * else's spot while they larp is where they really are, not where the server has them.
+	 */
+	private void teleportCommand(String[] args) {
+		LocalPlayer player = mc.player;
+		if (args.length == 0) {
+			reply(Component.literal(TP_USAGE));
+			return;
+		}
+		// Who goes: you, unless the first word names someone and there's a destination after it
+		boolean coordsOnly = args.length == 3 && isCoordinate(args[0]);
+		String who = coordsOnly || args.length == 1 ? "@s" : args[0];
+		String[] where = coordsOnly || args.length == 1 ? args : java.util.Arrays.copyOfRange(args, 1, args.length);
+		Vec3 to;
+		String toName;
+		if (where.length == 3) {
+			try {
+				to = new Vec3(coordinate(where[0], player.getX()), coordinate(where[1], player.getY()), coordinate(where[2], player.getZ()));
+			} catch (NumberFormatException e) {
+				reply(Component.literal(TP_USAGE));
+				return;
+			}
+			toName = String.format(java.util.Locale.ROOT, "%.1f %.1f %.1f", to.x, to.y, to.z);
+		} else if (where.length == 1) {
+			to = positionOf(where[0]);
+			if (to == null) {
+				reply(Component.literal("Can't find " + where[0] + " (they need to be in render distance, or larping with Client Sync)"));
+				return;
+			}
+			toName = where[0];
+		} else {
+			reply(Component.literal(TP_USAGE));
+			return;
+		}
+		var sync = dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class);
+		boolean self = who.equalsIgnoreCase("@s") || who.equalsIgnoreCase("@p") || who.equalsIgnoreCase(player.getGameProfile().name());
+		if (self || who.equalsIgnoreCase("@a")) teleportTo(to);
+		if (self) {
+			reply(Component.literal("Teleported you to " + toName));
+			return;
+		}
+		if (who.equalsIgnoreCase("@a")) {
+			int sent = sync.teleportEveryone(to);
+			reply(Component.literal("Teleported you" + (sent > 0 ? " and " + sent + " other" + (sent == 1 ? "" : "s") + " larping here" : "") + " to " + toName));
+			return;
+		}
+		String problem = sync.teleport(who, to);
+		reply(Component.literal(problem != null ? problem : "Teleported " + who + " to " + toName + " (in their larp)"));
+	}
+
+	private static boolean isCoordinate(String text) {
+		try {
+			coordinate(text, 0);
+			return true;
+		} catch (NumberFormatException e) {
+			return false;
+		}
+	}
+
+	/** Where someone is: you, someone larping with Client Sync (where they really are), or a player in sight. */
+	private Vec3 positionOf(String name) {
+		if (name.equalsIgnoreCase("@s") || name.equalsIgnoreCase("@p") || name.equalsIgnoreCase(mc.player.getGameProfile().name())) return mc.player.position();
+		Vec3 larping = dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class).larpPositionOf(name);
+		if (larping != null) return larping;
+		for (var other : mc.level.players()) if (other.getGameProfile().name().equalsIgnoreCase(name)) return other.position();
+		return null;
+	}
+
+	private void teleportTo(Vec3 to) {
+		LocalPlayer player = mc.player;
+		player.snapTo(to.x, to.y, to.z, player.getYRot(), player.getXRot());
+		player.setOldPosAndRot();
+		player.setDeltaMovement(Vec3.ZERO);
+		player.resetFallDistance();
+	}
+
+	/** From Client Sync: someone larping here teleported you, in your larp. */
+	public void teleportedBy(String who, Vec3 to) {
+		if (!larping || mc.player == null || !allowTeleports.get()) return;
+		if (!Double.isFinite(to.x) || !Double.isFinite(to.y) || !Double.isFinite(to.z) || Math.abs(to.x) > 3.0E7 || Math.abs(to.z) > 3.0E7 || Math.abs(to.y) > 4096) return;
+		teleportTo(to);
+		ChatUtil.info(who + " teleported you to " + String.format(java.util.Locale.ROOT, "%.1f %.1f %.1f", to.x, to.y, to.z)
+			+ " (turn off Allow Teleports in Server Larp to stop that)");
 	}
 
 	/** A coordinate, with ~ meaning relative to where you are. */

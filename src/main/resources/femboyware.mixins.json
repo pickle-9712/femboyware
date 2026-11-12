@@ -42,6 +42,7 @@
 		"GuiSkinRendererMixin",
 		"HandledScreenAccessor",
 		"HeldItemRendererMixin",
+		"FirstPersonHandsMixin",
 		"InactivityFpsLimiterMixin",
 		"InGameHudMixin",
 		"InGameOverlayRendererMixin",

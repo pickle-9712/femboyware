@@ -61,11 +61,39 @@ public class FurryModule extends Module {
 
 	/** Whether to hide this player's armour; read by ArmorFeatureRendererMixin. */
 	public boolean hidesArmor(AvatarRenderState state) {
+		Worn peer = peer(state);
+		if (peer != null) return peer.hideArmor();
 		return isEnabled() && hideArmor.get() && mc.player != null && state.id == mc.player.getId();
 	}
 
 	private boolean shows(AvatarRenderState state) {
 		return isEnabled() && !state.isInvisible && mc.player != null && state.id == mc.player.getId();
+	}
+
+	// ---------------------------------------------------------------- Client Sync
+
+	/** Someone's fursona: colours, which parts, the tail's size, and whether their armour's hidden. */
+	public record Worn(int fur, int belly, int paws, boolean skin, boolean ears, boolean tail, float tailSize, boolean hideArmor) {}
+
+	/** For Client Sync: your fursona, or null with this off. */
+	public Worn shareWorn() {
+		return isEnabled() ? own() : null;
+	}
+
+	/** Yours, as the settings have it. */
+	private Worn own() {
+		return new Worn(fur.get(), belly.get(), paws.get(), skin.get(), ears.get(), tail.get(), tailSize.get().floatValue(), hideArmor.get());
+	}
+
+	/** Another femboyware user's fursona, from Client Sync; null if they aren't sharing one. */
+	private Worn peer(AvatarRenderState state) {
+		return mc.player == null || state.id == mc.player.getId() ? null
+			: dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class).furryOf(state.id);
+	}
+
+	/** The fursona skin on top of {@code textures}, for other people's from Client Sync. */
+	public static PlayerSkin fursonaSkin(PlayerSkin textures) {
+		return new PlayerSkin(SKIN, textures.cape(), textures.elytra(), PlayerModelType.SLIM, textures.secure());
 	}
 
 	// ---------------------------------------------------------------- ears and tail
@@ -78,20 +106,25 @@ public class FurryModule extends Module {
 
 		@Override
 		public void submit(PoseStack matrices, SubmitNodeCollector queue, int light, AvatarRenderState state, float headYaw, float headPitch) {
-			if (!shows(state)) return;
-			if (ears.get()) {
+			Worn worn = peer(state);
+			if (worn == null) {
+				if (!shows(state)) return;
+				worn = own();
+			} else if (state.isInvisible) return;
+			Worn look = worn;
+			if (look.ears()) {
 				matrices.pushPose();
 				getParentModel().head.translateAndRotate(matrices);
-				queue.submitCustomGeometry(matrices, RenderTypes.debugQuads(), (entry, consumer) -> drawEars(entry, consumer));
+				queue.submitCustomGeometry(matrices, RenderTypes.debugQuads(), (entry, consumer) -> drawEars(entry, consumer, look));
 				matrices.popPose();
 			}
-			if (tail.get()) {
+			if (look.tail()) {
 				float age = state.ageInTicks;
 				// How fast the legs swing, so the tail sways more as you walk
 				float walk = state.walkAnimationSpeed;
 				matrices.pushPose();
 				getParentModel().body.translateAndRotate(matrices);
-				queue.submitCustomGeometry(matrices, RenderTypes.debugQuads(), (entry, consumer) -> drawTail(entry, consumer, age, walk));
+				queue.submitCustomGeometry(matrices, RenderTypes.debugQuads(), (entry, consumer) -> drawTail(entry, consumer, age, walk, look));
 				matrices.popPose();
 			}
 		}
@@ -105,7 +138,7 @@ public class FurryModule extends Module {
 	 * inside and a darker tip. Each is a thin slab cut to a curved outline. Head space: blocks, y
 	 * down, front is -z.
 	 */
-	private void drawEars(PoseStack.Pose entry, VertexConsumer consumer) {
+	private void drawEars(PoseStack.Pose entry, VertexConsumer consumer, Worn look) {
 		double[][] outline = earOutline(0.1, 0.25, 0.045);
 		double[][] inside = earOutline(0.06, 0.17, 0.03);
 		for (int side = -1; side <= 1; side += 2) {
@@ -120,20 +153,20 @@ public class FurryModule extends Module {
 			Vec3 frontMiddle = new Vec3(center, base, front);
 			Vec3 backMiddle = new Vec3(center, base, back);
 			for (int i = 0; i < f.length - 1; i++) {
-				triangle(consumer, entry, frontMiddle, f[i], f[i + 1], fur.get());
-				triangle(consumer, entry, backMiddle, b[i + 1], b[i], fur.get());
-				quad(consumer, entry, f[i], b[i], b[i + 1], f[i + 1], fur.get());
+				triangle(consumer, entry, frontMiddle, f[i], f[i + 1], look.fur());
+				triangle(consumer, entry, backMiddle, b[i + 1], b[i], look.fur());
+				quad(consumer, entry, f[i], b[i], b[i + 1], f[i + 1], look.fur());
 			}
-			quad(consumer, entry, f[f.length - 1], b[b.length - 1], b[0], f[0], fur.get());
+			quad(consumer, entry, f[f.length - 1], b[b.length - 1], b[0], f[0], look.fur());
 			// The pale rounded inside, just in front, and a darker cap over the top of it
 			Vec3[] in = place(inside, center, base, lean, front - 0.002, 0.012);
 			Vec3 insideMiddle = new Vec3(center, base - 0.012, front - 0.002);
-			for (int i = 0; i < in.length - 1; i++) triangle(consumer, entry, insideMiddle, in[i], in[i + 1], belly.get());
+			for (int i = 0; i < in.length - 1; i++) triangle(consumer, entry, insideMiddle, in[i], in[i + 1], look.belly());
 			Vec3[] cap = place(outline, center, base, lean, front - 0.003, 0);
 			int capFrom = (int) (EAR_POINTS * 0.33);
 			int capTo = EAR_POINTS - capFrom;
 			Vec3 capMiddle = lerp(cap[capFrom], cap[capTo], 0.5);
-			for (int i = capFrom; i < capTo; i++) triangle(consumer, entry, capMiddle, cap[i], cap[i + 1], paws.get());
+			for (int i = capFrom; i < capTo; i++) triangle(consumer, entry, capMiddle, cap[i], cap[i + 1], look.paws());
 		}
 	}
 
@@ -179,9 +212,9 @@ public class FurryModule extends Module {
 	private static final int TAIL_SIDES = 10;
 
 	/** A big fluffy tail curling up from the lower back, swaying gently, faster as you walk, with a pale tip. Body space. */
-	private void drawTail(PoseStack.Pose entry, VertexConsumer consumer, float age, float walk) {
+	private void drawTail(PoseStack.Pose entry, VertexConsumer consumer, float age, float walk, Worn look) {
 		float sway = (float) Math.sin(age * 0.12) * (0.06f + walk * 0.08f);
-		double size = tailSize.get();
+		double size = net.minecraft.util.Mth.clamp(look.tailSize(), 0.5f, 2.5f);
 		Vec3 root = new Vec3(0, 0.64, 0.12);
 		Vec3[] path = new Vec3[TAIL_SEGMENTS + 1];
 		float[] radius = new float[TAIL_SEGMENTS + 1];
@@ -194,14 +227,14 @@ public class FurryModule extends Module {
 			radius[i] = (float) ((0.05 + 0.04 * Math.sin(t * Math.PI) + (t > 0.75 ? 0.012 * Math.sin((t - 0.75) / 0.25 * Math.PI) : 0)) * size);
 		}
 		for (int i = 0; i < TAIL_SEGMENTS; i++) {
-			int segmentColor = i >= TAIL_SEGMENTS * 0.75 ? belly.get() : fur.get();
+			int segmentColor = i >= TAIL_SEGMENTS * 0.75 ? look.belly() : look.fur();
 			ring(consumer, entry, path, radius, i, segmentColor);
 		}
 		Vec3 end = path[TAIL_SEGMENTS];
 		Vec3 direction = end.subtract(path[TAIL_SEGMENTS - 1]).normalize();
 		Vec3 cap = end.add(direction.scale(radius[TAIL_SEGMENTS]));
 		Vec3[] last = ringPoints(path, radius, TAIL_SEGMENTS);
-		for (int s = 0; s < TAIL_SIDES; s++) triangle(consumer, entry, last[s], last[(s + 1) % TAIL_SIDES], cap, belly.get());
+		for (int s = 0; s < TAIL_SIDES; s++) triangle(consumer, entry, last[s], last[(s + 1) % TAIL_SIDES], cap, look.belly());
 	}
 
 	private void ring(VertexConsumer consumer, PoseStack.Pose entry, Vec3[] path, float[] radius, int i, int segmentColor) {

@@ -32,7 +32,11 @@ import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
 import net.minecraft.network.protocol.game.ClientboundSoundPacket;
 import net.minecraft.network.protocol.game.ServerboundInteractPacket;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+//? if >=26.3 {
+/*
+*///?} else {
 import net.minecraft.network.protocol.game.ServerboundSwingPacket;
+//?}
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.util.Mth;
@@ -514,14 +518,22 @@ public class AutoCrystalModule extends Module {
 			cachedServerYaw = yaw;
 		}
 		mc.getConnection().send(attackPacket(id, cachedSneaking));
+		//? if >=26.3 {
+		/*
+		*///?} else {
 		mc.getConnection().send(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
+		//?}
 		attacked.put(id, System.currentTimeMillis());
 		breakTimer.reset();
 		Rotation sent = look;
 		mc.execute(() -> {
 			if (nullCheck()) return;
 			if (sent != null) FemboyWare.getRotations().notePacketRotation(sent);
+			//? if >=26.3 {
+			/*mc.player.swing(InteractionHand.MAIN_HAND, net.minecraft.world.item.component.SwingAnimation.DEFAULT, false);
+			*///?} else {
 			mc.player.swing(InteractionHand.MAIN_HAND, false);
+			//?}
 		});
 		return true;
 	}

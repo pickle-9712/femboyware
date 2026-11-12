@@ -18,6 +18,8 @@ final class ShapeBuilder {
 	private final float ox, oy, oz;
 	private final Vector3f scratch = new Vector3f();
 	private boolean soft;
+	/** How lit the prop is where it stands: dim at night, bright by day (see LarpLight). */
+	private float light;
 
 	ShapeBuilder(VertexConsumer c, PoseStack.Pose pose, Quaternionf rotation, float ox, float oy, float oz) {
 		this.c = c;
@@ -26,11 +28,13 @@ final class ShapeBuilder {
 		this.ox = ox;
 		this.oy = oy;
 		this.oz = oz;
+		this.light = LarpLight.relative(ox, oy, oz);
 	}
 
-	/** Evenly lit, for interiors: faces only darken a touch with their angle. */
+	/** Evenly lit, for interiors: faces only darken a touch with their angle, and the lamps are on at night. */
 	ShapeBuilder soft() {
 		soft = true;
+		light = LarpLight.inside(light);
 		return this;
 	}
 
@@ -56,6 +60,7 @@ final class ShapeBuilder {
 	private final java.util.List<float[]> held = new java.util.ArrayList<>();
 
 	private void vertex(float x, float y, float z, int color) {
+		color = LarpLight.shade(color, light);
 		scratch.set(x, y, z).rotate(rotation);
 		if (c == null) held.add(new float[]{ox + scratch.x, oy + scratch.y, oz + scratch.z, Float.intBitsToFloat(color)});
 		else FxRender.vertex(c, pose, ox + scratch.x, oy + scratch.y, oz + scratch.z, color);

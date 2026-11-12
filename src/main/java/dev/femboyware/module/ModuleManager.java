@@ -328,6 +328,8 @@ public class ModuleManager {
 		register(new dev.femboyware.module.larp.JetModule());
 		register(new dev.femboyware.module.larp.HelicopterModule());
 		register(new dev.femboyware.module.larp.HangarModule());
+		register(new dev.femboyware.module.larp.YachtModule());
+		register(new dev.femboyware.module.larp.MansionModule());
 		register(new CrosshairModule());
 		register(new BlockOutlineModule());
 		register(new NewChunksModule());
@@ -554,6 +556,8 @@ public class ModuleManager {
 	}
 
 	public void onRender3D(Render3DEvent event) {
+		// Where the camera is, for the larp props' day and night lighting
+		dev.femboyware.module.larp.LarpLight.frame(event.camera().pos);
 		// Our labels and nametags use the clean font even though Minecraft's in-game text doesn't
 		UiScale.beginClient();
 		try {

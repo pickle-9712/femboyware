@@ -18,6 +18,8 @@ public final class LarpSounds {
 	public static final SoundEvent CHAMPAGNE_SPRAY = event("champagne_spray");
 	public static final SoundEvent JET_ENGINE = event("jet_engine");
 	public static final SoundEvent HELI_ROTOR = event("heli_rotor");
+	public static final SoundEvent CAR_ENGINE = event("car_engine");
+	public static final SoundEvent CAR_START = event("car_start");
 
 	private LarpSounds() {
 	}

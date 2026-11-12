@@ -183,6 +183,58 @@ public final class FakeWanderer {
 		apply(self);
 	}
 
+	/** Which way it's circling someone it's fighting, and for how much longer before it switches. */
+	private int strafeDir = 1, strafeTicks;
+
+	/**
+	 * Fighting someone who hit it: runs in, then circles them facing them, backing off when it's too
+	 * close and hopping now and then for crits. Returns whether they're in reach of a swing.
+	 */
+	boolean tickFight(RemotePlayer self, ClientLevel world, Player target) {
+		if (pos == null) start(self, world);
+		moving = true;
+		faceYaw = Float.NaN;
+		walkTo = null;
+		goingToGreet = null;
+		greeting = false;
+		sneakTicks = 0;
+		wantsJump = false;
+		if (!world.hasChunkAt(BlockPos.containing(pos))) return false;
+		lookingAt = target;
+		lookTicks = 2;
+		double dx = target.getX() - pos.x, dz = target.getZ() - pos.z, distance = Math.max(1e-4, Math.hypot(dx, dz));
+		double moveX, moveZ;
+		if (distance > 2.6) {
+			sprinting = distance > 4;
+			double speed = sprinting ? SPRINT_SPEED : WALK_SPEED;
+			moveX = dx / distance * speed;
+			moveZ = dz / distance * speed;
+		} else {
+			sprinting = false;
+			if (--strafeTicks <= 0) {
+				strafeDir = random.nextBoolean() ? 1 : -1;
+				strafeTicks = 10 + random.nextInt(25);
+			}
+			double speed = WALK_SPEED * 0.7;
+			moveX = -dz / distance * speed * strafeDir;
+			moveZ = dx / distance * speed * strafeDir;
+			if (distance < 1.6) {
+				moveX -= dx / distance * 0.12;
+				moveZ -= dz / distance * 0.12;
+			}
+		}
+		if (grounded && random.nextInt(16) == 0) wantsJump = true;
+		look(self, moveX, moveZ);
+		move(self, world, moveX, moveZ);
+		apply(self);
+		return distance < 3.0 && Math.abs(target.getY() - pos.y) < 2.5;
+	}
+
+	/** Whether it's coming down from a hop, so a swing now is a crit. */
+	boolean falling() {
+		return !grounded && fallSpeed < 0;
+	}
+
 	/** Puts it on a spot, above whatever's there, unless it's solid all the way up. */
 	private void putAt(RemotePlayer self, ClientLevel world, Vec3 spot) {
 		stuckTicks = 0;
@@ -377,7 +429,11 @@ public final class FakeWanderer {
 		self.setPose(sneaking ? Pose.CROUCHING : Pose.STANDING);
 		self.setSprinting(sprinting && walkTo != null);
 		self.setOnGround(grounded);
+		//? if >=26.3 {
+		/*self.getInterpolation().interpolateTo(net.minecraft.world.entity.PositionPath.of(pos), yaw, pitch, true);
+		*///?} else {
 		self.getInterpolation().interpolateTo(pos, yaw, pitch);
+		//?}
 		self.lerpHeadTo(headYaw, 3);
 	}
 }

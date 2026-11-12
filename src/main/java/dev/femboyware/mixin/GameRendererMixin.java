@@ -20,7 +20,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class GameRendererMixin {
 	/** Bodyguard's low power: don't draw the world at all, so the screen is just the HUD on black. */
 	@Inject(method = "renderLevel", at = @At("HEAD"), cancellable = true)
+	//? if >=26.3 {
+	/*private void femboyware$lowPower(CallbackInfo ci) {
+	*///?} else {
 	private void femboyware$lowPower(DeltaTracker tickCounter, CallbackInfo ci) {
+	//?}
 		if (BodyguardModule.lowPower()) ci.cancel();
 	}
 
@@ -41,8 +45,10 @@ public class GameRendererMixin {
 	}
 	//?}
 
+	//? if <26.3 {
 	@Inject(method = "displayItemActivation", at = @At("HEAD"), cancellable = true)
 	private void femboyware$hideTotem(ItemStack floatingItem, CallbackInfo ci) {
 		if (floatingItem.is(Items.TOTEM_OF_UNDYING) && FemboyWare.getModules().get(TotemAnimationModule.class).hide()) ci.cancel();
 	}
+	//?}
 }

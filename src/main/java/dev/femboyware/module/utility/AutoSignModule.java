@@ -24,7 +24,11 @@ public class AutoSignModule extends Module {
 		event.cancel();
 		mc.execute(() -> {
 			if (mc.getConnection() == null) return;
+			//? if >=26.3 {
+			/*mc.getConnection().send(new ServerboundSignUpdatePacket(packet.pos(), java.util.List.of(line1.get(), line2.get(), line3.get(), line4.get()), packet.slot()));
+			*///?} else {
 			mc.getConnection().send(new ServerboundSignUpdatePacket(packet.getPos(), packet.isFrontText(), line1.get(), line2.get(), line3.get(), line4.get()));
+			//?}
 		});
 	}
 }

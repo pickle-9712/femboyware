@@ -13,3 +13,7 @@ deps.fabric_api = "0.141.6+1.21.11"
 ["26.2"]
 mod.mc_compat = "~26.2"
 deps.fabric_api = "0.161.0+26.2"
+
+["26.3"]
+mod.mc_compat = "~26.3"
+deps.fabric_api = "0.166.2+26.3"

@@ -39,6 +39,8 @@ public final class LarpProps {
 		shapes.addAll(FemboyWare.getModules().get(JetModule.class).collisions(entity, area));
 		shapes.addAll(FemboyWare.getModules().get(HangarModule.class).collisions(entity, area));
 		shapes.addAll(FemboyWare.getModules().get(HelicopterModule.class).collisions(entity, area));
+		shapes.addAll(FemboyWare.getModules().get(YachtModule.class).collisions(entity, area));
+		shapes.addAll(FemboyWare.getModules().get(MansionModule.class).collisions(entity, area));
 		// Other femboyware users' props too, from Client Sync
 		shapes.addAll(FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class).propCollisions(entity, area));
 		return shapes;

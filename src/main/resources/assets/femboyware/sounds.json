@@ -99,5 +99,19 @@
 				"name": "femboyware:ui/jet_engine"
 			}
 		]
+	},
+	"ui.car_engine": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/car_engine"
+			}
+		]
+	},
+	"ui.car_start": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/car_start"
+			}
+		]
 	}
 }

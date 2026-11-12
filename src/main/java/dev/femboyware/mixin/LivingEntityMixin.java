@@ -54,11 +54,25 @@ public class LivingEntityMixin {
 		return velocity * FemboyWare.getModules().get(HighJumpModule.class).multiplier();
 	}
 
+	//? if >=26.3 {
+	/*@ModifyReturnValue(method = "getModifiedSwingDuration", at = @At("RETURN"))
+	*///?} else {
 	@ModifyReturnValue(method = "getCurrentSwingDuration", at = @At("RETURN"))
+	//?}
 	private int femboyware$swingDuration(int duration) {
 		if (!isLocalPlayer() || !FemboyWare.isEnabled(SwingAnimationsModule.class)) return duration;
 		return FemboyWare.getModules().get(SwingAnimationsModule.class).getDuration();
 	}
+
+	//? if >=26.3 {
+	/*/^* Server Larp: items thrown out of a screen land here; on the client vanilla only swings the arm. ^/
+	@org.spongepowered.asm.mixin.injection.Inject(method = "drop", at = @At("HEAD"))
+	private void femboyware$larpThrow(net.minecraft.world.item.ItemStack stack, boolean thrownFromHand, net.minecraft.util.Prediction prediction,
+									  org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable<net.minecraft.world.entity.item.ItemEntity> cir) {
+		if ((Object) this != Minecraft.getInstance().player || FemboyWare.getModules() == null) return;
+		FemboyWare.getModules().get(dev.femboyware.module.utility.ServerLarpModule.class).dropLocally(stack, thrownFromHand);
+	}
+	*///?}
 
 	private boolean isLocalPlayer() {
 		return FemboyWare.getModules() != null && (Object) this == Minecraft.getInstance().player;

@@ -1,10 +1,11 @@
 #version 330
+#extension GL_ARB_separate_shader_objects : require
 
 // Pink World: recolours every pixel towards Tint.rgb at its own brightness, by Tint.a.
 
 uniform sampler2D InSampler;
 
-in vec2 texCoord;
+layout(location = 0) in vec2 texCoord;
 
 layout(std140) uniform SamplerInfo {
     vec2 OutSize;
@@ -15,7 +16,7 @@ layout(std140) uniform PinkConfig {
     vec4 Tint;
 };
 
-out vec4 fragColor;
+layout(location = 0) out vec4 fragColor;
 
 const vec3 Luma = vec3(0.299, 0.587, 0.114);
 

@@ -33,7 +33,7 @@ import org.lwjgl.glfw.GLFW;
  */
 public class PhoneScreen extends Screen {
 	public enum App {
-		MESSAGES("Messages"), BANK("Bank"), STOCKS("Stocks"), ROBLOX("Roblox"), LEDGER("Ledger"), CAMERA("Camera");
+		MESSAGES("Messages"), BANK("Bank"), STOCKS("Stocks"), ROBLOX("Roblox"), LEDGER("Ledger"), CAMERA("Camera"), SHOPIFY("Shopify"), VALET("Valet");
 
 		final String label;
 
@@ -183,11 +183,13 @@ public class PhoneScreen extends Screen {
 				case BANK -> drawBank(context, mx, my);
 				case STOCKS -> drawStocks(context, mx, my);
 				case ROBLOX -> drawRoblox(context, mx, my);
+				case SHOPIFY -> drawShopify(context, mx, my);
+				case VALET -> drawValet(context, mx, my);
 				default -> {
 				}
 			}
 		}
-		drawStatusBar(context, app == null || app == App.ROBLOX || app == App.STOCKS || app == App.BANK || app == App.MESSAGES);
+		drawStatusBar(context, app == null || app == App.ROBLOX || app == App.STOCKS || app == App.BANK || app == App.MESSAGES || app == App.SHOPIFY || app == App.VALET);
 		// The home bar: click it to go home
 		int bw = 90, bx = (SCREEN_W - bw) / 2, by = SCREEN_H - 9;
 		Glass.rounded(context, bx, by, bx + bw, by + 4, 2, 0xE0FFFFFF);
@@ -347,6 +349,26 @@ public class PhoneScreen extends Screen {
 				Glass.rounded(context, x + (int) (8 * u), y + (int) (15 * u), x + (int) (32 * u), y + (int) (25 * u), (int) (4 * u), 0xFFFFFFFF);
 				Glass.rounded(context, x + (int) (24 * u), y + (int) (13 * u), x + (int) (34 * u), y + (int) (27 * u), (int) (5 * u), 0xFFB9BBC2);
 			}
+			case SHOPIFY -> {
+				// A green shopping bag
+				Glass.rounded(context, x, y, x + size, y + size, r, 0xFF95BF47);
+				int bx = x + (int) (11 * u), by = y + (int) (14 * u), bw = (int) (18 * u), bh = (int) (17 * u);
+				Glass.rounded(context, bx, by, bx + bw, by + bh, Math.max(1, (int) (3 * u)), 0xFFFFFFFF);
+				int hx = x + (int) (15 * u), hw = (int) (10 * u), th = Math.max(1, (int) (2 * u));
+				context.fill(hx, y + (int) (9 * u), hx + hw, y + (int) (9 * u) + th, 0xFFFFFFFF);
+				context.fill(hx, y + (int) (9 * u), hx + th, by, 0xFFFFFFFF);
+				context.fill(hx + hw - th, y + (int) (9 * u), hx + hw, by, 0xFFFFFFFF);
+				drawCentered(context, font, "S", bx + bw / 2f, by + bh / 2f + 0.5f, 1.2f * u, 0xFF5E8E3E);
+			}
+			case VALET -> {
+				// A gold key on black
+				Glass.rounded(context, x, y, x + size, y + size, r, 0xFF101114);
+				Glass.rounded(context, x + (int) (10 * u), y + (int) (12 * u), x + (int) (20 * u), y + (int) (22 * u), (int) (5 * u), 0xFFC9A14A);
+				Glass.rounded(context, x + (int) (13 * u), y + (int) (15 * u), x + (int) (17 * u), y + (int) (19 * u), (int) (2 * u), 0xFF101114);
+				context.fill(x + (int) (19 * u), y + (int) (16 * u), x + (int) (31 * u), y + (int) (18 * u), 0xFFC9A14A);
+				context.fill(x + (int) (26 * u), y + (int) (18 * u), x + (int) (28 * u), y + (int) (22 * u), 0xFFC9A14A);
+				context.fill(x + (int) (29 * u), y + (int) (18 * u), x + (int) (31 * u), y + (int) (21 * u), 0xFFC9A14A);
+			}
 			case CAMERA -> {
 				Glass.rounded(context, x, y, x + size, y + size, r, 0xFF8E8E93);
 				Glass.rounded(context, x + (int) (7 * u), y + (int) (12 * u), x + (int) (33 * u), y + (int) (30 * u), (int) (4 * u), 0xFF2C2C2E);
@@ -425,6 +447,176 @@ public class PhoneScreen extends Screen {
 		}
 	}
 
+	// ---------------------------------------------------------------- Shopify
+
+	/** The price typed for selling what's in your hand, and whether its box has the cursor. */
+	private String sellPrice = "";
+	private boolean priceFocused;
+
+	/** Your DonutSMP auction sales, a box to sell what you're holding, and the API key. */
+	private void drawShopify(GuiGraphics context, float mx, float my) {
+		scaled(context, "Shopify", 14, 38, 2f, TEXT);
+		int y = 64;
+		// Takings
+		List<PhoneModule.Sale> sales = phone.sales();
+		long dayAgo = System.currentTimeMillis() - 86_400_000L;
+		double today = 0, all = 0;
+		int todayCount = 0;
+		for (PhoneModule.Sale s : sales) {
+			all += s.price();
+			if (s.time() >= dayAgo) {
+				today += s.price();
+				todayCount++;
+			}
+		}
+		Glass.rounded(context, 12, y, SCREEN_W - 12, y + 50, 12, 0xFF1C1C1E);
+		context.drawString(font, "Last 24 hours", 22, y + 8, MUTED, false);
+		scaled(context, LedgerModule.usd(today), 22, y + 20, 1.5f, 0xFF95BF47);
+		String countText = todayCount + (todayCount == 1 ? " sale" : " sales");
+		context.drawString(font, countText, SCREEN_W - 22 - font.width(countText), y + 8, MUTED, false);
+		String allText = "All time " + LedgerModule.usd(all);
+		context.drawString(font, font.plainSubstrByWidth(allText, SCREEN_W - 44), 22, y + 38, FAINT, false);
+		y += 58;
+
+		// Selling what's in your hand
+		ItemStackView held = held();
+		Glass.rounded(context, 12, y, SCREEN_W - 12, y + 62, 12, 0xFF1C1C1E);
+		context.drawString(font, "Sell item in hand", 22, y + 7, TEXT, false);
+		context.drawString(font, font.plainSubstrByWidth(held.label, SCREEN_W - 44), 22, y + 18, held.empty ? FAINT : MUTED, false);
+		int fx = 22, fy = y + 32, fw = SCREEN_W - 44 - 58;
+		boolean hot = mx >= fx && mx < fx + fw && my >= fy && my < fy + 20;
+		Glass.rounded(context, fx, fy, fx + fw, fy + 20, 8, priceFocused ? 0xFF2C2C2E : hot ? 0xFF262628 : 0xFF141416);
+		if (sellPrice.isEmpty() && !priceFocused) context.drawString(font, "Price, like 25k", fx + 7, fy + 6, FAINT, false);
+		else context.drawString(font, sellPrice, fx + 7, fy + 6, TEXT, false);
+		if (priceFocused && (System.currentTimeMillis() / 500) % 2 == 0) {
+			int cx = fx + 7 + font.width(sellPrice);
+			context.fill(cx, fy + 5, cx + 1, fy + 15, 0xFF95BF47);
+		}
+		hits.add(new Hit(fx, fy, fw, 20, () -> priceFocused = true));
+		button(context, "Sell", fx + fw + 6, fy, 52, mx, my, this::sell);
+		y += 70;
+
+		// What's up for sale, then what's sold
+		List<PhoneModule.Listing> listed = phone.listings();
+		if (!listed.isEmpty()) {
+			context.drawString(font, "Listed (" + listed.size() + ")", 14, y, TEXT, false);
+			y += 13;
+			for (int i = 0; i < listed.size() && i < 3; i++) {
+				PhoneModule.Listing l = listed.get(i);
+				String price = LedgerModule.usd(l.price());
+				// An x to clear one by hand, if it sold without the server saying so, or you took it down
+				int room = SCREEN_W - 28 - font.width(price) - 8 - 14;
+				boolean rowHot = mx >= 14 && mx < SCREEN_W - 14 && my >= y - 2 && my < y + 10;
+				context.drawString(font, font.plainSubstrByWidth((l.count() > 1 ? l.count() + "x " : "") + l.item(), room), 14, y, rowHot ? TEXT : MUTED, false);
+				context.drawString(font, price, SCREEN_W - 28 - font.width(price), y, MUTED, false);
+				context.drawString(font, "x", SCREEN_W - 20, y, rowHot ? RED : FAINT, false);
+				hits.add(new Hit(SCREEN_W - 24, y - 2, 14, 12, () -> {
+					phone.removeListing(l);
+					say("Listing cleared");
+				}));
+				y += 12;
+			}
+			y += 6;
+		}
+		context.drawString(font, "Sales", 14, y, TEXT, false);
+		y += 14;
+		if (sales.isEmpty()) {
+			context.drawString(font, "Nothing sold yet. When something you", 14, y, FAINT, false);
+			context.drawString(font, "listed sells, it shows up here.", 14, y + 10, FAINT, false);
+		}
+		for (PhoneModule.Sale s : sales) {
+			if (y + 24 > SCREEN_H - 22) break;
+			String what = (s.count() > 1 ? s.count() + "x " : "") + s.item();
+			String price = "+" + LedgerModule.usd(s.price());
+			int room = SCREEN_W - 28 - font.width(price) - 8;
+			context.drawString(font, font.plainSubstrByWidth(what, room), 14, y, TEXT, false);
+			context.drawString(font, price, SCREEN_W - 14 - font.width(price), y, 0xFF95BF47, false);
+			context.drawString(font, ago(s.time()) + (s.buyer() != null ? "  ·  to " + s.buyer() : ""), 14, y + 10, FAINT, false);
+			context.fill(14, y + 21, SCREEN_W - 14, y + 22, 0xFF2C2C2E);
+			y += 26;
+		}
+	}
+
+	private record ItemStackView(String label, boolean empty) {}
+
+	private ItemStackView held() {
+		if (minecraft.player == null || minecraft.player.getMainHandItem().isEmpty()) return new ItemStackView("Hold the item you want to sell", true);
+		var stack = minecraft.player.getMainHandItem();
+		return new ItemStackView((stack.getCount() > 1 ? stack.getCount() + "x " : "") + stack.getHoverName().getString(), false);
+	}
+
+	private void sell() {
+		say(phone.sellHand(sellPrice));
+		priceFocused = false;
+	}
+
+	private void button(GuiGraphics context, String label, int x, int y, int w, float mx, float my, Runnable action) {
+		boolean hot = mx >= x && mx < x + w && my >= y && my < y + 20;
+		Glass.rounded(context, x, y, x + w, y + 20, 10, hot ? 0xFFA8D25A : 0xFF95BF47);
+		context.drawString(font, label, x + (w - font.width(label)) / 2, y + 6, 0xFF0B1A05, false);
+		hits.add(new Hit(x, y, w, 20, action));
+	}
+
+	// ---------------------------------------------------------------- Valet
+
+	/** Your cars: have one brought round, get in, or send one away. */
+	private void drawValet(GuiGraphics context, float mx, float my) {
+		var cars = FemboyWare.getModules().get(CarsModule.class);
+		scaled(context, "Valet", 14, 38, 2f, TEXT);
+		context.drawString(font, "Your cars, brought round", 14, 60, MUTED, false);
+		int y = 76;
+		y = valetCard(context, "Maybach", "Chauffeur-driven. Get in the back and he'll take you for a drive", y, mx, my,
+			() -> {
+				cars.summon(CarsModule.Model.SUV);
+				say("Your Maybach's on its way");
+			}, () -> say(orDone(cars.getInNearest(CarsModule.Model.SUV), "Enjoy the ride")));
+		y = valetCard(context, "Jesko", "Drive it yourself: W and S, A and D, sneak to get out", y + 8, mx, my,
+			() -> {
+				cars.summon(CarsModule.Model.JESKO);
+				say("Your Jesko's on its way");
+			}, () -> say(orDone(cars.getInNearest(CarsModule.Model.JESKO), "Keys are in it")));
+		y += 12;
+		context.drawString(font, "Parked", 14, y, TEXT, false);
+		y += 13;
+		var parked = cars.parkedSummary();
+		if (parked.isEmpty()) context.drawString(font, "No cars out. Have one brought round.", 14, y, FAINT, false);
+		for (String line : parked) {
+			if (y + 12 > SCREEN_H - 50) break;
+			context.drawString(font, font.plainSubstrByWidth(line, SCREEN_W - 28), 14, y, MUTED, false);
+			y += 12;
+		}
+		if (!parked.isEmpty()) valetButton(context, "Send the last one away", 14, SCREEN_H - 46, SCREEN_W - 28, mx, my, () -> {
+			cars.sendAway();
+			say("Sent back to the garage");
+		});
+	}
+
+	private static String orDone(String problem, String done) {
+		return problem == null ? done : problem;
+	}
+
+	/** A car's card: its name, a line about it, and buttons to bring it round or get in. */
+	private int valetCard(GuiGraphics context, String name, String about, int y, float mx, float my, Runnable bring, Runnable getIn) {
+		Glass.rounded(context, 12, y, SCREEN_W - 12, y + 74, 12, 0xFF1C1C1E);
+		context.drawString(font, name, 22, y + 8, TEXT, false);
+		int line = y + 20;
+		for (var part : font.getSplitter().splitLines(about, SCREEN_W - 44, net.minecraft.network.chat.Style.EMPTY)) {
+			context.drawString(font, part.getString(), 22, line, MUTED, false);
+			line += 10;
+		}
+		int bw = (SCREEN_W - 44 - 6) / 2;
+		valetButton(context, "Bring it", 22, y + 48, bw, mx, my, bring);
+		valetButton(context, "Get in", 22 + bw + 6, y + 48, bw, mx, my, getIn);
+		return y + 74;
+	}
+
+	private void valetButton(GuiGraphics context, String label, int x, int y, int w, float mx, float my, Runnable action) {
+		boolean hot = mx >= x && mx < x + w && my >= y && my < y + 20;
+		Glass.rounded(context, x, y, x + w, y + 20, 10, hot ? 0xFFE0BC64 : 0xFFC9A14A);
+		context.drawString(font, label, x + (w - font.width(label)) / 2, y + 6, 0xFF141210, false);
+		hits.add(new Hit(x, y, w, 20, action));
+	}
+
 	/** What's being typed in the open thread. */
 	private String draft = "";
 	private static final int GREEN_DOT = 0xFF30D158;
@@ -451,6 +643,11 @@ public class PhoneScreen extends Screen {
 
 	@Override
 	public boolean charTyped(net.minecraft.client.input.CharacterEvent input) {
+		if (app == App.SHOPIFY && priceFocused) {
+			String typed = input.codepointAsString();
+			if (typed.matches("[0-9.,kKmMbB$]") && sellPrice.length() < 16) sellPrice += typed;
+			return true;
+		}
 		if (app == App.MESSAGES && thread != null && input.isAllowedChatCharacter()) {
 			if (draft.length() < dev.femboyware.manager.PhoneLink.MAX_TEXT) draft += input.codepointAsString();
 			return true;
@@ -873,6 +1070,22 @@ public class PhoneScreen extends Screen {
 
 	@Override
 	public boolean keyPressed(KeyEvent input) {
+		if (app == App.SHOPIFY && priceFocused) {
+			int key = input.key();
+			if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) {
+				sell();
+				return true;
+			}
+			if (key == GLFW.GLFW_KEY_BACKSPACE) {
+				if (!sellPrice.isEmpty()) sellPrice = sellPrice.substring(0, sellPrice.length() - 1);
+				return true;
+			}
+			if (key == GLFW.GLFW_KEY_ESCAPE) {
+				priceFocused = false;
+				return true;
+			}
+			return true;
+		}
 		if (app == App.MESSAGES && thread != null) {
 			int key = input.key();
 			if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) {

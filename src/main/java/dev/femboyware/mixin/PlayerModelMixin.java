@@ -25,5 +25,6 @@ public class PlayerModelMixin {
 		FemboyWare.getModules().get(dev.femboyware.module.larp.JetModule.class).posePilot(model, state);
 		FemboyWare.getModules().get(dev.femboyware.module.larp.HelicopterModule.class).posePilot(model, state);
 		FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class).posePilots(model, state);
+		FemboyWare.getModules().get(dev.femboyware.module.larp.CarsModule.class).poseRiders(model, state);
 	}
 }

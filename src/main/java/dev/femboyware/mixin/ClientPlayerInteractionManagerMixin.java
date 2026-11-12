@@ -46,12 +46,45 @@ public class ClientPlayerInteractionManagerMixin {
 		if (FemboyWare.getModules().onStartBreaking(pos, side)) cir.setReturnValue(false);
 	}
 
+	/** The block about to be broken, so Server Larp can drop it once it's gone. */
+	@org.spongepowered.asm.mixin.Unique
+	private net.minecraft.world.level.block.state.BlockState femboyware$breaking;
+
+	@Inject(method = "destroyBlock", at = @At("HEAD"))
+	private void femboyware$beforeDestroy(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
+		var level = net.minecraft.client.Minecraft.getInstance().level;
+		femboyware$breaking = level == null ? null : level.getBlockState(pos);
+	}
+
+	/** While larping in survival, what you break drops here, since the server that would drop it isn't listening. */
+	@Inject(method = "destroyBlock", at = @At("RETURN"))
+	private void femboyware$afterDestroy(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
+		var state = femboyware$breaking;
+		femboyware$breaking = null;
+		if (cir.getReturnValueZ() && state != null && FemboyWare.getModules() != null) FemboyWare.getModules().get(ServerLarpModule.class).onLarpBroken(pos, state);
+	}
+
 	/** Elytra Boost: a rocket used while flying boosts client-side instead of being spent. */
 	@Inject(method = "useItem", at = @At("HEAD"), cancellable = true)
 	private void femboyware$onInteractItem(Player player, InteractionHand hand, CallbackInfoReturnable<InteractionResult> cir) {
 		if (FemboyWare.getModules().get(ServerLarpModule.class).onUseItem(hand)) cir.setReturnValue(InteractionResult.SUCCESS);
 		else if (FemboyWare.getModules().get(ElytraBoostModule.class).onUseItem(hand)) cir.setReturnValue(InteractionResult.PASS);
 		else if (FemboyWare.getModules().get(AirPlaceModule.class).onUseItem(hand)) cir.setReturnValue(InteractionResult.SUCCESS);
+	}
+
+	//? if >=26.3 {
+	/*/^* Server Larp: what Q drops lands here instead of only being sent to a server that isn't listening. ^/
+	@com.llamalad7.mixinextras.injector.ModifyExpressionValue(method = "dropItem", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/player/Inventory;removeFromSelected(Z)Lnet/minecraft/world/item/ItemStack;"))
+	private net.minecraft.world.item.ItemStack femboyware$larpDrop(net.minecraft.world.item.ItemStack dropped) {
+		if (FemboyWare.getModules() != null) FemboyWare.getModules().get(ServerLarpModule.class).dropLocally(dropped, false);
+		return dropped;
+	}
+	*///?}
+
+	/** Server Larp: letting go of a drawn bow shoots an arrow here, since the server that would shoot it isn't listening. */
+	@Inject(method = "releaseUsingItem", at = @At("HEAD"))
+	private void femboyware$onRelease(Player player, CallbackInfo ci) {
+		if (FemboyWare.getModules() != null) FemboyWare.getModules().get(ServerLarpModule.class).onReleaseUsing(player);
 	}
 
 	/** Server Larp: chests, barrels and shulkers open locally while larping. */

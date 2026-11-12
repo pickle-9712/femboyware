@@ -546,7 +546,7 @@ public class HelicopterModule extends Module {
 
 	private static void light(Render3DEvent event, VertexConsumer glow, Quaternionf rot, float ox, float oy, float oz, float x, float y, float z, float size, int color) {
 		Vector3f at = new Vector3f(x, y, z).rotate(rot);
-		FxRender.billboard(event, glow, ox + at.x, oy + at.y, oz + at.z, size, 0, color);
+		FxRender.billboard(event, glow, ox + at.x, oy + at.y, oz + at.z, size, 0, LarpLight.glow(color));
 	}
 
 	/** The helipad: a dark disc, a yellow ring round it and a big white H, flat on the ground under where it parks. */

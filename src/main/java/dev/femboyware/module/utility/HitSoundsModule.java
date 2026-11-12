@@ -127,7 +127,11 @@ public class HitSoundsModule extends Module {
 			openFolder.set(false);
 			try {
 				Files.createDirectories(FOLDER);
+				//? if >=26.3 {
+				/*com.mojang.blaze3d.Blaze3D.openPath(FOLDER);
+				*///?} else {
 				Util.getPlatform().openPath(FOLDER);
+				//?}
 			} catch (IOException e) {
 				ChatUtil.info("Couldn't open the sounds folder: " + FOLDER);
 			}

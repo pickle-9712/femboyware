@@ -165,6 +165,20 @@ public class PhoneModule extends Module {
 			bankActivity.add(new Transaction(activity[k][0], Double.parseDouble(activity[k][1]), now - (k + 1) * 86_400_000L / 2 - random.nextInt(3_600_000)));
 		}
 		for (Position p : POSITIONS) stockDrift.put(p.ticker(), (random.nextDouble() - 0.3) * 0.08);
+		// Server messages: your auction listings and sales, for the Shopify app
+		net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
+			try {
+				// The same message above the hotbar and in chat only counts once
+				String text = message.getString();
+				long at = System.currentTimeMillis();
+				if (text.equals(lastShopMessage) && at - lastShopMessageAt < 3000) return;
+				lastShopMessage = text;
+				lastShopMessageAt = at;
+				serverMessage(text);
+			} catch (RuntimeException e) {
+				dev.femboyware.FemboyWare.LOGGER.debug("Shopify couldn't read a message", e);
+			}
+		});
 		// Kept connected from the menus too, so texts can come in as soon as you join
 		net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			try {
@@ -402,6 +416,194 @@ public class PhoneModule extends Module {
 		receive(contact, pick(contacts.get(contact)));
 	}
 
+	// ---------------------------------------------------------------- Shopify: your DonutSMP auction sales, read from chat
+
+	/** The banner title for sales. */
+	public static final String SHOPIFY = "Shopify";
+
+	/** One of your auction house sales: what, how many, for how much, when, and who bought it if the server said. */
+	public record Sale(String item, int count, double price, long time, String buyer) {}
+
+	/** Something you've put up on the auction house, from the server's "You listed ..." message. */
+	public record Listing(String item, int count, double price, long time) {}
+
+	private final BoolSetting saleAlerts = add(new BoolSetting("Sale Alerts", "A Shopify notification whenever something you listed on the auction house sells", true));
+	private final StringSetting salesSaved = add(new StringSetting("Sales", "", "")).visibleWhen(() -> false);
+	private final StringSetting listingsSaved = add(new StringSetting("Listings", "", "")).visibleWhen(() -> false);
+	private static final int MAX_SALES = 200, MAX_LISTINGS = 60;
+	/** Listings older than this are taken to have run out. */
+	private static final long LISTING_LIFE = 7L * 86_400_000L;
+	private final List<Sale> sales = new ArrayList<>();
+	private final List<Listing> listings = new ArrayList<>();
+	private String loadedSales, loadedListings;
+
+	private static final String MONEY = "([0-9][0-9,]*(?:\\.[0-9]+)?\\s?[KMBTQkmbtq]?)";
+	private static final java.util.regex.Pattern LISTED = java.util.regex.Pattern.compile("^You listed (\\d+)x? (.+?) for \\$ ?" + MONEY);
+	private static final java.util.regex.Pattern DOLLARS = java.util.regex.Pattern.compile("\\$ ?" + MONEY);
+	/** "Name bought/purchased ..." at the start: who bought it. */
+	private static final java.util.regex.Pattern BUYER = java.util.regex.Pattern.compile("^(\\S{1,20}) (?:has )?(?:bought|purchased)\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
+	/** "... your 3x Elytra for ..." or "your Elytra sold": the item, if it isn't one of your known listings. */
+	private static final java.util.regex.Pattern YOUR_ITEM = java.util.regex.Pattern.compile("your (?:(\\d+)x? )?(.+?)(?: for| has| was| sold|$)", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+	private String lastShopMessage;
+	private long lastShopMessageAt;
+
+	/** Your sales, newest first. */
+	public List<Sale> sales() {
+		loadSales();
+		return sales;
+	}
+
+	/** Takes a listing off the list by hand: it sold, ran out or you took it down. */
+	public void removeListing(Listing listing) {
+		loadSales();
+		if (listings.remove(listing)) saveSales();
+	}
+
+	/** What you've listed that hasn't sold (or run out) yet, newest first. */
+	public List<Listing> listings() {
+		loadSales();
+		long now = System.currentTimeMillis();
+		if (listings.removeIf(l -> now - l.time() > LISTING_LIFE)) saveSales();
+		return listings;
+	}
+
+	private void loadSales() {
+		String savedSales = salesSaved.get(), savedListings = listingsSaved.get();
+		if (savedSales == loadedSales && savedListings == loadedListings) return;
+		loadedSales = savedSales;
+		loadedListings = savedListings;
+		sales.clear();
+		listings.clear();
+		try {
+			for (var element : com.google.gson.JsonParser.parseString(savedSales.isBlank() ? "[]" : savedSales).getAsJsonArray()) {
+				var o = element.getAsJsonObject();
+				sales.add(new Sale(o.get("i").getAsString(), o.get("c").getAsInt(), o.get("p").getAsDouble(), o.get("t").getAsLong(),
+					o.has("b") ? o.get("b").getAsString() : null));
+			}
+			for (var element : com.google.gson.JsonParser.parseString(savedListings.isBlank() ? "[]" : savedListings).getAsJsonArray()) {
+				var o = element.getAsJsonObject();
+				listings.add(new Listing(o.get("i").getAsString(), o.get("c").getAsInt(), o.get("p").getAsDouble(), o.get("t").getAsLong()));
+			}
+		} catch (RuntimeException ignored) {
+		}
+	}
+
+	private void saveSales() {
+		var salesArray = new com.google.gson.JsonArray();
+		for (Sale s : sales) {
+			var o = new com.google.gson.JsonObject();
+			o.addProperty("i", s.item());
+			o.addProperty("c", s.count());
+			o.addProperty("p", s.price());
+			o.addProperty("t", s.time());
+			if (s.buyer() != null) o.addProperty("b", s.buyer());
+			salesArray.add(o);
+		}
+		var listingsArray = new com.google.gson.JsonArray();
+		for (Listing l : listings) {
+			var o = new com.google.gson.JsonObject();
+			o.addProperty("i", l.item());
+			o.addProperty("c", l.count());
+			o.addProperty("p", l.price());
+			o.addProperty("t", l.time());
+			listingsArray.add(o);
+		}
+		salesSaved.set(salesArray.toString());
+		listingsSaved.set(listingsArray.toString());
+		loadedSales = salesSaved.get();
+		loadedListings = listingsSaved.get();
+		dev.femboyware.FemboyWare.getConfig().save();
+	}
+
+	/**
+	 * A message from the server (not player chat): "You listed ..." adds a listing, and one saying
+	 * something of yours sold is logged as a sale and matched to its listing.
+	 */
+	private void serverMessage(String raw) {
+		String text = net.minecraft.ChatFormatting.stripFormatting(raw).trim();
+		if (text.contains("»") || text.startsWith("<") || text.matches("^\\S+: .*")) return;
+		java.util.regex.Matcher listed = LISTED.matcher(text);
+		if (listed.find()) {
+			loadSales();
+			double price = LedgerModule.parseMoney(listed.group(3));
+			listings.addFirst(new Listing(listed.group(2).trim(), Integer.parseInt(listed.group(1)), Math.max(0, price), System.currentTimeMillis()));
+			while (listings.size() > MAX_LISTINGS) listings.removeLast();
+			saveSales();
+			return;
+		}
+		String lower = text.toLowerCase(Locale.ROOT);
+		// You buying something is "You purchased ...", which isn't a sale of yours
+		if (lower.startsWith("you purchased") || lower.startsWith("you bought") || lower.startsWith("you listed")) return;
+		boolean aboutYours = lower.contains("bought your") || lower.contains("purchased your") || lower.contains("sold your")
+			|| (lower.contains("your") && (lower.contains(" sold") || lower.contains("was bought") || lower.contains("was purchased")));
+		if (!aboutYours) return;
+		loadSales();
+		java.util.regex.Matcher dollars = DOLLARS.matcher(text);
+		double said = dollars.find() ? LedgerModule.parseMoney(dollars.group(1)) : -1;
+		// Which listing: one whose name is in the message, the one at the price it sold for if there are
+		// several of the same thing (so selling one of three doesn't clear the wrong one), else the oldest
+		Listing match = null;
+		for (Listing l : listings) {
+			if (!lower.contains(l.item().toLowerCase(Locale.ROOT))) continue;
+			boolean priced = said > 0 && Math.abs(l.price() - said) <= Math.max(1, said * 0.02);
+			if (priced) {
+				match = l;
+				break;
+			}
+			match = l;
+		}
+		double price = said > 0 ? said : match != null ? match.price() : 0;
+		String item = match != null ? match.item() : null;
+		int count = match != null ? match.count() : 1;
+		if (item == null) {
+			java.util.regex.Matcher yours = YOUR_ITEM.matcher(text);
+			if (yours.find()) {
+				item = yours.group(2).trim();
+				if (yours.group(1) != null) count = Integer.parseInt(yours.group(1));
+			}
+		}
+		java.util.regex.Matcher buyer = BUYER.matcher(text);
+		String who = buyer.find() && !buyer.group(1).equalsIgnoreCase("your") ? buyer.group(1) : null;
+		if (match != null) listings.remove(match);
+		Sale sale = new Sale(item == null || item.isEmpty() ? "Item" : item, count, Math.max(0, price), System.currentTimeMillis(), who);
+		sales.addFirst(sale);
+		while (sales.size() > MAX_SALES) sales.removeLast();
+		saveSales();
+		if (!isEnabled() || !saleAlerts.get()) return;
+		String line = "Sold " + (sale.count() > 1 ? sale.count() + "x " : "") + sale.item() + (who != null ? " to " + who : "") + " for " + LedgerModule.usd(sale.price());
+		toasts.add(new Message(SHOPIFY, line, false, System.currentTimeMillis()));
+		while (toasts.size() > 3) toasts.removeFirst();
+		if (sound.get()) LarpSounds.play(LarpSounds.LEDGER_SUCCESS, 0.8f);
+	}
+
+
+	/** minecraft:diamond_sword as Diamond Sword. */
+	private static String prettyId(String id) {
+		String path = id.contains(":") ? id.substring(id.indexOf(':') + 1) : id;
+		StringBuilder out = new StringBuilder();
+		for (String word : path.split("_")) {
+			if (word.isEmpty()) continue;
+			if (!out.isEmpty()) out.append(' ');
+			out.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
+		}
+		return out.toString();
+	}
+
+	/** Lists what's in your hand on the auction house for {@code priceText} with /ah sell. Returns what happened, for the app to say. */
+	public String sellHand(String priceText) {
+		if (mc.player == null) return "Join a server first";
+		if (dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.utility.ServerLarpModule.class).isLarping()) {
+			// The server would sell what's really in your hand, not your larp inventory
+			return "Turn off Server Larp first";
+		}
+		if (mc.player.getMainHandItem().isEmpty()) return "Hold the item you want to sell";
+		double price = LedgerModule.parseMoney(priceText);
+		if (price <= 0) return "Not a price: like 5000, 25k or 1.5m";
+		mc.player.connection.sendCommand("ah sell " + LedgerModule.plainAmount(price));
+		return "Listing it for " + LedgerModule.usd(price);
+	}
+
 	// ---------------------------------------------------------------- real messages with other femboyware users
 
 	/** The thread that goes to everyone online with femboyware. */
@@ -525,9 +727,10 @@ public class PhoneModule extends Module {
 	private void drawBanner(GuiGraphics context, int x, int y, Message m, float alpha) {
 		int a = Math.round(alpha * 255);
 		Glass.rounded(context, x, y, x + TOAST_WIDTH, y + TOAST_HEIGHT, 10, fade(0xEC2C2C30, a));
-		PhoneScreen.appIcon(context, PhoneScreen.App.MESSAGES, x + 7, y + 7, 14);
+		boolean shop = m.contact().equals(SHOPIFY);
+		PhoneScreen.appIcon(context, shop ? PhoneScreen.App.SHOPIFY : PhoneScreen.App.MESSAGES, x + 7, y + 7, 14);
 		var font = mc.font;
-		context.drawString(font, "MESSAGES", x + 26, y + 9, fade(0xFF9A9AA2, a), false);
+		context.drawString(font, shop ? "SHOPIFY" : "MESSAGES", x + 26, y + 9, fade(0xFF9A9AA2, a), false);
 		context.drawString(font, "now", x + TOAST_WIDTH - 8 - font.width("now"), y + 9, fade(0xFF9A9AA2, a), false);
 		context.drawString(font, m.contact(), x + 8, y + 19, fade(0xFFFFFFFF, a), false);
 		context.drawString(font, font.plainSubstrByWidth(m.text(), TOAST_WIDTH - 16), x + 8, y + 29, fade(0xFFE4E4E8, a), false);

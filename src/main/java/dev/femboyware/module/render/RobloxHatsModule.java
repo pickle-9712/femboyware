@@ -290,7 +290,35 @@ public class RobloxHatsModule extends Module {
 
 	// ---------------------------------------------------------------- drawing
 
+	// ---------------------------------------------------------------- Client Sync
+
+	/** Someone's hats: which, how big, and how far up. */
+	public record Worn(List<Long> ids, float size, float raise) {}
+
+	/** For Client Sync: your hats, or null with none on. */
+	public Worn shareWorn() {
+		if (!isEnabled() || ids().isEmpty()) return null;
+		return new Worn(ids(), size.get().floatValue(), raise.get().floatValue());
+	}
+
+	public boolean sharesWithFakes() {
+		return onFakes.get();
+	}
+
+	/** Starts loading someone else's hats, so they're ready to draw. */
+	public void ensureLoaded(List<Long> ids) {
+		for (long id : ids) {
+			if (!loaded.containsKey(id)) load(id);
+		}
+	}
+
+	private Worn peer(AvatarRenderState state) {
+		return mc.player == null || state.id == mc.player.getId() ? null
+			: FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class).hatsOf(state.id);
+	}
+
 	private boolean wears(AvatarRenderState state) {
+		if (mc.player != null && !state.isInvisible && peer(state) != null) return true;
 		if (!isEnabled() || mc.player == null || mc.level == null || state.isInvisible) return false;
 		if (state.id == mc.player.getId()) return true;
 		if (onFakes.get() && FemboyWare.getModules().get(FakePlayerModule.class).isFake(state.id)) return true;
@@ -316,13 +344,17 @@ public class RobloxHatsModule extends Module {
 		@Override
 		public void submit(PoseStack matrices, SubmitNodeCollector queue, int light, AvatarRenderState state, float headYaw, float headPitch) {
 			if (!wears(state)) return;
-			List<Long> ids = ids();
+			// Theirs, if it's someone else with femboyware; otherwise yours
+			Worn peer = peer(state);
+			List<Long> ids = peer != null ? peer.ids() : ids();
 			if (ids.isEmpty()) return;
+			float wornRaise = peer != null ? net.minecraft.util.Mth.clamp(peer.raise(), -4, 4) : raise.get().floatValue();
+			float wornSize = peer != null ? net.minecraft.util.Mth.clamp(peer.size(), 0.5f, 2f) : size.get().floatValue();
 			matrices.pushPose();
 			getParentModel().head.translateAndRotate(matrices);
 			// The head's middle, then studs to blocks
-			matrices.translate(0, -0.25f - raise.get().floatValue() / 16f, 0);
-			float scale = STUD * size.get().floatValue();
+			matrices.translate(0, -0.25f - wornRaise / 16f, 0);
+			float scale = STUD * wornSize;
 			matrices.scale(scale, scale, scale);
 			for (long id : ids) {
 				Hat hat = loaded.get(id);

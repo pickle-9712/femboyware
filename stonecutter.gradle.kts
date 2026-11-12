@@ -53,6 +53,34 @@ stonecutter parameters {
         rename("\\brenderBackground\\(context, mouseX, mouseY, deltaTicks\\)", "extractBackground(context, mouseX, mouseY, deltaTicks)",
             "\\bextractBackground\\(context, mouseX, mouseY, deltaTicks\\)", "renderBackground(context, mouseX, mouseY, deltaTicks)")
         rename("skinWidget\\.render\\(", "skinWidget.extractRenderState(", "skinWidget\\.extractRenderState\\(", "skinWidget.render(")
+
+        // 26.3: GLFW became SDL, the GPU api moved to renderpearl, and a few renames
+        fun rename3(from: String, to: String, back: String, backTo: String) =
+            regex(current.parsed >= "26.3") { replace(from, to, back, backTo) }
+        fun word3(old: String, new: String) = rename3("\\b$old\\b", new, "\\b$new\\b", old)
+        // Our own stand-in with the GLFW names on SDL's codes
+        rename3("import org\\.lwjgl\\.glfw\\.GLFW;", "import dev.femboyware.util.GLFW;", "import dev\\.femboyware\\.util\\.GLFW;", "import org.lwjgl.glfw.GLFW;")
+        fun gpu(old: String, new: String) {
+            rename3("\\b${old.replace(".", "\\.")}\\b", new, "\\b${new.replace(".", "\\.")}\\b", old)
+            rename3("L${old.replace('.', '/')};", "L${new.replace('.', '/')};", "L${new.replace('.', '/')};", "L${old.replace('.', '/')};")
+        }
+        for (c in listOf("GpuBuffer", "GpuBufferSlice")) gpu("com.mojang.blaze3d.buffers.$c", "com.mojang.renderpearl.api.buffers.$c")
+        for (c in listOf("BlendFunction", "ColorTargetState", "DepthStencilState", "RenderPipeline")) gpu("com.mojang.blaze3d.pipeline.$c", "com.mojang.renderpearl.api.pipeline.$c")
+        gpu("com.mojang.blaze3d.platform.CompareOp", "com.mojang.renderpearl.api.pipeline.CompareOp")
+        gpu("com.mojang.blaze3d.systems.GpuDevice", "com.mojang.renderpearl.api.device.GpuDevice")
+        for (c in listOf("FilterMode", "GpuSampler", "GpuTexture", "GpuTextureView")) gpu("com.mojang.blaze3d.textures.$c", "com.mojang.renderpearl.api.textures.$c")
+        word3("RedStoneWireBlock", "RedstoneWireBlock")
+        // Swings only animate now (the server works them out itself), and take an animation
+        rename3("\\.swing\\(([\\w.]+)\\)", ".swing($1, net.minecraft.world.item.component.SwingAnimation.DEFAULT, false)",
+            "\\.swing\\(([\\w.]+), net\\.minecraft\\.world\\.item\\.component\\.SwingAnimation\\.DEFAULT, false\\)", ".swing($1)")
+        rename3("\\.swinging\\b", ".isSwinging()", "\\.isSwinging\\(\\)", ".swinging")
+        word3("getAttackAnim", "getSwingAnimation")
+        rename3("\\.getEntityIds\\(\\)", ".entityIds()", "\\.entityIds\\(\\)", ".getEntityIds()")
+        rename3("packet\\.getHitResult\\(\\)", "packet.hitResult()", "packet\\.hitResult\\(\\)", "packet.getHitResult()")
+        rename3("InputConstants\\.Type\\.KEYSYM\\b", "InputConstants.Type.KEYBOARD", "InputConstants\\.Type\\.KEYBOARD\\b", "InputConstants.Type.KEYSYM")
+        // PoseStack rotations are rotate() now; mulPose only takes matrices (every rotated PoseStack here is named `matrices`)
+        rename3("\\bmatrices\\.mulPose\\((Axis\\.|anchor\\.facing\\)|event\\.camera\\(\\)\\.orientation\\))", "matrices.rotate($1",
+            "\\bmatrices\\.rotate\\((Axis\\.|anchor\\.facing\\)|event\\.camera\\(\\)\\.orientation\\))", "matrices.mulPose($1")
     }
 }
 

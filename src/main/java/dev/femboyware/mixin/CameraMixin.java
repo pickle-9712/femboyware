@@ -105,12 +105,20 @@ public abstract class CameraMixin {
 		if (FemboyWare.getModules() == null) return;
 		// Other people's captains, placed in their seats for this exact frame
 		FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class).placeFrame();
+		// You in your car's seat, exactly where it is this frame
+		FemboyWare.getModules().get(dev.femboyware.module.larp.CarsModule.class).placeFrame();
 		CinematicCameraModule.View jet = FemboyWare.getModules().get(dev.femboyware.module.larp.JetModule.class).view(tickProgress);
 		org.joml.Quaternionf turn = FemboyWare.getModules().get(dev.femboyware.module.larp.JetModule.class).cameraRotation();
 		CinematicCameraModule.View heli = FemboyWare.getModules().get(dev.femboyware.module.larp.HelicopterModule.class).view(tickProgress);
 		if (jet == null && heli != null) {
 			jet = heli;
 			turn = FemboyWare.getModules().get(dev.femboyware.module.larp.HelicopterModule.class).cameraRotation();
+		}
+		// In a car: the camera goes exactly where the car is this frame
+		CinematicCameraModule.View car = FemboyWare.getModules().get(dev.femboyware.module.larp.CarsModule.class).view(tickProgress);
+		if (jet == null && car != null) {
+			jet = car;
+			turn = null;
 		}
 		if (jet != null) {
 			setRotation(jet.yaw(), jet.pitch());

@@ -5,7 +5,23 @@ import dev.femboyware.module.render.WorldRendererModule;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
-//? if >=26.1 {
+//? if >=26.3 {
+/*import dev.femboyware.module.render.TimeChangerModule;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+// World Renderer and Time Changer: every clock the client reads shows the chosen time instead.
+@Mixin(net.minecraft.client.ClientClockManager.ClientClockInstance.class)
+public class ClientWorldMixin {
+	@Inject(method = "totalTicks", at = @At("HEAD"), cancellable = true)
+	private void femboyware$timeOfDay(CallbackInfoReturnable<Long> cir) {
+		if (FemboyWare.getModules() == null) return;
+		long override = FemboyWare.getModules().get(WorldRendererModule.class).getTimeOverride();
+		if (override < 0) override = FemboyWare.getModules().get(TimeChangerModule.class).getTimeOverride();
+		if (override >= 0) cir.setReturnValue(override);
+	}
+}
+*///?} else if >=26.1 {
 /*import dev.femboyware.module.render.TimeChangerModule;
 import net.minecraft.client.ClientClockManager;
 import net.minecraft.core.Holder;

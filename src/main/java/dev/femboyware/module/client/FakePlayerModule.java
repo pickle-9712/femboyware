@@ -93,6 +93,10 @@ public class FakePlayerModule extends Module {
 	private final StringSetting savedGear = add(new StringSetting("Saved Gear", "", "")).visibleWhen(() -> false);
 	private final BoolSetting respawn = add(new BoolSetting("Respawn", "Respawn after dying, in the same spot or on the Crowd circle", true));
 	private final NumberSetting respawnDelay = add(new NumberSetting("Respawn Delay", "Ticks to wait before respawning", 40, 0, 200, 1)).visibleWhen(respawn::get);
+	private final BoolSetting fightBack = add(new BoolSetting("Fight Back", "Idle until you hit one; then it fights you back for a while (chasing, circling and swinging with its weapon) and goes idle again. Its hits hurt you while Server Larp is on", false));
+	private final EnumSetting<FightBack> fightHits = add(new EnumSetting<>("Fight Back Hits", "How much it fights back: one hit for each time you hit it, a random number of hits, or swinging for a while", FightBack.FOR_A_WHILE)).visibleWhen(fightBack::get);
+	private final NumberSetting fightMin = add(new NumberSetting("Min Hits", "Fewest hits it fights back with", 1, 1, 20, 1)).visibleWhen(() -> fightBack.get() && fightHits.is(FightBack.RANDOM_HITS));
+	private final NumberSetting fightMax = add(new NumberSetting("Max Hits", "Most hits it fights back with", 4, 1, 20, 1)).visibleWhen(() -> fightBack.get() && fightHits.is(FightBack.RANDOM_HITS));
 	private final BoolSetting invincible = add(new BoolSetting("Invincible", "Takes hits and flinches but never loses health", false));
 	private final BoolSetting crowd = add(new BoolSetting("Crowd", "Fake players spawn in a circle, walk around inside it, jump, crouch and go up to people to say hi", false));
 	private final NumberSetting wanderRadius = add(new NumberSetting("Wander Radius", "Size of the circle they spawn on and wander inside, in blocks", 6, 2, 32, 1)).visibleWhen(crowd::get);
@@ -111,6 +115,9 @@ public class FakePlayerModule extends Module {
 	private final StringSetting savedFormations = add(new StringSetting("Saved Formations", "", "")).visibleWhen(() -> false);
 
 	public enum Rank { NONE, STAFF, MEDIA }
+
+	/** How much a fake player fights back: one hit, a random number of hits, or for a while. */
+	public enum FightBack { ONE_HIT, RANDOM_HITS, FOR_A_WHILE }
 
 	/** One fake player; the entity is null while it waits to respawn. */
 	private static final class Fake {
@@ -139,6 +146,11 @@ public class FakePlayerModule extends Module {
 		/** Someone just said hi: who to answer, and in how many ticks. */
 		Player replyTo;
 		int replyTicks;
+		/** Who hit it, when Fight Back is on: it fights them until this runs out. */
+		Player angryAt;
+		int angryTicks, swingCooldown;
+		/** Hits it has left to give back, or -1 to keep going until it calms down. */
+		int hitsLeft = -1;
 
 		Fake(String name, int id) {
 			this.name = name;
@@ -238,6 +250,12 @@ public class FakePlayerModule extends Module {
 			if (fake.invulnerableTicks > 0) fake.invulnerableTicks--;
 			if (fake.entity != null && !fake.entity.isDeadOrDying()) {
 				if (fake.landing) fake.landing = !land(fake);
+				if (fake.angryAt != null && (!fightBack.get() || --fake.angryTicks <= 0 || fake.angryAt.isRemoved() || fake.angryAt.isDeadOrDying()
+					|| fake.angryAt.level() != mc.level || fake.angryAt.distanceToSqr(fake.entity) > 32 * 32)) fake.angryAt = null;
+				if (fake.angryAt != null) {
+					fight(fake);
+					continue;
+				}
 				Vec3 spot = formationSpot(fake);
 				if (spot != null) fake.wanderer.tickFormation(fake.entity, mc.level, spot, formationYaw);
 				else if (crowd.get()) tickCrowd(fake);
@@ -901,6 +919,11 @@ public class FakePlayerModule extends Module {
 	}
 
 	/** Called from AbstractClientPlayerEntityMixin: a fake player wears the skin of the account with its name. */
+	/** For Client Sync: whether fake players wear the skins of the accounts they're named after. */
+	public boolean usesAccountSkins() {
+		return accountSkins.get();
+	}
+
 	public PlayerSkin skinFor(AbstractClientPlayer player, PlayerSkin textures) {
 		if (!isEnabled() || !accountSkins.get()) return textures;
 		Fake fake = fakesById.get(player.getUUID());
@@ -961,6 +984,7 @@ public class FakePlayerModule extends Module {
 		damage = CombatRules.getDamageAfterMagicAbsorb(damage, getProtection(entity));
 		playSound(entity, crit ? SoundEvents.PLAYER_ATTACK_CRIT : progress > 0.9f ? SoundEvents.PLAYER_ATTACK_STRONG : SoundEvents.PLAYER_ATTACK_WEAK);
 		boolean sprintHit = progress > 0.9f && attacker.isSprinting();
+		if (!entity.isDeadOrDying()) provoke(fake, attacker);
 		if (damage(fake, damage, source) && !entity.isDeadOrDying()) {
 			// Every hit pushes away from the attacker; a sprint hit or the knockback attribute adds a shove the way they face
 			fake.wanderer.knockback(entity, mc.level, 0.4, attacker.getX() - entity.getX(), attacker.getZ() - entity.getZ());
@@ -976,6 +1000,102 @@ public class FakePlayerModule extends Module {
 			attacker.setSprinting(false);
 		}
 		return true;
+	}
+
+	/**
+	 * One tick of a fake player fighting back: it closes in and circles, and swings when it's in reach
+	 * and its weapon's ready. While you're larping, a hit on you takes health off you (Server Larp
+	 * does the damage, knockback and dying); otherwise it's just the swing.
+	 */
+	private void fight(Fake fake) {
+		RemotePlayer entity = fake.entity;
+		boolean inReach = fake.wanderer.tickFight(entity, mc.level, fake.angryAt);
+		if (fake.swingCooldown > 0) fake.swingCooldown--;
+		// Given all its hits back: it circles a moment longer, then goes idle
+		if (!inReach || fake.swingCooldown > 0 || fake.hitsLeft == 0) return;
+		ItemStack weapon = entity.getMainHandItem();
+		float damage = attackDamage(weapon);
+		boolean crit = fake.wanderer.falling();
+		if (crit) {
+			damage *= 1.5f;
+			mc.particleEngine.createTrackingEmitter(fake.angryAt, ParticleTypes.CRIT);
+		}
+		entity.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+		playSound(entity, crit ? SoundEvents.PLAYER_ATTACK_CRIT : SoundEvents.PLAYER_ATTACK_STRONG);
+		if (fake.angryAt == mc.player) FemboyWare.getModules().get(dev.femboyware.module.utility.ServerLarpModule.class).hitByFake(entity, damage);
+		// Swings as often as its weapon recharges, give or take, like someone timing their hits
+		fake.swingCooldown = attackTicks(weapon) + ThreadLocalRandom.current().nextInt(4);
+		if (fake.hitsLeft > 0 && --fake.hitsLeft == 0) fake.angryTicks = Math.min(fake.angryTicks, 15 + ThreadLocalRandom.current().nextInt(25));
+	}
+
+	/** With Fight Back on, it turns on whoever hit it: for one hit back, a random number, or a while. */
+	private void provoke(Fake fake, Player attacker) {
+		if (!fightBack.get()) return;
+		ThreadLocalRandom random = ThreadLocalRandom.current();
+		if (fake.angryAt != attacker || fake.hitsLeft == 0) {
+			fake.hitsLeft = switch (fightHits.get()) {
+				case ONE_HIT -> 1;
+				case RANDOM_HITS -> {
+					int low = Math.min(fightMin.getInt(), fightMax.getInt()), high = Math.max(fightMin.getInt(), fightMax.getInt());
+					yield low + random.nextInt(high - low + 1);
+				}
+				case FOR_A_WHILE -> -1;
+			};
+		}
+		fake.angryAt = attacker;
+		// Long enough to give its hits back; for a while, it keeps at it a few seconds after your last hit
+		fake.angryTicks = 100 + random.nextInt(60) + (fake.hitsLeft > 0 ? fake.hitsLeft * 30 : 0);
+		fake.swingCooldown = Math.max(fake.swingCooldown, 6);
+	}
+
+	/**
+	 * From Server Larp: one of your larp arrows hit a fake player. It takes the arrow's damage
+	 * (less its armour), gets knocked back along the arrow, more with Punch, and turns on you.
+	 */
+	public void hitByArrow(Entity target, float damage, Player shooter, Entity arrow, Vec3 velocity, int punch) {
+		Fake fake = fakeOf(target);
+		if (!isEnabled() || fake == null || fake.entity.isDeadOrDying()) return;
+		RemotePlayer entity = fake.entity;
+		DamageSource source = arrow instanceof net.minecraft.world.entity.projectile.arrow.AbstractArrow shot
+			? mc.level.damageSources().arrow(shot, shooter) : mc.level.damageSources().playerAttack(shooter);
+		damage = CombatRules.getDamageAfterAbsorb(entity, damage, source, entity.getArmorValue(), (float) entity.getAttributeValue(Attributes.ARMOR_TOUGHNESS));
+		damage = CombatRules.getDamageAfterMagicAbsorb(damage, getProtection(entity));
+		if (damage(fake, damage, source) && !entity.isDeadOrDying()) {
+			fake.wanderer.knockback(entity, mc.level, 0.4, -velocity.x, -velocity.z);
+			if (punch > 0) fake.wanderer.knockback(entity, mc.level, punch * 0.6, -velocity.x, -velocity.z);
+		}
+		if (!entity.isDeadOrDying()) provoke(fake, shooter);
+	}
+
+	/** A fully charged hit with {@code weapon}: a fist's 1 plus the weapon's attack damage and Sharpness. */
+	private static float attackDamage(ItemStack weapon) {
+		float damage = 1;
+		var modifiers = weapon.get(net.minecraft.core.component.DataComponents.ATTRIBUTE_MODIFIERS);
+		if (modifiers != null) {
+			for (var entry : modifiers.modifiers()) {
+				if (entry.attribute().is(Attributes.ATTACK_DAMAGE) && entry.modifier().operation() == net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_VALUE) {
+					damage += (float) entry.modifier().amount();
+				}
+			}
+		}
+		for (Object2IntMap.Entry<Holder<Enchantment>> entry : weapon.getEnchantments().entrySet()) {
+			if (entry.getKey().is(Enchantments.SHARPNESS)) damage += 0.5f * entry.getIntValue() + 0.5f;
+		}
+		return damage;
+	}
+
+	/** Ticks for {@code weapon} to recharge: 20 over its attacks a second (a fist's 4, a sword's 1.6). */
+	private static int attackTicks(ItemStack weapon) {
+		double speed = 4;
+		var modifiers = weapon.get(net.minecraft.core.component.DataComponents.ATTRIBUTE_MODIFIERS);
+		if (modifiers != null) {
+			for (var entry : modifiers.modifiers()) {
+				if (entry.attribute().is(Attributes.ATTACK_SPEED) && entry.modifier().operation() == net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_VALUE) {
+					speed += entry.modifier().amount();
+				}
+			}
+		}
+		return Math.max(5, (int) Math.ceil(20 / Math.max(0.5, speed)));
 	}
 
 	/** An explosion at {@code center}: damages and pushes fake players as a real one would. Also used by Server Larp's local crystals. */

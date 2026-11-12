@@ -19,12 +19,31 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(ScreenEffectRenderer.class)
 public class InGameOverlayRendererMixin {
 	@Inject(method = "renderItemActivationAnimation", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/vertex/PoseStack;scale(FFF)V", shift = At.Shift.AFTER), require = 0)
+	//? if >=26.3 {
+	/*private void femboyware$totemScale(net.minecraft.client.renderer.state.level.PlayerRenderState player, PoseStack matrices, float tickProgress, SubmitNodeCollector queue, CallbackInfo ci) {
+	*///?} else {
 	private void femboyware$totemScale(PoseStack matrices, float tickProgress, SubmitNodeCollector queue, CallbackInfo ci) {
+	//?}
 		float scale = FemboyWare.getModules().get(TotemAnimationModule.class).getScale();
 		if (scale != 1f) matrices.scale(scale, scale, scale);
 	}
 
-	//? if >=26.1 {
+	//? if >=26.3 {
+	/*@Inject(method = "submitFire", at = @At("HEAD"), cancellable = true)
+	private static void femboyware$noFire(PoseStack matrices, SubmitNodeCollector queue, TextureAtlasSprite sprite, CallbackInfo ci) {
+		if (FemboyWare.getModules().get(NoRenderModule.class).fire()) ci.cancel();
+	}
+
+	@Inject(method = "submitWater", at = @At("HEAD"), cancellable = true)
+	private static void femboyware$noUnderwater(net.minecraft.client.renderer.state.level.PlayerRenderState.WaterOverlay water, PoseStack matrices, SubmitNodeCollector queue, CallbackInfo ci) {
+		if (FemboyWare.getModules().get(NoRenderModule.class).liquid()) ci.cancel();
+	}
+
+	@Inject(method = "submitBlockSprite", at = @At("HEAD"), cancellable = true)
+	private static void femboyware$noInWall(net.minecraft.resources.Identifier texture, float u0, float u1, float v0, float v1, PoseStack matrices, SubmitNodeCollector queue, int light, CallbackInfo ci) {
+		if (FemboyWare.getModules().get(NoRenderModule.class).inWall()) ci.cancel();
+	}
+	*///?} else if >=26.1 {
 	/*@Inject(method = "submitFire", at = @At("HEAD"), cancellable = true)
 	private static void femboyware$noFire(PoseStack matrices, SubmitNodeCollector queue, TextureAtlasSprite sprite, CallbackInfo ci) {
 		if (FemboyWare.getModules().get(NoRenderModule.class).fire()) ci.cancel();

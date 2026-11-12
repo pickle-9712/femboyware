@@ -186,8 +186,8 @@ public class EmoteWheelScreen extends Screen {
 
 	private boolean shiftHeld() {
 		var window = net.minecraft.client.Minecraft.getInstance().getWindow();
-		return com.mojang.blaze3d.platform.InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_SHIFT)
-			|| com.mojang.blaze3d.platform.InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_SHIFT);
+		return dev.femboyware.util.KeyUtil.isKeyDown(GLFW.GLFW_KEY_LEFT_SHIFT)
+			|| dev.femboyware.util.KeyUtil.isKeyDown(GLFW.GLFW_KEY_RIGHT_SHIFT);
 	}
 
 	private static void drawCentered(GuiGraphics context, Font font, String text, int x, int y, int color) {

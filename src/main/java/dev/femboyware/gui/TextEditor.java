@@ -225,7 +225,7 @@ final class TextEditor {
 	}
 
 	private static boolean isDown(int key) {
-		return InputConstants.isKeyDown(Minecraft.getInstance().getWindow(), key);
+		return dev.femboyware.util.KeyUtil.isKeyDown(key);
 	}
 
 	private static void clipboard(String text) {

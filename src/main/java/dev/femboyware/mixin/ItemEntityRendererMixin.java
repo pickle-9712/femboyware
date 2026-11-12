@@ -25,12 +25,21 @@ public class ItemEntityRendererMixin {
 		else original.call(matrices, 0f, module.restingHeight(state.item.getModelBoundingBox()), 0f);
 	}
 
+	//? if >=26.3 {
+	/*@WrapOperation(method = RENDER, at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/vertex/PoseStack;rotate(Lcom/mojang/math/Axis;F)V"))
+	private void femboyware$restingRotation(PoseStack matrices, com.mojang.math.Axis axis, float angle, Operation<Void> original, @Local(argsOnly = true) ItemEntityRenderState state) {
+		ItemPhysicsModule module = femboyware$module();
+		if (module == null) original.call(matrices, axis, angle);
+		else matrices.rotate(module.rotation(state.item.getModelBoundingBox(), state.bobOffset));
+	}
+	*///?} else {
 	@WrapOperation(method = RENDER, at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/vertex/PoseStack;mulPose(Lorg/joml/Quaternionfc;)V"))
 	private void femboyware$restingRotation(PoseStack matrices, Quaternionfc rotation, Operation<Void> original, @Local(argsOnly = true) ItemEntityRenderState state) {
 		ItemPhysicsModule module = femboyware$module();
 		if (module == null) original.call(matrices, rotation);
 		else original.call(matrices, module.rotation(state.item.getModelBoundingBox(), state.bobOffset));
 	}
+	//?}
 
 	@Unique
 	private static ItemPhysicsModule femboyware$module() {

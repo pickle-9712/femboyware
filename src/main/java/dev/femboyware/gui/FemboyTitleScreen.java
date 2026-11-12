@@ -83,7 +83,9 @@ public class FemboyTitleScreen extends Screen {
 		buttons.clear();
 		buttons.add(new Button("Singleplayer", Kind.PRIMARY, () -> Mc.setScreen(new SelectWorldScreen(this)), 0));
 		buttons.add(new Button("Multiplayer", Kind.PRIMARY, () -> Mc.setScreen(new JoinMultiplayerScreen(this)), 0));
-		//? if >=26.1 {
+		//? if >=26.3 {
+		/*buttons.add(new Button("Minecraft Settings", Kind.SECONDARY, () -> Mc.setScreen(new OptionsScreen(this, minecraft.options)), 10));
+		*///?} else if >=26.1 {
 		/*buttons.add(new Button("Minecraft Settings", Kind.SECONDARY, () -> Mc.setScreen(new OptionsScreen(this, minecraft.options, false)), 10));
 		*///?} else {
 		buttons.add(new Button("Minecraft Settings", Kind.SECONDARY, () -> Mc.setScreen(new OptionsScreen(this, minecraft.options)), 10));

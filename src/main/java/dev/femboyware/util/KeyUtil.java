@@ -18,7 +18,16 @@ public final class KeyUtil {
 		if (key.getValue() == InputConstants.UNKNOWN.getValue()) return false;
 		long handle = mc.getWindow().handle();
 		if (key.getType() == InputConstants.Type.MOUSE) return GLFW.glfwGetMouseButton(handle, key.getValue()) == GLFW.GLFW_PRESS;
-		return InputConstants.isKeyDown(mc.getWindow(), key.getValue());
+		return isKeyDown(key.getValue());
+	}
+
+	/** Whether a keyboard key is held down right now. */
+	public static boolean isKeyDown(int key) {
+		//? if >=26.3 {
+		/*return InputConstants.isKeyDown(key);
+		*///?} else {
+		return InputConstants.isKeyDown(mc.getWindow(), key);
+		//?}
 	}
 
 	/** Puts {@code binding} back to whatever the physical key says. */

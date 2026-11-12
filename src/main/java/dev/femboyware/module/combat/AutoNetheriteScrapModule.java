@@ -48,7 +48,11 @@ public class AutoNetheriteScrapModule extends Module {
 			}
 		}
 		if (loadFuel.get() && handler.getSlot(FUEL).getItem().isEmpty()) {
+			//? if >=26.3 {
+			/*int fuel = findPlayerSlot(handler, size, stack -> !stack.is(Items.ANCIENT_DEBRIS) && stack.has(net.minecraft.core.component.DataComponents.COOKING_FUEL));
+			*///?} else {
 			int fuel = findPlayerSlot(handler, size, stack -> !stack.is(Items.ANCIENT_DEBRIS) && mc.level.fuelValues().isFuel(stack));
+			//?}
 			if (fuel >= 0) {
 				click(handler, fuel);
 				return;
