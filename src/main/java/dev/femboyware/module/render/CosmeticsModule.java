@@ -438,16 +438,32 @@ public class CosmeticsModule extends Module {
 			model.head.translateAndRotate(matrices);
 			matrices.translate(0, -0.5f, 0);
 			matrices.scale(size, size, size);
-			drawSkinFire(matrices.last(), buffers.getBuffer(FxRender.spriteLayer(FIRE_PUFF)), style, System.nanoTime() / 5e7f);
+			drawSkinFire(matrices.last(), buffers.getBuffer(FxRender.spriteLayer(FIRE_PUFF)), style, skinFireAge());
 			matrices.popPose();
 		}
 	}
 
+	/** When the game started, so the menu fire's clock counts up from zero and keeps its precision. */
+	private static final long SKIN_FIRE_START = System.nanoTime();
+
 	/**
-	 * The same fire as in the world, for menus: there's no camera to face there, so each puff is
-	 * three crossed quads round the upright. Horn space, in studs: y down, so the fire goes to -y.
+	 * The menu fire's age in ticks (20 a second), from the game starting. In a double until the end:
+	 * a float of nanoTime itself only moves every 50ms or so once the PC has been on a few days.
+	 */
+	private static float skinFireAge() {
+		return (float) ((System.nanoTime() - SKIN_FIRE_START) / 5e7);
+	}
+
+	/**
+	 * The same fire as in the world, for menus. Each puff faces the screen like the world's do: its
+	 * middle is placed in horn space (y down, so the fire goes to -y) and then the quad is laid out
+	 * flat in screen space round it, so it can never be seen edge-on as a thin streak.
 	 */
 	private static void drawSkinFire(PoseStack.Pose pose, VertexConsumer c, Horns style, float age) {
+		org.joml.Matrix4f matrix = pose.pose();
+		// How big a stud is on screen, from the matrix's scale
+		float scale = new Vector3f(matrix.m00(), matrix.m01(), matrix.m02()).length();
+		PoseStack.Pose screen = new PoseStack().last();
 		float height = FIRE_HEIGHT;
 		for (int i = 0; i < OUTER_PUFFS + CORE_PUFFS; i++) {
 			boolean core = i >= OUTER_PUFFS;
@@ -456,17 +472,18 @@ public class CosmeticsModule extends Module {
 			if (core) life *= 0.8f;
 			float reach = fireWidth(life) * (core ? 0.3f : 0.55f) * (float) Math.sqrt(random(seed, 4));
 			float size = (core ? 0.4f + 0.15f * random(seed, 5) : 0.55f + 0.22f * random(seed, 5)) * (1 - life * (core ? 0.45f : 0.35f));
-			int color = core ? FxRender.fade(style.core, fade(life) * 0.75f) : FxRender.fade(FxRender.mix(style.outer, style.core, 0.15f * random(seed, 6)), fade(life) * 0.55f);
+			// One quad per puff now, not three crossed ones, so each is that much more solid
+			int color = core ? FxRender.fade(style.core, Math.min(1, fade(life) * 1.3f)) : FxRender.fade(FxRender.mix(style.outer, style.core, 0.15f * random(seed, 6)), Math.min(1, fade(life) * 1.1f));
 			float around = random(seed, 3) * Mth.TWO_PI + age * 0.02f;
-			float x = Mth.cos(around) * reach, z = Mth.sin(around) * reach, y = FIRE_BASE - life * height;
-			float turn = random(seed, 9) * Mth.PI;
-			for (int k = 0; k < 3; k++) {
-				float angle = turn + k * Mth.PI / 3, dx = Mth.cos(angle) * size, dz = Mth.sin(angle) * size;
-				skinFireVertex(c, pose, x - dx, y + size, z - dz, 0, 1, color);
-				skinFireVertex(c, pose, x + dx, y + size, z + dz, 1, 1, color);
-				skinFireVertex(c, pose, x + dx, y - size, z + dz, 1, 0, color);
-				skinFireVertex(c, pose, x - dx, y - size, z - dz, 0, 0, color);
-			}
+			Vector3f at = matrix.transformPosition(new Vector3f(Mth.cos(around) * reach, FIRE_BASE - life * height, Mth.sin(around) * reach));
+			float half = size * scale * 1.15f;
+			float roll = random(seed, 9) * Mth.TWO_PI + age * 0.03f * (random(seed, 10) - 0.5f);
+			float ax = Mth.cos(roll) * half, ay = Mth.sin(roll) * half;
+			// Corners turned by the roll: (-1,-1), (1,-1), (1,1), (-1,1)
+			skinFireVertex(c, screen, at.x - ax + ay, at.y - ay - ax, at.z, 0, 1, color);
+			skinFireVertex(c, screen, at.x + ax + ay, at.y + ay - ax, at.z, 1, 1, color);
+			skinFireVertex(c, screen, at.x + ax - ay, at.y + ay + ax, at.z, 1, 0, color);
+			skinFireVertex(c, screen, at.x - ax - ay, at.y - ay + ax, at.z, 0, 0, color);
 		}
 	}
 
