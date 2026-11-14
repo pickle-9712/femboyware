@@ -34,6 +34,10 @@ public abstract class Setting<T> {
 		this.value = value;
 	}
 
+	public T getDefault() {
+		return defaultValue;
+	}
+
 	public void reset() {
 		set(defaultValue);
 	}

@@ -6,6 +6,9 @@ import dev.femboyware.module.hud.HudColors;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.EnumSetting;
+import com.google.gson.JsonElement;
+import dev.femboyware.setting.Setting;
+import java.util.Map;
 import java.util.function.BooleanSupplier;
 
 /**
@@ -18,6 +21,52 @@ public class ColorsModule extends Module {
 		MENU,
 		HUD,
 		MAIN_MENU
+	}
+
+	/**
+	 * Ready-made looks. Picking one sets every colour below to it and renames the client after it;
+	 * Custom leaves things alone, and changing a colour afterwards just tweaks the preset.
+	 */
+	public enum Preset {
+		CUSTOM(null, Map.of()),
+		FEMBOYWARE(dev.femboyware.FemboyWare.NAME, Map.of()),
+		CATGIRL_CLIENT("Catgirl Client", Map.ofEntries(
+			Map.entry("Accent", 0xFFA193FF),
+			Map.entry("Muted Text", 0xFFA9A4C4),
+			Map.entry("Panel Color", 0x70120E22),
+			Map.entry("Tooltip Color", 0xC0120E22),
+			Map.entry("Text Selection", 0x90A193FF),
+			Map.entry("Chat Prefix", 0xFFA193FF),
+			Map.entry("HUD Accent", 0xFFA193FF),
+			Map.entry("HUD Muted", 0xFFA9A4C4),
+			Map.entry("HUD Background", 0x50120E22),
+			Map.entry("Module List Color", 0xFFA193FF),
+			Map.entry("Watermark Color", 0xFFA193FF),
+			Map.entry("Gradient Start", 0xFFA193FF),
+			Map.entry("Gradient End", 0xFF8AD8FF),
+			Map.entry("Pressed Key Text", 0xFF140F26),
+			Map.entry("Island Highlight", 0xFF6F5FE0),
+			Map.entry("Island Equalizer", 0xFFC4BCFF),
+			Map.entry("Swirl Tint", 0xFFA8A0FF),
+			Map.entry("Glow 1", 0x99A193FF),
+			Map.entry("Glow 2", 0x807C6BE0),
+			Map.entry("Glow 3", 0x709AB0FF),
+			Map.entry("Glow 4", 0x55C9A6FF),
+			Map.entry("Glow 5", 0x669070FF),
+			Map.entry("Tagline Color", 0xFFD8D2FF),
+			Map.entry("Main Button", 0xFFA193FF),
+			Map.entry("Main Button Hover", 0xFFB9AFFF),
+			Map.entry("Other Button", 0xF02A2448),
+			Map.entry("Other Button Hover", 0xF03C3466),
+			Map.entry("Name Tag", 0xF02A2448)));
+
+		private final String clientName;
+		private final Map<String, Integer> colors;
+
+		Preset(String clientName, Map<String, Integer> colors) {
+			this.clientName = clientName;
+			this.colors = colors;
+		}
 	}
 
 	public static final int DEFAULT_ACCENT = 0xFFFF77C8;
@@ -53,6 +102,20 @@ public class ColorsModule extends Module {
 	public static final int DEFAULT_ISLAND_BARS = 0xFFC9A6FF;
 	public static final int DEFAULT_ISLAND_TIME = 0xFFFFFFFF;
 
+	private final EnumSetting<Preset> theme = add(new EnumSetting<>("Theme", "A ready-made look; picking one sets every colour and the client name", Preset.CUSTOM) {
+		@Override
+		public void set(Preset value) {
+			boolean changed = value != get();
+			super.set(value);
+			if (changed) apply(value);
+		}
+
+		@Override
+		public void fromJson(JsonElement element) {
+			// Loading a config only remembers the choice; the saved colours load after it
+			for (Preset preset : getConstants()) if (preset.name().equalsIgnoreCase(element.getAsString())) value = preset;
+		}
+	});
 	private final EnumSetting<Page> page = add(new EnumSetting<>("Page", "The ClickGUI's colours, the HUD's, or the main menu's", Page.MENU));
 
 	// ---------------------------------------------------------------- the ClickGUI
@@ -150,6 +213,14 @@ public class ColorsModule extends Module {
 	public ColorsModule() {
 		super("Colors", "Every colour of the ClickGUI, the HUD and the main menu; off for the defaults", Category.THEME);
 		setEnabled(true);
+	}
+
+	private void apply(Preset preset) {
+		if (preset == Preset.CUSTOM) return;
+		for (Setting<?> setting : getSettings()) {
+			if (setting instanceof ColorSetting color) color.set(preset.colors.getOrDefault(color.getName(), color.getDefault()));
+		}
+		BrandingModule.rename(preset.clientName);
 	}
 
 	private ColorSetting menu(String name, String description, int color) {

@@ -34,6 +34,14 @@ public class BrandingModule extends Module {
 		}
 	}
 
+	/** Sets the client name, switching Branding on so it shows. */
+	public static void rename(String newName) {
+		if (FemboyWare.getModules() == null) return;
+		BrandingModule module = FemboyWare.getModules().get(BrandingModule.class);
+		module.name.set(newName);
+		if (!module.isEnabled()) module.setEnabled(true);
+	}
+
 	public static String name() {
 		BrandingModule module = active();
 		String value = module == null ? "" : module.name.get().trim();
