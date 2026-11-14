@@ -5,6 +5,7 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
+import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.Setting;
@@ -37,6 +38,11 @@ public class TargetParticlesModule extends TargetFxModule {
 	}
 
 	// ---------------------------------------------------------------- aura
+	private final BoolSetting highlight = add(new BoolSetting("White Highlight", "Bright white light round them: edges up their sides, a spinning ring, sparkles and a flash on every hit", true));
+	private final ColorSetting highlightColor = under(highlight, new ColorSetting("Highlight Color", "The highlight's main colour", 0xFFFFFFFF));
+	private final ColorSetting highlightRim = under(highlight, new ColorSetting("Highlight Rim", "The colour round its edges", 0xFFC8E4FF));
+	private final NumberSetting highlightIntensity = under(highlight, new NumberSetting("Highlight Intensity", "How bright it is", 1, 0.2, 2, 0.05));
+
 	private final BoolSetting aura = add(new BoolSetting("Glow Aura", "A shell of light rising off them, with a glow on the ground and motes drifting up", true));
 	private final EnumSetting<AuraStyle> auraStyle = under(aura, new EnumSetting<>("Aura Style",
 		"Shell: a smooth glow. Flame: licking tongues. Pillars: separate beams. Void: dark smoke with a burning rim. Holy: rays of light and a halo", AuraStyle.SHELL));
@@ -101,7 +107,7 @@ public class TargetParticlesModule extends TargetFxModule {
 	@Override
 	public String getInfo() {
 		int on = 0;
-		for (BoolSetting layer : new BoolSetting[]{aura, astral, galaxy, swirl, ring, marker}) if (layer.get()) on++;
+		for (BoolSetting layer : new BoolSetting[]{highlight, aura, astral, galaxy, swirl, ring, marker}) if (layer.get()) on++;
 		return on == 1 && aura.get() ? auraStyle.getDisplayName() : on + (on == 1 ? " layer" : " layers");
 	}
 
@@ -119,6 +125,87 @@ public class TargetParticlesModule extends TargetFxModule {
 		if (swirl.get()) swirl(event, targets);
 		if (astral.get()) astral(event, targets);
 		if (marker.get()) marker(event, targets);
+		if (highlight.get()) highlight(event, targets);
+	}
+
+	// ================================================================ white highlight
+
+	private LivingEntity lastHit;
+	private long lastHitTime;
+
+	@Override
+	public void onPostAttack(net.minecraft.world.entity.Entity target) {
+		super.onPostAttack(target);
+		if (target instanceof LivingEntity living) {
+			lastHit = living;
+			lastHitTime = System.currentTimeMillis();
+		}
+	}
+
+	/** White light up the corners of their hitbox, a turning ring at their feet, sparkles rising, a soft glow, and a flash when hit. */
+	private void highlight(Render3DEvent event, Map<LivingEntity, Float> targets) {
+		float tickDelta = tickDelta();
+		Vec3 cam = event.camera().pos;
+		boolean walls = throughWalls.get();
+		double t = time();
+		int core = highlightColor.get(), rim = highlightRim.get();
+		float power = highlightIntensity.getFloat();
+		VertexConsumer light = FxRender.quads(event, true, walls);
+		PoseStack matrices = event.matrices();
+		for (Map.Entry<LivingEntity, Float> entry : targets.entrySet()) {
+			LivingEntity e = entry.getKey();
+			float shown = entry.getValue() * power, hit = hitFlash(e);
+			Vec3 feet = e.getPosition(tickDelta);
+			float h = e.getBbHeight(), w = e.getBbWidth();
+			matrices.pushPose();
+			matrices.translate((float) (feet.x - cam.x), (float) (feet.y - cam.y) + 0.02f, (float) (feet.z - cam.z));
+			PoseStack.Pose pose = matrices.last();
+			float r = w * 0.9f + 0.15f * hit, spin = (float) t * 1.5f;
+			FxRender.ring(light, pose, r - 0.05f, r, 0, 48, (a, inner) -> {
+				float bright = 0.55f + 0.45f * (float) Math.max(0, Math.cos((a * Math.PI * 2 - spin) * 2));
+				return FxRender.fade(inner ? rim : core, Math.min(1, shown * (inner ? 0.3f : 0.9f) * bright));
+			});
+			if (hit > 0) FxRender.ring(light, pose, r * 0.2f, r * 1.6f * (0.6f + 0.4f * hit), 0, 32, (a, inner) -> FxRender.fade(core, inner ? Math.min(1, 0.35f * hit * shown) : 0));
+			float half = w / 2 + 0.06f, edge = 0.06f;
+			int bottom = FxRender.fade(core, Math.min(1, 0.8f * shown)), top = FxRender.fade(rim, Math.min(1, 0.15f * shown));
+			for (int i = 0; i < 4; i++) {
+				float x = (i & 1) == 0 ? -half : half, z = (i & 2) == 0 ? -half : half;
+				FxRender.quad(light, pose, x - edge / 2, 0, z, bottom, x + edge / 2, 0, z, bottom, x + edge / 2, h + 0.1f, z, top, x - edge / 2, h + 0.1f, z, top);
+				FxRender.quad(light, pose, x, 0, z - edge / 2, bottom, x, 0, z + edge / 2, bottom, x, h + 0.1f, z + edge / 2, top, x, h + 0.1f, z - edge / 2, top);
+			}
+			matrices.popPose();
+		}
+		VertexConsumer glow = FxRender.textured(event, FxRender.GLOW, true, walls);
+		for (Map.Entry<LivingEntity, Float> entry : targets.entrySet()) {
+			LivingEntity e = entry.getKey();
+			float shown = entry.getValue() * power, hit = hitFlash(e);
+			Vec3 feet = e.getPosition(tickDelta);
+			float h = e.getBbHeight(), w = e.getBbWidth();
+			for (int i = 0; i < 22; i++) {
+				double a = i * 2.39996 + t * 0.9;
+				double y = (((i * 0.618034) + t * 0.25) % 1) * (h + 0.3);
+				Vec3 at = feet.add(Math.cos(a) * w * 0.6, y, Math.sin(a) * w * 0.6);
+				float flicker = 0.6f + 0.4f * (float) Math.sin(t * 6 + i * 1.7);
+				float along = (float) Math.sin(y / (h + 0.3) * Math.PI);
+				FxRender.glow(event, glow, at, 0.14f + 0.08f * flicker, FxRender.fade(core, Math.min(1, 0.85f * shown * flicker * along)));
+				FxRender.glow(event, glow, at, 0.35f, FxRender.fade(rim, Math.min(1, 0.05f * shown * along)));
+			}
+			Vec3 middle = feet.add(0, h / 2, 0);
+			float pulse = 0.85f + 0.15f * (float) Math.sin(t * 4);
+			FxRender.glow(event, glow, middle, h * 1.1f, FxRender.fade(core, Math.min(1, 0.1f * shown * pulse)));
+			FxRender.glow(event, glow, middle, h * 1.5f, FxRender.fade(rim, Math.min(1, 0.1f * shown * pulse)));
+			FxRender.glow(event, glow, feet.add(0, 0.05, 0), w * 2.2f, FxRender.fade(core, Math.min(1, 0.3f * shown)));
+			for (int k = 0; k < 2 && hit > 0; k++) {
+				FxRender.glow(event, glow, middle, h * (0.8f + 0.5f * (1 - hit)) * (1 - k * 0.25f), FxRender.fade(core, Math.min(1, 0.75f * hit * shown)));
+			}
+		}
+	}
+
+	/** 1 the moment {@code e} was hit, dying away over a third of a second. */
+	private float hitFlash(LivingEntity e) {
+		if (e != lastHit) return 0;
+		float since = Math.max(0, 1 - (System.currentTimeMillis() - lastHitTime) / 350f);
+		return since * since;
 	}
 
 	private static double frac(double v) {

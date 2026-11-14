@@ -572,8 +572,15 @@ public class CarsModule extends Module {
 		if (message != null) dev.femboyware.util.Mc.actionBar(message);
 	}
 
-	/** The top of the ground under a point, looking a little up and down from {@code fromY}; NaN if there's none in reach. */
+	/**
+	 * The top of the ground under a point, looking a little up and down from {@code fromY}; NaN if
+	 * there's none in reach. The larp props' floors count too (the mansion, the hangar, the yacht's
+	 * deck, the jet and helicopter, and other people's from Client Sync): they aren't real blocks, so
+	 * without them the car dropped straight through. A prop's wall in the way comes back as its top,
+	 * so the car stops at it.
+	 */
 	private double groundAt(double x, double fromY, double z) {
+		double best = Double.NaN;
 		net.minecraft.core.BlockPos.MutableBlockPos pos = new net.minecraft.core.BlockPos.MutableBlockPos();
 		for (int dy = 2; dy >= -4; dy--) {
 			pos.set(net.minecraft.util.Mth.floor(x), net.minecraft.util.Mth.floor(fromY) + dy, net.minecraft.util.Mth.floor(z));
@@ -581,9 +588,38 @@ public class CarsModule extends Module {
 			var shape = state.getCollisionShape(mc.level, pos);
 			if (shape.isEmpty()) continue;
 			double top = pos.getY() + shape.max(net.minecraft.core.Direction.Axis.Y);
-			if (top <= fromY + 1.05) return top;
+			if (top <= fromY + 1.05) {
+				best = top;
+				break;
+			}
 		}
-		return Double.NaN;
+		net.minecraft.world.phys.AABB column = new net.minecraft.world.phys.AABB(x - 0.05, fromY - 4, z - 0.05, x + 0.05, fromY + 2, z + 0.05);
+		for (net.minecraft.world.phys.shapes.VoxelShape shape : propFloors(column)) {
+			for (net.minecraft.world.phys.AABB box : shape.toAabbs()) {
+				if (x < box.minX || x > box.maxX || z < box.minZ || z > box.maxZ) continue;
+				if (box.maxY <= fromY + 1.05) {
+					if (box.maxY >= fromY - 4 && (Double.isNaN(best) || box.maxY > best)) best = box.maxY;
+				} else if (box.minY < fromY + 1.05) {
+					// Reaches up past the car's bumper from below its roof: a wall
+					return box.maxY;
+				}
+			}
+		}
+		return best;
+	}
+
+	/** The props' solid boxes in {@code area}, not counting cars (the one you're driving would be in its own way). */
+	private java.util.List<net.minecraft.world.phys.shapes.VoxelShape> propFloors(net.minecraft.world.phys.AABB area) {
+		var player = mc.player;
+		var shapes = new java.util.ArrayList<net.minecraft.world.phys.shapes.VoxelShape>();
+		var modules = dev.femboyware.FemboyWare.getModules();
+		shapes.addAll(modules.get(HangarModule.class).collisions(player, area));
+		shapes.addAll(modules.get(MansionModule.class).collisions(player, area));
+		shapes.addAll(modules.get(YachtModule.class).collisions(player, area));
+		shapes.addAll(modules.get(JetModule.class).collisions(player, area));
+		shapes.addAll(modules.get(HelicopterModule.class).collisions(player, area));
+		shapes.addAll(modules.get(dev.femboyware.module.client.ClientSyncModule.class).propCollisions(player, area));
+		return shapes;
 	}
 
 	/** One tick of the car moving: on along its heading at its speed, following the ground, stopped by walls. */
