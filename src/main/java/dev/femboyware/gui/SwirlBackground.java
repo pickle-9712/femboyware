@@ -13,6 +13,8 @@ import net.minecraft.resources.Identifier;
  */
 public final class SwirlBackground {
 	private static final Identifier SWIRL = Identifier.fromNamespaceAndPath("femboyware", "textures/gui/swirl.png");
+	/** The same swirl in greys, so a Swirl Tint colours it fully instead of mixing with the pink. */
+	private static final Identifier SWIRL_GRAY = Identifier.fromNamespaceAndPath("femboyware", "textures/gui/swirl_gray.png");
 	private static final int SWIRL_SIZE = 1024;
 	private static final Identifier BLOB = Identifier.fromNamespaceAndPath("femboyware", "textures/gui/blob.png");
 	private static final int BLOB_SIZE = 256;
@@ -52,7 +54,9 @@ public final class SwirlBackground {
 		context.pose().pushMatrix();
 		context.pose().translate(width / 2f + driftX, height / 2f + driftY);
 		context.pose().rotate((float) (time * 0.025 % (Math.PI * 2)));
-		context.blit(RenderPipelines.GUI_TEXTURED, SWIRL, -size / 2, -size / 2, 0, 0, size, size, SWIRL_SIZE, SWIRL_SIZE, SWIRL_SIZE, SWIRL_SIZE, Theme.swirl());
+		int tint = Theme.swirl();
+		Identifier swirl = (tint & 0xFFFFFF) == 0xFFFFFF ? SWIRL : SWIRL_GRAY;
+		context.blit(RenderPipelines.GUI_TEXTURED, swirl, -size / 2, -size / 2, 0, 0, size, size, SWIRL_SIZE, SWIRL_SIZE, SWIRL_SIZE, SWIRL_SIZE, tint);
 		context.pose().popMatrix();
 
 		// The blobs, each moved by the matrix rather than whole GUI units so they glide smoothly

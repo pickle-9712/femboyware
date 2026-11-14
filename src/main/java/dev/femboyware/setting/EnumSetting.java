@@ -3,7 +3,7 @@ package dev.femboyware.setting;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonPrimitive;
 
-public class EnumSetting<E extends Enum<E>> extends Setting<E> {
+public class EnumSetting<E extends Enum<E>> extends Setting<E> implements Choice {
 	private final E[] constants;
 
 	public EnumSetting(String name, String description, E defaultValue) {
@@ -24,10 +24,22 @@ public class EnumSetting<E extends Enum<E>> extends Setting<E> {
 		return constants.clone();
 	}
 
+	@Override
+	public java.util.List<String> optionNames() {
+		return java.util.Arrays.stream(constants).map(c -> prettify(c.name())).toList();
+	}
+
+	@Override
+	public int selectedIndex() {
+		return get().ordinal();
+	}
+
+	@Override
 	public void setIndex(int index) {
 		set(constants[Math.floorMod(index, constants.length)]);
 	}
 
+	@Override
 	public String getDisplayName() {
 		return prettify(get().name());
 	}

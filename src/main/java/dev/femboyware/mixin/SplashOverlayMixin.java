@@ -5,10 +5,9 @@ import dev.femboyware.FemboyWare;
 import dev.femboyware.module.render.MainMenuModule;
 import net.minecraft.client.gui.screens.LoadingOverlay;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 
-/** Main Menu: the loading screen is pink instead of Mojang red. */
+/** Main Menu: the loading screen takes the theme's Loading Screen colour instead of Mojang red. */
 @Mixin(LoadingOverlay.class)
 public class SplashOverlayMixin {
 	//? if >=26.1 {
@@ -17,11 +16,8 @@ public class SplashOverlayMixin {
 	private static final String RENDER = "render";
 	//?}
 
-	@Unique
-	private static final int PINK = 0xFFE8559E;
-
 	@ModifyExpressionValue(method = RENDER, at = @At(value = "INVOKE", target = "Ljava/util/function/IntSupplier;getAsInt()I"))
 	private int femboyware$pink(int color) {
-		return FemboyWare.isEnabled(MainMenuModule.class) ? PINK : color;
+		return FemboyWare.isEnabled(MainMenuModule.class) ? dev.femboyware.gui.Theme.loadingScreen() : color;
 	}
 }

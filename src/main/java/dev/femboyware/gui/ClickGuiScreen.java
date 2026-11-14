@@ -10,6 +10,8 @@ import dev.femboyware.module.hud.HudElement;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.EnumSetting;
+import dev.femboyware.setting.Choice;
+import dev.femboyware.setting.ButtonSetting;
 import dev.femboyware.setting.KeySetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.Setting;
@@ -51,7 +53,7 @@ public class ClickGuiScreen extends Screen {
 	private static final String[] CHANNEL_NAMES = {"Red", "Green", "Blue", "Alpha"};
 	private static final int[] CHANNEL_SHIFTS = {16, 8, 0, 24};
 
-	private enum RowType { NAV, FAVORITES, HUD_EDIT, GUI_SETTINGS, HUD_DONE, CHIP, CARD, STAR, SWITCH, BACK, HEADER_SWITCH, SEARCH, BIND, BOOL, NUMBER, ENUM, ENUM_OPTION, STRING, COLOR, KEY }
+	private enum RowType { NAV, FAVORITES, HUD_EDIT, GUI_SETTINGS, HUD_DONE, CHIP, CARD, STAR, SWITCH, BACK, HEADER_SWITCH, SEARCH, BIND, BOOL, BUTTON, NUMBER, ENUM, ENUM_OPTION, STRING, COLOR, KEY }
 
 	private record Row(RowType type, int x, int y, int width, int height, Category category, Module module, Setting<?> setting, int shift, Category.Group group) {
 		boolean contains(double mouseX, double mouseY) {
@@ -83,7 +85,7 @@ public class ClickGuiScreen extends Screen {
 	private int focus = -1;
 
 	/** The mode setting whose dropdown is open, if any. */
-	private EnumSetting<?> openEnum;
+	private Choice openEnum;
 	private static final int RESIZE_HANDLE = 5;
 	private HudElement draggingElement;
 	private HudElement resizingElement;
@@ -717,7 +719,13 @@ public class ClickGuiScreen extends Screen {
 					drawSlider(context, x, y, w, number.getName(), value, fraction, accent, 0);
 					yield new Row(RowType.NUMBER, x, y, w, ROW_HEIGHT, null, m, setting, 0, null);
 				}
-				case EnumSetting<?> mode -> {
+				case ButtonSetting button -> {
+					context.fill(x, y, x + w, y + ROW_HEIGHT, Theme.settingRow());
+					Glass.rounded(context, left - 2, y + 1, right, y + ROW_HEIGHT - 1, 3, Theme.surface());
+					context.drawString(font, button.getName(), (left + right - font.width(button.getName())) / 2, y + 3, accent);
+					yield new Row(RowType.BUTTON, x, y, w, ROW_HEIGHT, null, m, setting, 0, null);
+				}
+				case Choice mode -> {
 					context.fill(x, y, x + w, y + ROW_HEIGHT, Theme.settingRow());
 					context.drawString(font, mode.getName(), left, y + 3, Theme.text());
 					String value = mode.getDisplayName() + (openEnum == mode ? " ▴" : " ▾");
@@ -746,13 +754,14 @@ public class ClickGuiScreen extends Screen {
 			if (row.contains(mouseX, mouseY)) context.fill(row.x, row.y, row.x + row.width, row.y + row.height, Theme.surface());
 			rows.add(row);
 			y += row.height;
-			if (setting instanceof EnumSetting<?> mode && openEnum == mode) {
-				Enum<?>[] options = mode.getConstants();
-				for (int i = 0; i < options.length; i++) {
-					boolean current = options[i] == mode.get();
+			if (setting instanceof Choice mode && openEnum == mode) {
+				java.util.List<String> options = mode.optionNames();
+				int selected = mode.selectedIndex();
+				for (int i = 0; i < options.size(); i++) {
+					boolean current = i == selected;
 					context.fill(x, y, x + w, y + ROW_HEIGHT, Theme.settingRow());
 					context.fill(left - 2, y, left - 1, y + ROW_HEIGHT, current ? accent : Theme.divider());
-					context.drawString(font, EnumSetting.prettify(options[i].name()), left + 4, y + 3, current ? accent : Theme.muted());
+					context.drawString(font, options.get(i), left + 4, y + 3, current ? accent : Theme.muted());
 					Row option = new Row(RowType.ENUM_OPTION, x, y, w, ROW_HEIGHT, null, m, setting, i, null);
 					if (option.contains(mouseX, mouseY)) context.fill(x, y, x + w, y + ROW_HEIGHT, Theme.surface());
 					rows.add(option);
@@ -867,19 +876,22 @@ public class ClickGuiScreen extends Screen {
 					if (right) row.setting.reset();
 					else bindingKey = (KeySetting) row.setting;
 				}
+				case BUTTON -> {
+					if (left) ((ButtonSetting) row.setting).press();
+				}
 				case BOOL -> {
 					if (right) row.setting.reset();
 					else ((BoolSetting) row.setting).toggle();
 				}
 				case ENUM -> {
-					EnumSetting<?> mode = (EnumSetting<?>) row.setting;
+					Choice mode = (Choice) row.setting;
 					if (right) {
 						mode.reset();
 						openEnum = null;
 					} else openEnum = openEnum == mode ? null : mode;
 				}
 				case ENUM_OPTION -> {
-					((EnumSetting<?>) row.setting).setIndex(row.shift);
+					((Choice) row.setting).setIndex(row.shift);
 					openEnum = null;
 				}
 				case STRING -> {

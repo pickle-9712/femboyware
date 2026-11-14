@@ -6,9 +6,23 @@ import dev.femboyware.module.hud.HudColors;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.EnumSetting;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import dev.femboyware.setting.ButtonSetting;
+import dev.femboyware.setting.ChoiceSetting;
 import dev.femboyware.setting.Setting;
+import dev.femboyware.setting.StringSetting;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
+import net.fabricmc.loader.api.FabricLoader;
 import java.util.function.BooleanSupplier;
 
 /**
@@ -24,13 +38,12 @@ public class ColorsModule extends Module {
 	}
 
 	/**
-	 * Ready-made looks. Picking one sets every colour below to it and renames the client after it;
-	 * Custom leaves things alone, and changing a colour afterwards just tweaks the preset.
+	 * The looks written into the themes folder the first time, as changes from the defaults. After
+	 * that they're ordinary saved themes: overwrite or delete them like any other.
 	 */
-	public enum Preset {
-		CUSTOM(null, Map.of()),
-		FEMBOYWARE(dev.femboyware.FemboyWare.NAME, Map.of()),
-		CATGIRL_CLIENT("Catgirl Client", Map.ofEntries(
+	private static final Map<String, Map<String, Integer>> BUILT_IN = Map.of(
+		dev.femboyware.FemboyWare.NAME, Map.of(),
+		"Catgirl Client", Map.ofEntries(
 			Map.entry("Accent", 0xFFA193FF),
 			Map.entry("Muted Text", 0xFFA9A4C4),
 			Map.entry("Panel Color", 0x70120E22),
@@ -58,16 +71,12 @@ public class ColorsModule extends Module {
 			Map.entry("Main Button Hover", 0xFFB9AFFF),
 			Map.entry("Other Button", 0xF02A2448),
 			Map.entry("Other Button Hover", 0xF03C3466),
-			Map.entry("Name Tag", 0xF02A2448)));
+			Map.entry("Name Tag", 0xF02A2448),
+			Map.entry("Loading Screen", 0xFF6E62D6)));
 
-		private final String clientName;
-		private final Map<String, Integer> colors;
-
-		Preset(String clientName, Map<String, Integer> colors) {
-			this.clientName = clientName;
-			this.colors = colors;
-		}
-	}
+	private static final String CUSTOM = "Custom";
+	private static final Path THEMES = FabricLoader.getInstance().getGameDir().resolve("femboyware").resolve("themes");
+	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
 	public static final int DEFAULT_ACCENT = 0xFFFF77C8;
 	public static final int DEFAULT_TEXT = 0xFFFFFFFF;
@@ -102,20 +111,37 @@ public class ColorsModule extends Module {
 	public static final int DEFAULT_ISLAND_BARS = 0xFFC9A6FF;
 	public static final int DEFAULT_ISLAND_TIME = 0xFFFFFFFF;
 
-	private final EnumSetting<Preset> theme = add(new EnumSetting<>("Theme", "A ready-made look; picking one sets every colour and the client name", Preset.CUSTOM) {
+	private List<String> themeNames = List.of(CUSTOM);
+	private final ThemeChoice theme = add(new ThemeChoice());
+	private final StringSetting saveName = add(new StringSetting("Save As", "Name to save the current colours under; empty uses the selected theme, or the client name", ""));
+	private final ButtonSetting save = add(new ButtonSetting("Save Theme", "Saves every colour here as a theme; a theme with the same name is overwritten", this::save));
+	private final ButtonSetting delete = add(new ButtonSetting("Delete Theme", "Deletes the selected theme", this::delete)).visibleWhen(() -> !theme.get().equals(CUSTOM));
+
+	private final class ThemeChoice extends ChoiceSetting {
+		ThemeChoice() {
+			super("Theme", "A saved look; picking one sets every colour here and renames the client after it", CUSTOM, () -> themeNames);
+		}
+
 		@Override
-		public void set(Preset value) {
-			boolean changed = value != get();
+		public void set(String value) {
+			boolean changed = !value.equals(get());
 			super.set(value);
-			if (changed) apply(value);
+			if (changed) load(value);
+		}
+
+		/** Selects without loading, for a theme that's already showing. */
+		void select(String value) {
+			this.value = value;
 		}
 
 		@Override
 		public void fromJson(JsonElement element) {
-			// Loading a config only remembers the choice; the saved colours load after it
-			for (Preset preset : getConstants()) if (preset.name().equalsIgnoreCase(element.getAsString())) value = preset;
+			// Loading the config only remembers the choice; the saved colours load after it
+			String saved = element.getAsString();
+			value = themeNames.stream().filter(saved::equalsIgnoreCase).findFirst().orElse(CUSTOM);
 		}
-	});
+	}
+
 	private final EnumSetting<Page> page = add(new EnumSetting<>("Page", "The ClickGUI's colours, the HUD's, or the main menu's", Page.MENU));
 
 	// ---------------------------------------------------------------- the ClickGUI
@@ -172,7 +198,7 @@ public class ColorsModule extends Module {
 	// ---------------------------------------------------------------- the main menu
 	public static final int[] DEFAULT_BLOBS = {0x99FF5FB4, 0x80C23BE0, 0x70FF9AC8, 0x55FFB38A, 0x669070FF};
 
-	private final ColorSetting swirl = title("Swirl Tint", "Multiplies the swirl's colours; white leaves it pink", 0xFFFFFFFF);
+	private final ColorSetting swirl = title("Swirl Tint", "Colour of the swirl; white keeps the original pink", 0xFFFFFFFF);
 	private final ColorSetting[] blobs = {
 		title("Glow 1", "First drifting glow over the swirl; alpha is how strong", DEFAULT_BLOBS[0]),
 		title("Glow 2", "Second drifting glow", DEFAULT_BLOBS[1]),
@@ -190,6 +216,7 @@ public class ColorsModule extends Module {
 	private final ColorSetting secondaryHover = title("Other Button Hover", "Those under the mouse", 0xF0582452);
 	private final ColorSetting buttonText = title("Button Text", "Labels on the buttons and your name tag", 0xFFFFFFFF);
 	private final ColorSetting nameTag = title("Name Tag", "Behind your name under your skin", 0xF0401838);
+	private final ColorSetting loading = title("Loading Screen", "Behind the logo while the game starts; the logo shows the client name", 0xFFE8559E);
 	private final ColorSetting footer = title("Footer Text", "The version and credit along the bottom", 0xB0FFFFFF);
 
 	private ColorSetting title(String name, String description, int color) {
@@ -209,18 +236,121 @@ public class ColorsModule extends Module {
 	public int buttonText() { return buttonText.get(); }
 	public int nameTag() { return nameTag.get(); }
 	public int footer() { return footer.get(); }
+	public int loading() { return loading.get(); }
 
 	public ColorsModule() {
 		super("Colors", "Every colour of the ClickGUI, the HUD and the main menu; off for the defaults", Category.THEME);
 		setEnabled(true);
+		seed();
+		refresh();
 	}
 
-	private void apply(Preset preset) {
-		if (preset == Preset.CUSTOM) return;
-		for (Setting<?> setting : getSettings()) {
-			if (setting instanceof ColorSetting color) color.set(preset.colors.getOrDefault(color.getName(), color.getDefault()));
+	// ---------------------------------------------------------------- saved themes
+
+	/** Colours and colour modes are what a theme holds. */
+	private boolean inTheme(Setting<?> setting) {
+		return setting != theme && setting != saveName && setting != save && setting != delete && setting != page;
+	}
+
+	private static Path file(String name) {
+		return THEMES.resolve(name + ".json");
+	}
+
+	private static String clean(String name) {
+		return name.replaceAll("[\\\\/:*?\"<>|]", "").trim();
+	}
+
+	private void refresh() {
+		List<String> names = new ArrayList<>();
+		names.add(CUSTOM);
+		try (Stream<Path> files = Files.list(THEMES)) {
+			files.map(f -> f.getFileName().toString()).filter(n -> n.endsWith(".json"))
+				.map(n -> n.substring(0, n.length() - 5)).sorted(String.CASE_INSENSITIVE_ORDER).forEach(names::add);
+		} catch (IOException ignored) {
 		}
-		BrandingModule.rename(preset.clientName);
+		themeNames = List.copyOf(names);
+	}
+
+	/** Writes the built-in themes the first time, so they show up and can be changed like saved ones. */
+	private void seed() {
+		Path marker = THEMES.resolve(".seeded");
+		if (Files.exists(marker)) return;
+		try {
+			Files.createDirectories(THEMES);
+			for (Map.Entry<String, Map<String, Integer>> entry : BUILT_IN.entrySet()) {
+				if (Files.exists(file(entry.getKey()))) continue;
+				JsonObject json = new JsonObject();
+				for (Setting<?> setting : getSettings()) {
+					if (!inTheme(setting)) continue;
+					Integer color = entry.getValue().get(setting.getName());
+					json.add(setting.getName(), color != null ? new ColorSetting("", "", color).toJson() : defaultJson(setting));
+				}
+				Files.writeString(file(entry.getKey()), GSON.toJson(json));
+			}
+			Files.writeString(marker, "");
+		} catch (IOException e) {
+			dev.femboyware.FemboyWare.LOGGER.warn("Couldn't write the built-in themes", e);
+		}
+	}
+
+	@SuppressWarnings({"unchecked", "rawtypes"})
+	private static JsonElement defaultJson(Setting setting) {
+		Object current = setting.get();
+		setting.reset();
+		JsonElement json = setting.toJson();
+		setting.set(current);
+		return json;
+	}
+
+	private void load(String name) {
+		if (name.equals(CUSTOM) || !Files.exists(file(name))) return;
+		try {
+			JsonObject json = JsonParser.parseString(Files.readString(file(name))).getAsJsonObject();
+			for (Setting<?> setting : getSettings()) {
+				if (!inTheme(setting)) continue;
+				JsonElement element = json.get(setting.getName());
+				try {
+					if (element != null) setting.fromJson(element);
+					else setting.reset();
+				} catch (RuntimeException bad) {
+					setting.reset();
+				}
+			}
+			BrandingModule.rename(name);
+		} catch (IOException | RuntimeException e) {
+			dev.femboyware.FemboyWare.LOGGER.warn("Couldn't load theme {}", name, e);
+		}
+	}
+
+	private void save() {
+		String name = clean(saveName.get());
+		if (name.isEmpty()) name = clean(theme.get().equals(CUSTOM) ? BrandingModule.name() : theme.get());
+		if (name.isEmpty() || name.equalsIgnoreCase(CUSTOM)) return;
+		JsonObject json = new JsonObject();
+		for (Setting<?> setting : getSettings()) if (inTheme(setting)) json.add(setting.getName(), setting.toJson());
+		try {
+			Files.createDirectories(THEMES);
+			Files.writeString(file(name), GSON.toJson(json));
+		} catch (IOException e) {
+			dev.femboyware.FemboyWare.LOGGER.warn("Couldn't save theme {}", name, e);
+			return;
+		}
+		refresh();
+		saveName.set("");
+		theme.select(name);
+		BrandingModule.rename(name);
+	}
+
+	private void delete() {
+		String name = theme.get();
+		if (name.equals(CUSTOM)) return;
+		try {
+			Files.deleteIfExists(file(name));
+		} catch (IOException e) {
+			dev.femboyware.FemboyWare.LOGGER.warn("Couldn't delete theme {}", name, e);
+		}
+		refresh();
+		theme.select(CUSTOM);
 	}
 
 	private ColorSetting menu(String name, String description, int color) {
