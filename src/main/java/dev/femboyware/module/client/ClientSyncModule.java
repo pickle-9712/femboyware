@@ -225,7 +225,27 @@ public class ClientSyncModule extends Module {
 		if (forced != null && !forced.isBlank()) return forced;
 		if (mc.getCurrentServer() == null || mc.getSingleplayerServer() != null) return null;
 		String ip = mc.getCurrentServer().ip;
-		return ip == null || ip.isBlank() ? null : ip.trim().toLowerCase(Locale.ROOT);
+		return ip == null || ip.isBlank() ? null : room(ip);
+	}
+
+	/**
+	 * The room name for a server address as typed: the same server however it's typed, so
+	 * "play.donutsmp.net", "DonutSMP.net" and "donutsmp.net:25565" all meet in one room. Players on
+	 * other Minecraft versions often have the server saved differently (a ViaVersion entry, the
+	 * port written out), and would otherwise never see each other.
+	 */
+	static String room(String ip) {
+		String host = ip.trim().toLowerCase(Locale.ROOT);
+		if (host.endsWith(":25565")) host = host.substring(0, host.length() - 6);
+		while (host.endsWith(".")) host = host.substring(0, host.length() - 1);
+		for (String prefix : new String[]{"play.", "mc.", "www.", "join.", "server.", "hub."}) {
+			// Only off a name with more after it, so "mc.net" stays as it is
+			if (host.startsWith(prefix) && host.indexOf('.', prefix.length()) > 0) {
+				host = host.substring(prefix.length());
+				break;
+			}
+		}
+		return host;
 	}
 
 	@Override
