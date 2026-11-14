@@ -1055,6 +1055,25 @@ public class PhoneModule extends Module {
 		return null;
 	}
 
+	// ---------------------------------------------------------------- the App Store
+
+	/** Apps you've deleted from the home screen, by name; saved. New apps start installed. */
+	private final StringSetting removedApps = add(new StringSetting("Removed Apps", "", "")).visibleWhen(() -> false);
+
+	public boolean installed(PhoneScreen.App app) {
+		if (PhoneScreen.builtIn(app)) return true;
+		for (String name : removedApps.get().split(",")) if (name.equals(app.name())) return false;
+		return true;
+	}
+
+	public void setInstalled(PhoneScreen.App app, boolean on) {
+		if (PhoneScreen.builtIn(app) || installed(app) == on) return;
+		java.util.List<String> names = new java.util.ArrayList<>();
+		for (String name : removedApps.get().split(",")) if (!name.isEmpty() && !name.equals(app.name())) names.add(name);
+		if (!on) names.add(app.name());
+		removedApps.set(String.join(",", names));
+	}
+
 	// ---------------------------------------------------------------- Coinbase holdings
 
 	/** What you hold on Coinbase, ticker=amount pairs; saved so buys and sells stick. */

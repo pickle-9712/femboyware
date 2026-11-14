@@ -33,7 +33,7 @@ import org.lwjgl.glfw.GLFW;
  */
 public class PhoneScreen extends Screen {
 	public enum App {
-		MESSAGES("Messages"), TELEGRAM("Telegram"), DISCORD("Discord"), X("X"), BANK("Bank"), COINBASE("Coinbase"), VOICE("Voice"), PUMP("pump.fun"), ROBLOX("Roblox"), LEDGER("Ledger"), SPOTIFY("Spotify"), CAMERA("Camera"), SHOPIFY("Shopify"), VALET("Valet"), TV("TV");
+		MESSAGES("Messages"), TELEGRAM("Telegram"), DISCORD("Discord"), X("X"), BANK("Bank"), COINBASE("Coinbase"), VOICE("Voice"), PUMP("pump.fun"), ROBLOX("Roblox"), LEDGER("Ledger"), SPOTIFY("Spotify"), CAMERA("Camera"), SHOPIFY("Shopify"), VALET("Valet"), TV("TV"), STORE("App Store");
 
 		final String label;
 
@@ -191,6 +191,7 @@ public class PhoneScreen extends Screen {
 		// The real Spotify is only read while its app is open
 		if (app == App.SPOTIFY) dev.femboyware.module.hud.Spotify.acquire(this);
 		else dev.femboyware.module.hud.Spotify.release(this);
+		tickDownloads();
 		boolean dark = app != null;
 		Glass.rounded(context, 0, 0, SCREEN_W, SCREEN_H, RADIUS - BEZEL, dark ? appBackground() : 0xFF000000);
 		if (app == null) drawHome(context, mx, my);
@@ -216,11 +217,12 @@ public class PhoneScreen extends Screen {
 				case TV -> drawTv(context, mx, my);
 				case CAMERA -> drawCamera(context, mx, my);
 				case SPOTIFY -> drawSpotify(context, mx, my);
+				case STORE -> drawStore(context, mx, my);
 				default -> {
 				}
 			}
 		}
-		drawStatusBar(context, app == null || app == App.ROBLOX || app == App.PUMP || app == App.BANK || app == App.MESSAGES || app == App.TELEGRAM || app == App.X || app == App.DISCORD || app == App.SHOPIFY || app == App.VALET || app == App.TV || app == App.COINBASE || app == App.VOICE || app == App.CAMERA || app == App.SPOTIFY);
+		drawStatusBar(context, app == null || app == App.ROBLOX || app == App.PUMP || app == App.BANK || app == App.MESSAGES || app == App.TELEGRAM || app == App.X || app == App.DISCORD || app == App.SHOPIFY || app == App.VALET || app == App.TV || app == App.COINBASE || app == App.VOICE || app == App.CAMERA || app == App.SPOTIFY || app == App.STORE);
 		// The home bar: click it to go home
 		int bw = 90, bx = (SCREEN_W - bw) / 2, by = SCREEN_H - 9;
 		Glass.rounded(context, bx, by, bx + bw, by + 4, 2, 0xE0FFFFFF);
@@ -277,20 +279,32 @@ public class PhoneScreen extends Screen {
 		String clock = new SimpleDateFormat("H:mm", Locale.US).format(now);
 		scaled(context, clock, (SCREEN_W - (int) (font.width(clock) * 3.2f)) / 2, 54, 3.2f, TEXT);
 
-		App[] apps = App.values();
+		List<App> apps = new ArrayList<>();
+		for (App a : App.values()) if (phone.installed(a) || DOWNLOADS.containsKey(a)) apps.add(a);
 		int size = 40, gapX = (SCREEN_W - 4 * size) / 5, top = 128;
-		for (int i = 0; i < apps.length; i++) {
-			App a = apps[i];
+		for (int i = 0; i < apps.size(); i++) {
+			App a = apps.get(i);
 			int x = gapX + (i % 4) * (size + gapX), y = top + (i / 4) * (size + 22);
+			float progress = downloadProgress(a);
+			if (progress >= 0) {
+				// Still downloading: dimmed, with its ring, and "Loading..." under it
+				appIcon(context, a, x, y, size);
+				Glass.rounded(context, x, y, x + size, y + size, Math.max(3, size * 22 / 100), 0xA0000000);
+				progressRing(context, x + size / 2f, y + size / 2f, 10, progress, 0x60FFFFFF, TEXT);
+				String loading = progress < 0.15f ? "Waiting..." : "Loading...";
+				context.drawString(font, loading, x + (size - font.width(loading)) / 2, y + size + 4, 0xB0FFFFFF, false);
+				continue;
+			}
 			boolean hot = mx >= x && mx < x + size && my >= y && my < y + size;
 			if (hot) Glass.rounded(context, x - 2, y - 2, x + size + 2, y + size + 2, 12, 0x30FFFFFF);
 			appIcon(context, a, x, y, size);
-			context.drawString(font, a.label, x + (size - font.width(a.label)) / 2, y + size + 4, TEXT, false);
+			String label = font.plainSubstrByWidth(a.label, size + gapX - 2);
+			context.drawString(font, label, x + (size - font.width(label)) / 2, y + size + 4, TEXT, false);
 			hits.add(new Hit(x, y, size, size + 14, () -> openApp(a)));
 		}
 		// A balance widget, because why not
 		double worth = phone.bankBalance() + phone.portfolio() + FemboyWare.getModules().get(LedgerModule.class).total();
-		int wy = top + (apps.length + 3) / 4 * (size + 22) + 4;
+		int wy = top + (apps.size() + 3) / 4 * (size + 22) + 4;
 		Glass.rounded(context, 12, wy, SCREEN_W - 12, wy + 58, 16, 0x50FFFFFF);
 		context.drawString(font, "Net worth", 24, wy + 10, 0xE0FFFFFF, false);
 		scaled(context, FbiRaidModule.assetsFrozen() ? "Frozen" : LedgerModule.usd(worth), 24, wy + 24, 1.6f, FbiRaidModule.assetsFrozen() ? 0xFFFF8A80 : TEXT);
@@ -343,6 +357,10 @@ public class PhoneScreen extends Screen {
 		scroll = 0;
 		wiring = false;
 		if (a == App.SPOTIFY) spotifyReset();
+		if (a == App.STORE) {
+			asDetail = null;
+			asScroll = 0;
+		}
 	}
 
 	/** Opens straight onto the call that's ringing (or going). */
@@ -439,6 +457,19 @@ public class PhoneScreen extends Screen {
 				context.fill(x + (int) (19 * u), y + (int) (16 * u), x + (int) (31 * u), y + (int) (18 * u), 0xFFC9A14A);
 				context.fill(x + (int) (26 * u), y + (int) (18 * u), x + (int) (28 * u), y + (int) (22 * u), 0xFFC9A14A);
 				context.fill(x + (int) (29 * u), y + (int) (18 * u), x + (int) (31 * u), y + (int) (21 * u), 0xFFC9A14A);
+			}
+			case STORE -> {
+				roundedGradient(context, x, y, x + size, y + size, r, 0xFF19C9FB, 0xFF1B6EEA);
+				float cx = x + size / 2f, cy = y + size / 2f;
+				float len = 22 * u, th = Math.max(2, 3.2f * u);
+				for (int side = -1; side <= 1; side += 2) {
+					context.pose().pushMatrix();
+					context.pose().translate(cx + side * 4.6f * u, cy);
+					context.pose().rotate(-side * 0.46f);
+					context.fill(Math.round(-th / 2), Math.round(-len / 2), Math.round(th / 2), Math.round(len / 2), 0xFFFFFFFF);
+					context.pose().popMatrix();
+				}
+				context.fill(Math.round(cx - 11 * u), Math.round(cy + 4 * u), Math.round(cx + 11 * u), Math.round(cy + 4 * u + th), 0xFFFFFFFF);
 			}
 			case TV -> {
 				// A little flatscreen glowing pink, on a stand
@@ -2553,6 +2584,291 @@ public class PhoneScreen extends Screen {
 		if (cbSheet >= 0) drawCoinbaseSheet(context, mx, my);
 	}
 
+	// ---------------------------------------------------------------- App Store
+
+	private static final int AS_PANEL = 0xFF1C1C1E, AS_BLUE = 0xFF0A84FF, AS_MUTED = 0xFF8E8E93, AS_LINE = 0xFF2C2C2E, AS_PILL = 0xFF2C2C2E;
+	/** How long an app takes to "download". */
+	private static final long DOWNLOAD_MS = 2600;
+	/** Apps downloading now, and when each started; kept between openings of the phone. */
+	private static final java.util.Map<App, Long> DOWNLOADS = new java.util.EnumMap<>(App.class);
+	private static final String[] AS_TABS = {"Today", "Apps"};
+	private int asTab;
+	private App asDetail;
+	private int asScroll, asMaxScroll;
+
+	/** What the App Store says about an app: who makes it, what kind, a line, a paragraph, its stars and its colour. */
+	private record StoreInfo(String developer, String category, String tagline, String about, float rating, String ratings, int color) {
+	}
+
+	private static StoreInfo storeInfo(App a) {
+		return switch (a) {
+			case MESSAGES -> new StoreInfo("Apple", "Social Networking", "Text anyone, anywhere", "Send texts to anyone on femboyware, or to everyone at once. Built in, so it can't be deleted.", 4.6f, "2.1M", 0xFF34C759);
+			case TELEGRAM -> new StoreInfo("Telegram FZ-LLC", "Social Networking", "Fast. Secure. Private.", "Private chats with other femboyware users, sealed end to end so only the two of you can read them.", 4.7f, "1.4M", 0xFF2AABEE);
+			case DISCORD -> new StoreInfo("Discord, Inc.", "Social Networking", "Group chat that's all fun & games", "Hang out in your servers. The FEMBOYWARE server is shared live with everyone on the client.", 4.7f, "3.9M", 0xFF5865F2);
+			case X -> new StoreInfo("X Corp.", "News", "Blaze your glory", "Post what you're up to, and see what everyone else on femboyware is posting, live.", 4.1f, "5.6M", 0xFF16181C);
+			case BANK -> new StoreInfo("Private Banking", "Finance", "Wealth, managed", "Your private bank account: balance, wires in and out, and every transaction.", 4.8f, "312K", 0xFF0B3D91);
+			case COINBASE -> new StoreInfo("Coinbase, Inc.", "Finance", "Buy Bitcoin & crypto", "Live prices and real charts for every coin you hold. Buy, sell, and send to your Ledger.", 4.7f, "1.9M", 0xFF0052FF);
+			case VOICE -> new StoreInfo("Google LLC", "Productivity", "Your second number", "Call anyone online with femboyware over voice chat, plus a dialpad, texts and voicemail.", 4.5f, "640K", 0xFF34A853);
+			case PUMP -> new StoreInfo("pump.fun", "Finance", "Launch a coin in seconds", "Ape into the newest coins on the trenches before everyone else does.", 4.3f, "88K", 0xFF0E1015);
+			case ROBLOX -> new StoreInfo("Roblox Corporation", "Games", "Join millions of experiences", "Your Robux, your avatar, and the cosmetics you've unlocked.", 4.5f, "28M", 0xFF3A3D41);
+			case LEDGER -> new StoreInfo("Ledger SAS", "Finance", "Secure your crypto", "Your hardware wallet: cold storage for the coins you send off Coinbase.", 4.6f, "240K", 0xFF1A1A1A);
+			case SPOTIFY -> new StoreInfo("Spotify AB", "Music", "Music and podcasts", "Control Spotify on your computer: what's playing, skip, seek, volume, and your playlists.", 4.8f, "34M", 0xFF1DB954);
+			case CAMERA -> new StoreInfo("Apple", "Photo & Video", "Capture the moment", "Take photos of the world around you. Built in, so it can't be deleted.", 4.6f, "1.2M", 0xFF8E8E93);
+			case SHOPIFY -> new StoreInfo("Shopify Inc.", "Business", "Run your store", "Watch the sales roll in from your store, order by order.", 4.7f, "410K", 0xFF95BF47);
+			case VALET -> new StoreInfo("Valet", "Lifestyle", "Your car, brought round", "Call your cars round to wherever you are, with a valet at the wheel.", 4.9f, "57K", 0xFFC9A14A);
+			case TV -> new StoreInfo("femboyware", "Entertainment", "The remote in your pocket", "Turn the TV on, put TikTok on it, or mirror your screen.", 4.6f, "93K", 0xFFE0559A);
+			case STORE -> new StoreInfo("Apple", "Utilities", "Get apps", "Find apps, install them and delete the ones you don't use.", 4.7f, "4.4M", 0xFF1B6EEA);
+		};
+	}
+
+	/** Messages, the camera and the App Store come with the phone and stay. */
+	static boolean builtIn(App a) {
+		return a == App.MESSAGES || a == App.CAMERA || a == App.STORE;
+	}
+
+	private static float downloadProgress(App a) {
+		Long start = DOWNLOADS.get(a);
+		return start == null ? -1 : Mth.clamp((System.currentTimeMillis() - start) / (float) DOWNLOAD_MS, 0, 1);
+	}
+
+	/** Finishes any download that's done: the app lands on the home screen. */
+	private void tickDownloads() {
+		if (DOWNLOADS.isEmpty()) return;
+		for (App a : new ArrayList<>(DOWNLOADS.keySet())) {
+			if (downloadProgress(a) < 1) continue;
+			DOWNLOADS.remove(a);
+			phone.setInstalled(a, true);
+			say(a.label + " installed");
+			LarpSounds.play(LarpSounds.LEDGER_SUCCESS, 1.2f, 0.4f);
+		}
+	}
+
+	private void startDownload(App a) {
+		if (phone.installed(a) || DOWNLOADS.containsKey(a)) return;
+		DOWNLOADS.put(a, System.currentTimeMillis());
+	}
+
+	private void deleteApp(App a) {
+		if (builtIn(a)) return;
+		phone.setInstalled(a, false);
+		DOWNLOADS.remove(a);
+		say(a.label + " deleted");
+	}
+
+	/** A ring filling clockwise from the top, {@code progress} 0 to 1, with a small stop square in it. */
+	private static void progressRing(GuiGraphics context, float cx, float cy, float radius, float progress, int track, int color) {
+		int d = UiScale.density();
+		context.pose().pushMatrix();
+		context.pose().scale(1f / d, 1f / d);
+		int steps = 72, dot = Math.max(2, d * 2);
+		for (int i = 0; i < steps; i++) {
+			double a = Math.PI * 2 * i / steps - Math.PI / 2;
+			int px = Math.round((cx + (float) Math.cos(a) * radius) * d), py = Math.round((cy + (float) Math.sin(a) * radius) * d);
+			context.fill(px - dot / 2, py - dot / 2, px - dot / 2 + dot, py - dot / 2 + dot, i < progress * steps ? color : track);
+		}
+		context.pose().popMatrix();
+		context.fill(Math.round(cx - 2), Math.round(cy - 2), Math.round(cx + 2), Math.round(cy + 2), color);
+	}
+
+	/**
+	 * GET, OPEN, or the download ring, centred on (cx, cy). {@code bold} draws GET as a filled blue
+	 * button, for the big ones.
+	 */
+	private void storeButton(GuiGraphics context, App a, int cx, int cy, int w, float mx, float my, boolean bold) {
+		float progress = downloadProgress(a);
+		if (progress >= 0) {
+			progressRing(context, cx, cy, 8, progress, AS_LINE, AS_BLUE);
+			hits.add(new Hit(cx - 12, cy - 12, 24, 24, () -> DOWNLOADS.remove(a)));
+			return;
+		}
+		boolean installed = phone.installed(a);
+		String label = installed ? "OPEN" : "GET";
+		boolean hot = mx >= cx - w / 2f && mx < cx + w / 2f && my >= cy - 9 && my < cy + 9;
+		boolean filled = bold && !installed;
+		int bg = filled ? (hot ? 0xFF3D9BFF : AS_BLUE) : (hot ? 0xFF3A3A3C : AS_PILL);
+		Glass.rounded(context, cx - w / 2, cy - 9, cx + w / 2, cy + 9, 9, bg);
+		context.drawString(font, label, cx - font.width(label) / 2, cy - 4, filled ? TEXT : AS_BLUE, false);
+		hits.add(new Hit(cx - w / 2, cy - 9, w, 18, () -> {
+			if (installed) {
+				if (a != App.STORE) openApp(a);
+			} else startDownload(a);
+		}));
+	}
+
+	/** Five little stars, filled up to {@code rating}. */
+	private void stars(GuiGraphics context, int x, int y, float rating, int color) {
+		for (int i = 0; i < 5; i++) context.drawString(font, "★", x + i * 7, y, i < Math.round(rating) ? color : 0xFF48484A, false);
+	}
+
+	/** The App Store: today's pick and the charts, every app, and a page for each. */
+	private void drawStore(GuiGraphics context, float mx, float my) {
+		context.fill(0, 30, SCREEN_W, SCREEN_H - 12, 0xFF000000);
+		if (asDetail != null) {
+			drawStoreDetail(context, mx, my, asDetail);
+			return;
+		}
+		int tabsY = SCREEN_H - 50;
+		if (asTab == 0) drawStoreToday(context, mx, my, tabsY);
+		else drawStoreApps(context, mx, my, tabsY);
+		// Tabs along the bottom
+		context.fill(0, tabsY, SCREEN_W, SCREEN_H - 12, 0xF0121214);
+		context.fill(0, tabsY, SCREEN_W, tabsY + 1, AS_LINE);
+		int tw = SCREEN_W / AS_TABS.length;
+		for (int i = 0; i < AS_TABS.length; i++) {
+			int tx = i * tw;
+			boolean on = i == asTab;
+			drawCentered(context, font, i == 0 ? "▤" : "▦", tx + tw / 2f, tabsY + 13.5f, 1.3f, on ? AS_BLUE : AS_MUTED);
+			context.drawString(font, AS_TABS[i], tx + (tw - font.width(AS_TABS[i])) / 2, tabsY + 25, on ? AS_BLUE : AS_MUTED, false);
+			int which = i;
+			hits.add(new Hit(tx, tabsY, tw, 38, () -> {
+				asTab = which;
+				asScroll = 0;
+			}));
+		}
+	}
+
+	/** One app in a list: icon, name, what it is, and its button. Returns nothing; the whole row opens its page. */
+	private void storeRow(GuiGraphics context, App a, int y, int rank, float mx, float my, int clipTop, int clipBottom) {
+		StoreInfo info = storeInfo(a);
+		int x = 14;
+		if (rank > 0) {
+			context.drawString(font, Integer.toString(rank), x, y + 13, TEXT, false);
+			x += 14;
+		}
+		appIcon(context, a, x, y + 2, 34);
+		context.drawString(font, a.label, x + 42, y + 6, TEXT, false);
+		context.drawString(font, font.plainSubstrByWidth(info.tagline(), SCREEN_W - x - 42 - 64), x + 42, y + 18, AS_MUTED, false);
+		context.fill(x + 42, y + 41, SCREEN_W, y + 42, AS_LINE);
+		if (y + 4 < clipTop || y + 34 > clipBottom) return;
+		hits.add(new Hit(0, y, SCREEN_W - 70, 40, () -> asDetail = a));
+		storeButton(context, a, SCREEN_W - 38, y + 19, 50, mx, my, false);
+	}
+
+	private void drawStoreToday(GuiGraphics context, float mx, float my, int tabsY) {
+		String date = new SimpleDateFormat("EEEE, MMMM d", Locale.US).format(new Date()).toUpperCase(Locale.US);
+		context.drawString(font, date, 14, 38, AS_MUTED, false);
+		scaled(context, "Today", 14, 50, 2f, TEXT);
+		// The app of the day: a different one each day, never one that comes with the phone
+		List<App> pickable = new ArrayList<>();
+		for (App a : App.values()) if (!builtIn(a)) pickable.add(a);
+		App pick = pickable.get((int) Math.floorMod(System.currentTimeMillis() / 86_400_000L, (long) pickable.size()));
+		StoreInfo info = storeInfo(pick);
+		int cy1 = 76, cy2 = 226;
+		boolean hotCard = mx >= 12 && mx < SCREEN_W - 12 && my >= cy1 && my < cy2;
+		roundedGradient(context, 12, cy1, SCREEN_W - 12, cy2, 14, mix(info.color(), 0xFFFFFFFF, hotCard ? 0.12f : 0.05f), mix(info.color(), 0xFF000000, 0.6f));
+		hits.add(new Hit(12, cy1, SCREEN_W - 24, cy2 - cy1, () -> asDetail = pick));
+		context.drawString(font, "APP OF THE DAY", 24, cy1 + 12, 0xD0FFFFFF, false);
+		scaled(context, pick.label, 24, cy1 + 26, 1.8f, TEXT);
+		List<FormattedCharSequence> lines = font.split(Component.literal(info.about()), SCREEN_W - 48);
+		for (int l = 0; l < Math.min(3, lines.size()); l++) context.drawString(font, lines.get(l), 24, cy1 + 48 + l * 10, 0xE0FFFFFF, false);
+		// The strip along the bottom of the card
+		int sy = cy2 - 40;
+		context.fill(12, sy, SCREEN_W - 12, sy + 1, 0x40FFFFFF);
+		appIcon(context, pick, 22, sy + 8, 26);
+		context.drawString(font, pick.label, 54, sy + 10, TEXT, false);
+		context.drawString(font, font.plainSubstrByWidth(info.tagline(), SCREEN_W - 54 - 80), 54, sy + 21, 0xC0FFFFFF, false);
+		storeButton(context, pick, SCREEN_W - 46, sy + 20, 50, mx, my, true);
+		// The charts: the best rated, three of them
+		context.drawString(font, "Top Charts", 14, 238, TEXT, false);
+		List<App> top = new ArrayList<>(List.of(App.values()));
+		top.sort((x, y) -> Float.compare(storeInfo(y).rating(), storeInfo(x).rating()));
+		int y = 252;
+		for (int i = 0; i < top.size() && y + 42 <= tabsY - 4; i++) {
+			storeRow(context, top.get(i), y, i + 1, mx, my, 252, tabsY);
+			y += 44;
+		}
+	}
+
+	private void drawStoreApps(GuiGraphics context, float mx, float my, int tabsY) {
+		scaled(context, "Apps", 14, 40, 2f, TEXT);
+		int count = 0;
+		for (App a : App.values()) if (phone.installed(a)) count++;
+		context.drawString(font, count + " of " + App.values().length + " on your phone", 14, 62, AS_MUTED, false);
+		int top = 76;
+		App[] apps = App.values();
+		asMaxScroll = Math.max(0, apps.length * 44 - (tabsY - top));
+		asScroll = Mth.clamp(asScroll, 0, asMaxScroll);
+		context.enableScissor(0, top, SCREEN_W, tabsY);
+		for (int i = 0; i < apps.length; i++) {
+			int y = top + i * 44 - asScroll;
+			if (y + 44 < top || y > tabsY) continue;
+			storeRow(context, apps[i], y, 0, mx, my, top, tabsY);
+		}
+		context.disableScissor();
+	}
+
+	/** An app's own page: the big button, its stars and chart place, what it does, and deleting it. */
+	private void drawStoreDetail(GuiGraphics context, float mx, float my, App a) {
+		StoreInfo info = storeInfo(a);
+		boolean hotBack = mx >= 6 && mx < 60 && my >= 34 && my < 58;
+		chevronLeft(context, 16, 46, AS_BLUE);
+		context.drawString(font, AS_TABS[asTab], 24, 42, hotBack ? 0xFF5AB0FF : AS_BLUE, false);
+		hits.add(new Hit(6, 34, 54, 24, () -> asDetail = null));
+		// The header
+		appIcon(context, a, 14, 64, 64);
+		scaled(context, a.label, 88, 68, 1.5f, TEXT);
+		context.drawString(font, info.developer(), 88, 84, AS_MUTED, false);
+		storeButton(context, a, 88 + 32, 114, 64, mx, my, true);
+		// Ratings, chart place, age
+		int sy = 144;
+		context.fill(14, sy - 6, SCREEN_W - 14, sy - 5, AS_LINE);
+		int cw = (SCREEN_W - 28) / 3;
+		List<App> ranked = new ArrayList<>(List.of(App.values()));
+		ranked.sort((x, y) -> Float.compare(storeInfo(y).rating(), storeInfo(x).rating()));
+		String[][] stats = {
+			{info.ratings() + " RATINGS", String.format(Locale.US, "%.1f", info.rating()), ""},
+			{"CHART", "#" + (ranked.indexOf(a) + 1), info.category()},
+			{"AGE", "4+", "Years Old"}};
+		for (int i = 0; i < 3; i++) {
+			int cx = 14 + i * cw + cw / 2;
+			int old = UiScale.pushDensity(Math.round(UiScale.density() * 0.75f));
+			context.pose().pushMatrix();
+			context.pose().translate(cx, sy);
+			context.pose().scale(0.75f, 0.75f);
+			context.drawString(font, stats[i][0], -font.width(stats[i][0]) / 2, 0, AS_MUTED, false);
+			if (!stats[i][2].isEmpty()) {
+				String sub = font.plainSubstrByWidth(stats[i][2], (int) (cw / 0.75f) - 4);
+				context.drawString(font, sub, -font.width(sub) / 2, 34, AS_MUTED, false);
+			}
+			context.pose().popMatrix();
+			UiScale.popDensity(old);
+			drawCentered(context, font, stats[i][1], cx, sy + 17, 1.5f, 0xFFD1D1D6);
+			if (i == 0) stars(context, cx - 17, sy + 27, info.rating(), 0xFFD1D1D6);
+			if (i < 2) context.fill(14 + (i + 1) * cw, sy + 2, 14 + (i + 1) * cw + 1, sy + 34, AS_LINE);
+		}
+		// What it does
+		int y = sy + 50;
+		context.fill(14, y - 8, SCREEN_W - 14, y - 7, AS_LINE);
+		context.drawString(font, "About", 14, y, TEXT, false);
+		y += 14;
+		for (FormattedCharSequence line : font.split(Component.literal(info.about()), SCREEN_W - 28)) {
+			context.drawString(font, line, 14, y, 0xFFD1D1D6, false);
+			y += 10;
+		}
+		// The details
+		y += 10;
+		context.drawString(font, "Information", 14, y, TEXT, false);
+		y += 14;
+		int size = 40 + Math.floorMod(a.label.hashCode(), 260);
+		String[][] rows = {{"Provider", info.developer()}, {"Size", size + ".4 MB"}, {"Category", info.category()}, {"Price", "Free"}};
+		for (String[] row : rows) {
+			context.drawString(font, row[0], 14, y, AS_MUTED, false);
+			String value = font.plainSubstrByWidth(row[1], SCREEN_W - 100);
+			context.drawString(font, value, SCREEN_W - 14 - font.width(value), y, TEXT, false);
+			context.fill(14, y + 12, SCREEN_W - 14, y + 13, AS_LINE);
+			y += 18;
+		}
+		// Deleting it
+		if (builtIn(a)) {
+			context.drawString(font, "Comes with your phone", 14, y + 6, AS_MUTED, false);
+		} else if (phone.installed(a)) {
+			boolean hot = mx >= 14 && mx < SCREEN_W - 14 && my >= y + 2 && my < y + 22;
+			Glass.rounded(context, 14, y + 2, SCREEN_W - 14, y + 22, 8, hot ? 0xFF3A2224 : AS_PANEL);
+			context.drawString(font, "Delete App", (SCREEN_W - font.width("Delete App")) / 2, y + 8, RED, false);
+			hits.add(new Hit(14, y + 2, SCREEN_W - 28, 20, () -> deleteApp(a)));
+		}
+	}
+
 	// ---------------------------------------------------------------- Google Voice
 
 	private static final int GV_BG = 0xFF1F1F1F, GV_PANEL = 0xFF2D2E30, GV_TEXT = 0xFFE3E3E3, GV_MUTED = 0xFF9AA0A6, GV_GREEN = 0xFF34A853, GV_BLUE = 0xFF8AB4F8;
@@ -3441,6 +3757,10 @@ public class PhoneScreen extends Screen {
 			else if (!spPlayerOpen) spScroll = Mth.clamp(spScroll - (int) (vertical * 24), 0, spMaxScroll);
 			return true;
 		}
+		if (app == App.STORE) {
+			if (asDetail == null && asTab == 1) asScroll = Mth.clamp(asScroll - (int) (vertical * 24), 0, asMaxScroll);
+			return true;
+		}
 		if (app == App.TV) {
 			tvScroll = Math.max(0, tvScroll - (int) Math.signum(vertical));
 			return true;
@@ -3533,6 +3853,7 @@ public class PhoneScreen extends Screen {
 			else if (app == App.SPOTIFY && spPlayerOpen && spPlayerAnim == 1 && FemboyWare.getModules() != null && dev.femboyware.module.hud.SpotifyWeb.signedIn()) spPlayerOpen = false;
 			else if (app == App.SPOTIFY && spList != null) spList = null;
 			else if (app == App.COINBASE && cbDetail >= 0) cbDetail = -1;
+			else if (app == App.STORE && asDetail != null) asDetail = null;
 			else home();
 			return true;
 		}
