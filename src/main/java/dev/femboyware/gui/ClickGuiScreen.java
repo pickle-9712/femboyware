@@ -48,7 +48,6 @@ public class ClickGuiScreen extends Screen {
 	private static final int CHIP_HEIGHT = 13;
 	private static final int FOOTER = 16;
 	private static final int NAV_HEIGHT = 13;
-	private static final int SETTING_BG = 0x1C000000;
 	private static final String[] CHANNEL_NAMES = {"Red", "Green", "Blue", "Alpha"};
 	private static final int[] CHANNEL_SHIFTS = {16, 8, 0, 24};
 
@@ -347,19 +346,21 @@ public class ClickGuiScreen extends Screen {
 			int w = font.width(label) + 24, x = (canvasWidth() - w) / 2, y = 8;
 			Row done = new Row(RowType.HUD_DONE, x, y, w, 18, null, null, null, 0, null);
 			rows.add(done);
-			Glass.draw(context, x, y, x + w, y + 18, 9, done.contains(mouseX, mouseY) ? ColorUtil.withAlpha(accent, 0xB0) : Theme.panel(), true);
+			Glass.draw(context, x, y, x + w, y + 18, 9, done.contains(mouseX, mouseY) ? ColorUtil.withAlpha(accent, 0xB0) : Theme.solidPanel(), true);
 			context.drawString(font, label, x + 12, y + 5, Theme.text());
 			return;
 		}
 
 		int w = Math.min(600, canvasWidth() - 24), h = Math.min(340, canvasHeight() - 20);
 		int x1 = (canvasWidth() - w) / 2, y1 = (canvasHeight() - h) / 2, x2 = x1 + w, y2 = y1 + h;
+		// A wallpaper fills the window solid; the glass then only shades it
+		dev.femboyware.module.theme.WallpaperModule.draw(context, x1, y1, x2, y2, Math.max(8, Theme.roundness()));
 		Glass.draw(context, x1, y1, x2, y2, Math.max(8, Theme.roundness()), Theme.panel(), true);
 		renderSidebar(context, x1, y1, y2 - FOOTER, mouseX, mouseY, accent);
 
 		// The content side: search along the top, then the cards or a module's settings
 		int cx1 = x1 + SIDEBAR + 4, cx2 = x2 - PAD, cy1 = y1 + PAD;
-		Glass.rounded(context, cx1 - 4, y1 + 4, x2 - 4, y2 - FOOTER, 8, 0x22000000);
+		Glass.rounded(context, cx1 - 4, y1 + 4, x2 - 4, y2 - FOOTER, 8, Theme.content());
 		renderSearch(context, cx1 + 2, cy1, cx2, mouseX, mouseY, accent);
 		int top = cy1 + SEARCH_HEIGHT + 6;
 		if (open == null && !favorites && search.get().isBlank()) top = renderChips(context, cx1 + 2, top, cx2, mouseX, mouseY, accent);
@@ -424,7 +425,7 @@ public class ClickGuiScreen extends Screen {
 			net.minecraft.client.gui.components.PlayerFaceRenderer.draw(context, mc().player.getSkin(), x, fy, 16);
 			//?}
 			context.drawString(font, mc().player.getGameProfile().name(), x + 22, fy, Theme.text());
-			Glass.rounded(context, x + 22, fy + 11, x + 26, fy + 15, 2, 0xFF3DDC84);
+			Glass.rounded(context, x + 22, fy + 11, x + 26, fy + 15, 2, Theme.online());
 			context.drawString(font, "Online", x + 29, fy + 9, Theme.muted());
 		}
 	}
@@ -443,7 +444,7 @@ public class ClickGuiScreen extends Screen {
 
 	private int sectionHeader(GuiGraphics context, String text, int x, int y) {
 		context.drawString(font, text, x, y, ColorUtil.withAlpha(Theme.muted(), 0x90));
-		context.fill(x + font.width(text) + 5, y + 4, x + SIDEBAR - 2 * PAD, y + 5, 0x20FFFFFF);
+		context.fill(x + font.width(text) + 5, y + 4, x + SIDEBAR - 2 * PAD, y + 5, Theme.divider());
 		return y + 12;
 	}
 
@@ -454,7 +455,7 @@ public class ClickGuiScreen extends Screen {
 			Glass.rounded(context, row.x, y, row.x + row.width, y + NAV_HEIGHT, 5, ColorUtil.withAlpha(accent, 0x48));
 			Glass.rounded(context, row.x, y + 3, row.x + 2, y + NAV_HEIGHT - 3, 1, accent);
 		} else if (row.contains(mouseX, mouseY)) {
-			Glass.rounded(context, row.x, y, row.x + row.width, y + NAV_HEIGHT, 5, 0x14FFFFFF);
+			Glass.rounded(context, row.x, y, row.x + row.width, y + NAV_HEIGHT, 5, Theme.surface());
 		}
 		int color = selected ? Theme.text() : Theme.muted();
 		drawIcon(context, icon, row.x + 8, y + 2, 9, selected ? accent : color);
@@ -476,7 +477,7 @@ public class ClickGuiScreen extends Screen {
 	private void renderSearch(GuiGraphics context, int x1, int y, int x2, int mouseX, int mouseY, int accent) {
 		Row box = new Row(RowType.SEARCH, x1, y, x2 - x1, SEARCH_HEIGHT, null, null, search, 0, null);
 		rows.add(box);
-		Glass.rounded(context, x1, y, x2, y + SEARCH_HEIGHT, 7, searching ? ColorUtil.withAlpha(accent, 0x30) : box.contains(mouseX, mouseY) ? 0x30FFFFFF : 0x24FFFFFF);
+		Glass.rounded(context, x1, y, x2, y + SEARCH_HEIGHT, 7, searching ? ColorUtil.withAlpha(accent, 0x30) : box.contains(mouseX, mouseY) ? Theme.surfaceHover() : Theme.surface());
 		// A little magnifying glass
 		drawIcon(context, "search", x1 + 7, y + 5, 8, Theme.muted());
 		if (search.get().isEmpty() && !searching) {
@@ -501,7 +502,7 @@ public class ClickGuiScreen extends Screen {
 			Row chip = new Row(RowType.CHIP, x, y, w, CHIP_HEIGHT, c, null, null, 0, null);
 			rows.add(chip);
 			boolean on = c == current;
-			Glass.rounded(context, x, y, x + w, y + CHIP_HEIGHT, 6, on ? ColorUtil.withAlpha(accent, 0x90) : chip.contains(mouseX, mouseY) ? 0x26FFFFFF : 0x16FFFFFF);
+			Glass.rounded(context, x, y, x + w, y + CHIP_HEIGHT, 6, on ? ColorUtil.withAlpha(accent, 0x90) : chip.contains(mouseX, mouseY) ? Theme.surfaceHover() : Theme.surface());
 			context.drawString(font, c.getDisplayName(), x + 8, y + 3, on ? Theme.text() : Theme.muted());
 			x += w + 4;
 		}
@@ -556,7 +557,7 @@ public class ClickGuiScreen extends Screen {
 		Row card = new Row(RowType.CARD, x, y, w, CARD_HEIGHT, m.getCategory(), m, null, 0, null);
 		rows.add(card);
 		boolean on = m.isEnabled(), hover = card.contains(mouseX, mouseY);
-		int base = on ? ColorUtil.withAlpha(accent, hover ? 0x58 : 0x44) : hover ? 0x22FFFFFF : 0x14FFFFFF;
+		int base = on ? ColorUtil.withAlpha(accent, hover ? 0x58 : 0x44) : hover ? Theme.surfaceHover() : Theme.surface();
 		Glass.rounded(context, x, y, x + w, y + CARD_HEIGHT, 7, base);
 		if (focused) outline(context, x, y, x + w, y + CARD_HEIGHT, accent);
 		String name = binding == m ? m.getName() + "  [press a key]" : m.getName();
@@ -579,9 +580,9 @@ public class ClickGuiScreen extends Screen {
 	}
 
 	private static void drawSwitch(GuiGraphics context, int x, int y, boolean on, int accent) {
-		Glass.rounded(context, x, y, x + 20, y + 10, 5, on ? accent : 0x38FFFFFF);
+		Glass.rounded(context, x, y, x + 20, y + 10, 5, on ? accent : Theme.switchOff());
 		int knob = on ? x + 11 : x + 1;
-		Glass.rounded(context, knob, y + 1, knob + 8, y + 9, 4, 0xFFFFFFFF);
+		Glass.rounded(context, knob, y + 1, knob + 8, y + 9, 4, Theme.knob());
 	}
 
 	private static void outline(GuiGraphics context, int x1, int y1, int x2, int y2, int color) {
@@ -635,7 +636,7 @@ public class ClickGuiScreen extends Screen {
 		// Back, the name with its switch, and what it does
 		Row back = new Row(RowType.BACK, x1, y, font.width("Back") + 20, 14, null, null, null, 0, null);
 		rows.add(back);
-		Glass.rounded(context, back.x, y, back.x + back.width, y + 14, 6, back.contains(mouseX, mouseY) ? 0x30FFFFFF : 0x18FFFFFF);
+		Glass.rounded(context, back.x, y, back.x + back.width, y + 14, 6, back.contains(mouseX, mouseY) ? Theme.surfaceHover() : Theme.surface());
 		drawIcon(context, "back", back.x + 5, y + 3, 8, Theme.text());
 		context.drawString(font, "Back", back.x + 14, y + 3, Theme.text());
 		context.drawString(font, m.getName(), back.x + back.width + 8, y + 3, Theme.text());
@@ -678,7 +679,7 @@ public class ClickGuiScreen extends Screen {
 		int left = x + 8;
 		int right = x + w - 6;
 
-		Glass.rounded(context, x, y, x + w, y + ROW_HEIGHT + 2, 4, SETTING_BG);
+		Glass.rounded(context, x, y, x + w, y + ROW_HEIGHT + 2, 4, Theme.settingRow());
 		String bindText = binding == m ? "Bind: press a key..." : "Bind: " + keyName(m.getKey());
 		context.drawString(font, bindText, left, y + 4, Theme.muted());
 		rows.add(new Row(RowType.BIND, x, y, w, ROW_HEIGHT + 2, null, m, null, 0, null));
@@ -688,7 +689,7 @@ public class ClickGuiScreen extends Screen {
 			if (!setting.isVisible()) continue;
 
 			if (setting instanceof ColorSetting color) {
-				context.fill(x, y, x + w, y + ROW_HEIGHT, SETTING_BG);
+				context.fill(x, y, x + w, y + ROW_HEIGHT, Theme.settingRow());
 				context.drawString(font, color.getName(), left, y + 3, Theme.text());
 				Glass.rounded(context, right - 14, y + 2, right, y + ROW_HEIGHT - 2, 2, color.get() | 0xFF000000);
 				rows.add(new Row(RowType.COLOR, x, y, w, ROW_HEIGHT, null, m, color, -1, null));
@@ -705,7 +706,7 @@ public class ClickGuiScreen extends Screen {
 
 			Row row = switch (setting) {
 				case BoolSetting bool -> {
-					context.fill(x, y, x + w, y + ROW_HEIGHT, SETTING_BG);
+					context.fill(x, y, x + w, y + ROW_HEIGHT, Theme.settingRow());
 					context.drawString(font, bool.getName(), left, y + 3, Theme.text());
 					drawSwitch(context, right - 20, y + 2, bool.get(), accent);
 					yield new Row(RowType.BOOL, x, y, w, ROW_HEIGHT, null, m, setting, 0, null);
@@ -717,23 +718,23 @@ public class ClickGuiScreen extends Screen {
 					yield new Row(RowType.NUMBER, x, y, w, ROW_HEIGHT, null, m, setting, 0, null);
 				}
 				case EnumSetting<?> mode -> {
-					context.fill(x, y, x + w, y + ROW_HEIGHT, SETTING_BG);
+					context.fill(x, y, x + w, y + ROW_HEIGHT, Theme.settingRow());
 					context.drawString(font, mode.getName(), left, y + 3, Theme.text());
 					String value = mode.getDisplayName() + (openEnum == mode ? " ▴" : " ▾");
 					context.drawString(font, value, right - font.width(value), y + 3, accent);
 					yield new Row(RowType.ENUM, x, y, w, ROW_HEIGHT, null, m, setting, 0, null);
 				}
 				case StringSetting text -> {
-					context.fill(x, y, x + w, y + ROW_HEIGHT * 2, SETTING_BG);
+					context.fill(x, y, x + w, y + ROW_HEIGHT * 2, Theme.settingRow());
 					context.drawString(font, text.getName(), left, y + 3, Theme.text());
 					boolean focused = typing == text;
-					Glass.rounded(context, left - 2, y + ROW_HEIGHT, right, y + ROW_HEIGHT * 2 - 1, 3, focused ? 0x40FFFFFF : 0x30000000);
+					Glass.rounded(context, left - 2, y + ROW_HEIGHT, right, y + ROW_HEIGHT * 2 - 1, 3, focused ? Theme.surfaceHover() : Theme.content());
 					editor(text).render(context, font, left, y + ROW_HEIGHT, right, y + ROW_HEIGHT * 2 - 1, focused,
 						focused ? Theme.text() : Theme.muted(), (accent & 0x00FFFFFF) | 0x90000000, accent);
 					yield new Row(RowType.STRING, x, y, w, ROW_HEIGHT * 2, null, m, setting, 0, null);
 				}
 				case KeySetting key -> {
-					context.fill(x, y, x + w, y + ROW_HEIGHT, SETTING_BG);
+					context.fill(x, y, x + w, y + ROW_HEIGHT, Theme.settingRow());
 					context.drawString(font, key.getName(), left, y + 3, Theme.text());
 					String value = bindingKey == key ? "..." : keyName(key.get());
 					context.drawString(font, value, right - font.width(value), y + 3, accent);
@@ -742,18 +743,18 @@ public class ClickGuiScreen extends Screen {
 				default -> null;
 			};
 			if (row == null) continue;
-			if (row.contains(mouseX, mouseY)) context.fill(row.x, row.y, row.x + row.width, row.y + row.height, 0x10FFFFFF);
+			if (row.contains(mouseX, mouseY)) context.fill(row.x, row.y, row.x + row.width, row.y + row.height, Theme.surface());
 			rows.add(row);
 			y += row.height;
 			if (setting instanceof EnumSetting<?> mode && openEnum == mode) {
 				Enum<?>[] options = mode.getConstants();
 				for (int i = 0; i < options.length; i++) {
 					boolean current = options[i] == mode.get();
-					context.fill(x, y, x + w, y + ROW_HEIGHT, SETTING_BG);
-					context.fill(left - 2, y, left - 1, y + ROW_HEIGHT, current ? accent : 0x30FFFFFF);
+					context.fill(x, y, x + w, y + ROW_HEIGHT, Theme.settingRow());
+					context.fill(left - 2, y, left - 1, y + ROW_HEIGHT, current ? accent : Theme.divider());
 					context.drawString(font, EnumSetting.prettify(options[i].name()), left + 4, y + 3, current ? accent : Theme.muted());
 					Row option = new Row(RowType.ENUM_OPTION, x, y, w, ROW_HEIGHT, null, m, setting, i, null);
-					if (option.contains(mouseX, mouseY)) context.fill(x, y, x + w, y + ROW_HEIGHT, 0x10FFFFFF);
+					if (option.contains(mouseX, mouseY)) context.fill(x, y, x + w, y + ROW_HEIGHT, Theme.surface());
 					rows.add(option);
 					y += ROW_HEIGHT;
 				}
@@ -765,9 +766,9 @@ public class ClickGuiScreen extends Screen {
 	private void drawSlider(GuiGraphics context, int x, int y, int w, String name, String value, double fraction, int accent, int indent) {
 		int left = x + 8 + indent;
 		int right = x + w - 6;
-		context.fill(x, y, x + w, y + ROW_HEIGHT, SETTING_BG);
+		context.fill(x, y, x + w, y + ROW_HEIGHT, Theme.settingRow());
 		int filled = left + (int) Math.round((right - left) * Math.max(0, Math.min(1, fraction)));
-		Glass.rounded(context, left, y + ROW_HEIGHT - 3, right, y + ROW_HEIGHT - 1, 1, 0x40FFFFFF);
+		Glass.rounded(context, left, y + ROW_HEIGHT - 3, right, y + ROW_HEIGHT - 1, 1, Theme.track());
 		if (filled > left) Glass.rounded(context, left, y + ROW_HEIGHT - 3, filled, y + ROW_HEIGHT - 1, 1, accent);
 		context.drawString(font, name, left, y + 1, Theme.text());
 		context.drawString(font, value, right - font.width(value), y + 1, Theme.muted());

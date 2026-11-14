@@ -64,7 +64,7 @@ public class GuardHudModule extends HudElement {
 			context.drawString(mc.font, guard.name(), left + 5, y + 4, textColor());
 			if (lost) {
 				String note = "no signal";
-				context.drawString(mc.font, note, left + WIDTH - 5 - mc.font.width(note), y + 4, warning.get());
+				context.drawString(mc.font, note, left + WIDTH - 5 - mc.font.width(note), y + 4, (usesCustomColors() ? warning.get() : Theme.warning()));
 				y += ROW;
 				continue;
 			}
@@ -77,7 +77,7 @@ public class GuardHudModule extends HudElement {
 			float fraction = Mth.clamp(guard.health() / Math.max(1, guard.maxHealth()), 0, 1);
 			Glass.rounded(context, barLeft, y + 14, barRight, y + 17, 1, 0x40000000);
 			int filled = barLeft + Math.round((barRight - barLeft) * fraction);
-			if (filled > barLeft) Glass.rounded(context, barLeft, y + 14, filled, y + 17, 1, LyricFont.mix(healthLow.get(), healthFull.get(), fraction));
+			if (filled > barLeft) Glass.rounded(context, barLeft, y + 14, filled, y + 17, 1, usesCustomColors() ? LyricFont.mix(healthLow.get(), healthFull.get(), fraction) : LyricFont.mix(Theme.healthLow(), Theme.healthFull(), fraction));
 
 			context.pose().pushMatrix();
 			context.pose().translate(left + 5, y + 20);
@@ -88,9 +88,9 @@ public class GuardHudModule extends HudElement {
 			int x = 0;
 			context.drawString(mc.font, hearts, x, 0, textColor());
 			x += mc.font.width(hearts) + 8;
-			context.drawString(mc.font, totems, x, 0, guard.totems() == 0 ? warning.get() : mutedColor());
+			context.drawString(mc.font, totems, x, 0, guard.totems() == 0 ? (usesCustomColors() ? warning.get() : Theme.warning()) : mutedColor());
 			x += mc.font.width(totems) + 8;
-			context.drawString(mc.font, pots, x, 0, guard.pots() == 0 ? warning.get() : mutedColor());
+			context.drawString(mc.font, pots, x, 0, guard.pots() == 0 ? (usesCustomColors() ? warning.get() : Theme.warning()) : mutedColor());
 			x += mc.font.width(pots) + 8;
 			if (distance.get() && mc.player != null && !editing) {
 				String far = Math.round(Math.sqrt(mc.player.distanceToSqr(guard.x(), guard.y(), guard.z()))) + "m";

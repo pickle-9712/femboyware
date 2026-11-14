@@ -70,19 +70,19 @@ public class KeystrokesModule extends HudElement {
 		if (space.get()) {
 			boolean down = mc.player != null && KeyUtil.isPhysicallyPressed(mc.options.keyJump);
 			box(context, left, row, width(editing), 10, down);
-			context.fill(left + width(editing) / 2 - 8, row + 5, left + width(editing) / 2 + 8, row + 6, down ? pressedText.get() : textColor());
+			context.fill(left + width(editing) / 2 - 8, row + 5, left + width(editing) / 2 + 8, row + 6, down ? (usesCustomColors() ? pressedText.get() : Theme.pressedText()) : textColor());
 		}
 	}
 
 	private void key(GuiGraphics context, int x, int y, int w, int h, String label, KeyMapping binding) {
 		boolean down = mc.player != null && KeyUtil.isPhysicallyPressed(binding);
 		box(context, x, y, w, h, down);
-		context.drawString(mc.font, label, x + (w - mc.font.width(label)) / 2, y + (h - 8) / 2, down ? pressedText.get() : textColor());
+		context.drawString(mc.font, label, x + (w - mc.font.width(label)) / 2, y + (h - 8) / 2, down ? (usesCustomColors() ? pressedText.get() : Theme.pressedText()) : textColor());
 	}
 
 	private void button(GuiGraphics context, int x, int y, int w, boolean down, String label, int cps) {
 		box(context, x, y, w, KEY, down);
-		int text = down ? pressedText.get() : textColor();
+		int text = down ? (usesCustomColors() ? pressedText.get() : Theme.pressedText()) : textColor();
 		context.drawString(mc.font, label, x + (w - mc.font.width(label)) / 2, y + 3, text);
 		String count = cps + " CPS";
 		context.pose().pushMatrix();

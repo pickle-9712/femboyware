@@ -138,7 +138,7 @@ public class TargetHudModule extends HudElement {
 		if (filled > barLeft) Glass.rounded(context, barLeft, barTop, filled, barTop + 4, 2, healthColor(health / max));
 		if (absorption > 0) {
 			int gold = Math.min(barRight, filled + Math.round((barRight - barLeft) * absorption / (max + absorption)));
-			Glass.rounded(context, filled, barTop, gold, barTop + 4, 2, absorptionColor.get());
+			Glass.rounded(context, filled, barTop, gold, barTop + 4, 2, (usesCustomColors() ? absorptionColor.get() : Theme.absorption()));
 		}
 		String hp = String.format(Locale.ROOT, "%.1f", health + absorption);
 		context.drawString(mc.font, hp, barRight - mc.font.width(hp), top + 6, healthColor(health / max));
@@ -163,8 +163,6 @@ public class TargetHudModule extends HudElement {
 	private int healthColor(float fraction) {
 		fraction = Mth.clamp(fraction, 0, 1);
 		if (usesCustomColors()) return LyricFont.mix(healthLow.get(), healthFull.get(), fraction);
-		int r = fraction > 0.5f ? (int) (255 * (1 - fraction) * 2) : 255;
-		int g = fraction > 0.5f ? 255 : (int) (255 * fraction * 2);
-		return 0xFF000000 | r << 16 | g << 8 | 0x50;
+		return LyricFont.mix(Theme.healthLow(), Theme.healthFull(), fraction);
 	}
 }

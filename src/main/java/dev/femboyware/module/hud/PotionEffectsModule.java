@@ -71,7 +71,7 @@ public class PotionEffectsModule extends HudElement {
 			String time = effect.isInfiniteDuration() ? "**:**" : StringUtil.formatTickDuration(effect.getDuration(), 20);
 			// The time blinks in its last ten seconds
 			boolean ending = !effect.isInfiniteDuration() && effect.getDuration() < 200 && (System.currentTimeMillis() / 400) % 2 == 0;
-			context.drawString(mc.font, time, left + WIDTH - 4 - mc.font.width(time), y + 3, ending ? endingColor.get() : mutedColor());
+			context.drawString(mc.font, time, left + WIDTH - 4 - mc.font.width(time), y + 3, ending ? (usesCustomColors() ? endingColor.get() : Theme.warning()) : mutedColor());
 		}
 	}
 

@@ -47,15 +47,15 @@ public abstract class HudElement extends Module {
 	}
 
 	protected int textColor() {
-		return usesCustomColors() ? customText.get() : Theme.text();
+		return usesCustomColors() ? customText.get() : Theme.hudText();
 	}
 
 	protected int accentColor() {
-		return usesCustomColors() ? customAccent.get() : Theme.accent();
+		return usesCustomColors() ? customAccent.get() : Theme.hudAccent();
 	}
 
 	protected int mutedColor() {
-		return usesCustomColors() ? customMuted.get() : Theme.muted();
+		return usesCustomColors() ? customMuted.get() : Theme.hudMuted();
 	}
 
 	/** The background tint, or {@code themed} when following the theme. */

@@ -3,7 +3,6 @@ package dev.femboyware.module.hud;
 import dev.femboyware.gui.Glass;
 import dev.femboyware.gui.Theme;
 import dev.femboyware.setting.BoolSetting;
-import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import java.time.LocalTime;
@@ -38,11 +37,6 @@ public class IslandModule extends HudElement {
 	private final NumberSetting pillWidth = add(new NumberSetting("Width", "How wide the pill is", 170, 80, 360, 5));
 	private final EnumSetting<LyricFont> font = add(new EnumSetting<>("Font", "Which font to use", LyricFont.INTER));
 	private final NumberSetting offset = add(new NumberSetting("Lyric Offset", "Nudge lyric timing, in seconds; higher shows them sooner", 0, -5, 5, 0.05)).visibleWhen(lyrics::get);
-	private final ColorSetting pillColor = add(new ColorSetting("Pill Color", "Tint of the pill", 0xB0141028));
-	private final ColorSetting chipColor = add(new ColorSetting("Highlight Color", "Colour behind the word being sung", 0xFF7A4BD8));
-	private final ColorSetting textColor = add(new ColorSetting("Text Color", "Colour of the words in the pill", 0xFFF2EEFF));
-	private final ColorSetting barColor = add(new ColorSetting("Equalizer Color", "Colour of the moving bars", 0xFFC9A6FF));
-	private final ColorSetting infoColor = add(new ColorSetting("Time Color", "Colour of the time and ping", 0xFFFFFFFF));
 
 	private long lastFrame;
 	private String shownLine = "";
@@ -110,7 +104,7 @@ public class IslandModule extends HudElement {
 		int x = left;
 		int textY = top + (HEIGHT - 8) / 2;
 		if (clock.get()) {
-			context.drawString(mc.font, info(time()), x, textY, infoColor.get(), false);
+			context.drawString(mc.font, info(time()), x, textY, Theme.islandTime(), false);
 			x += clockWidth();
 		}
 		if (pillShown(editing)) {
@@ -119,15 +113,15 @@ public class IslandModule extends HudElement {
 		}
 		if (ping.get()) {
 			int latency = latency();
-			int color = !pingColors.get() ? infoColor.get() : latency < 80 ? 0xFF7CF0A0 : latency < 180 ? 0xFFFFD36B : 0xFFFF6B7A;
+			int color = !pingColors.get() ? Theme.islandTime() : latency < 80 ? 0xFF7CF0A0 : latency < 180 ? 0xFFFFD36B : 0xFFFF6B7A;
 			signal(context, x, top + HEIGHT / 2 + 4, color);
-			context.drawString(mc.font, info(Integer.toString(latency)), x + 13, textY, infoColor.get(), false);
+			context.drawString(mc.font, info(Integer.toString(latency)), x + 13, textY, Theme.islandTime(), false);
 		}
 	}
 
 	private void drawPill(GuiGraphics context, int left, int top, boolean editing, float frame) {
 		int width = pillWidth.getInt();
-		Glass.draw(context, left, top, left + width, top + HEIGHT, HEIGHT / 2, pillColor.get(), true);
+		Glass.draw(context, left, top, left + width, top + HEIGHT, HEIGHT / 2, Theme.islandPill(), true);
 		WindowsMedia.Track track = MediaSource.track();
 
 		int textLeft = left + 8;
@@ -207,10 +201,10 @@ public class IslandModule extends HudElement {
 			chipWidth = chipWidth == 0 ? wordWidth : chipWidth + (wordWidth - chipWidth) * ease;
 			context.pose().pushMatrix();
 			context.pose().translate(chipX - 3, -3.5f);
-			Glass.rounded(context, 0, 0, Math.round(chipWidth) + 6, 14, 4, LyricFont.fade(chipColor.get(), reveal));
+			Glass.rounded(context, 0, 0, Math.round(chipWidth) + 6, 14, 4, LyricFont.fade(Theme.islandHighlight(), reveal));
 			context.pose().popMatrix();
 		}
-		context.drawString(mc.font, whole, 0, 0, LyricFont.fade(textColor.get(), reveal), false);
+		context.drawString(mc.font, whole, 0, 0, LyricFont.fade(Theme.islandText(), reveal), false);
 		context.pose().popMatrix();
 		context.disableScissor();
 	}
@@ -221,7 +215,7 @@ public class IslandModule extends HudElement {
 		for (int i = 0; i < 4; i++) {
 			float wave = (float) (0.55 + 0.45 * Math.sin(clock * (5.1 + i * 1.7) + i * 1.9));
 			float half = Math.max(0.75f, 5 * barsLevel * wave);
-			bar(context, left + i * 3, middle - half, 2, half * 2, barColor.get());
+			bar(context, left + i * 3, middle - half, 2, half * 2, Theme.islandBars());
 		}
 	}
 

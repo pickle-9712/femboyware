@@ -63,13 +63,13 @@ public class ArmorModule extends HudElement {
 			ItemStack totem = new ItemStack(Items.TOTEM_OF_UNDYING);
 			context.renderItem(totem, x + 1, top + 3);
 			String text = Integer.toString(count);
-			context.drawString(mc.font, text, x + 9 - mc.font.width(text) / 2, top + 20, count == 0 ? lowColor.get() : textColor());
+			context.drawString(mc.font, text, x + 9 - mc.font.width(text) / 2, top + 20, count == 0 ? (usesCustomColors() ? lowColor.get() : Theme.warning()) : textColor());
 		}
 	}
 
 	private int durabilityColor(int percent) {
-		if (percent > 60) return goodColor.get();
-		if (percent > 30) return okayColor.get();
-		return lowColor.get();
+		if (percent > 60) return usesCustomColors() ? goodColor.get() : Theme.good();
+		if (percent > 30) return usesCustomColors() ? okayColor.get() : Theme.okay();
+		return usesCustomColors() ? lowColor.get() : Theme.warning();
 	}
 }

@@ -129,7 +129,7 @@ public class StaffListModule extends HudElement {
 		context.drawString(mc.font, "Staff (" + rows.size() + ")", left + pad, y, accentColor());
 		y += 10;
 		for (String[] r : rows) {
-			context.drawString(mc.font, r[0], left + pad, y, 0xFFFF5A5A);
+			context.drawString(mc.font, r[0], left + pad, y, Theme.staff());
 			context.drawString(mc.font, r[1], left + pad + mc.font.width(r[0]) + 6, y, textColor());
 			y += 10;
 		}

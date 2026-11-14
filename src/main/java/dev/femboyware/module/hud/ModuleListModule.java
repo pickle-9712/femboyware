@@ -6,8 +6,6 @@ import dev.femboyware.gui.Theme;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
-import dev.femboyware.setting.ColorSetting;
-import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import java.util.Comparator;
 import java.util.List;
@@ -20,9 +18,7 @@ import net.minecraft.client.gui.GuiGraphics;
 public class ModuleListModule extends HudElement {
 	private static final int LINE = 12;
 
-	private final EnumSetting<HudColors> colors = add(new EnumSetting<>("Colors", "How the names are coloured", HudColors.PASTEL));
-	private final ColorSetting color = add(new ColorSetting("Color", "Colour for Static", 0xFFFF77C8)).visibleWhen(() -> colors.is(HudColors.STATIC));
-	private final NumberSetting speed = add(new NumberSetting("Speed", "How fast the colours move", 2, 0.1, 10, 0.1)).visibleWhen(() -> !colors.is(HudColors.STATIC));
+	private final NumberSetting speed = add(new NumberSetting("Speed", "How fast the colours move", 2, 0.1, 10, 0.1)).visibleWhen(() -> Theme.listColors() != HudColors.STATIC);
 	private final BoolSetting info = add(new BoolSetting("Info", "Show each module's extra info, like its target", true));
 	private final BoolSetting boxes = add(new BoolSetting("Boxes", "A glass box behind each name", true));
 
@@ -73,7 +69,7 @@ public class ModuleListModule extends HudElement {
 			int y = onBottom() ? top + height(editing) - (i + 1) * LINE : top + i * LINE;
 			int x = onRight() ? left + width - textWidth - 4 : left + 4;
 			if (boxes.get()) Glass.draw(context, x - 4, y, x + textWidth + 4, y + LINE - 1, 4, backgroundColor(Theme.list()), false);
-			int tint = colors.get().at(i, speed.getFloat(), color.get());
+			int tint = Theme.listColors().at(i, speed.getFloat(), Theme.listColor());
 			context.drawString(mc.font, name, x, y + 2, tint);
 			if (extra != null) context.drawString(mc.font, " " + extra, x + mc.font.width(name), y + 2, mutedColor());
 		}
