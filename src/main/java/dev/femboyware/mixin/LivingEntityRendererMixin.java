@@ -18,6 +18,20 @@ public abstract class LivingEntityRendererMixin {
 	@org.spongepowered.asm.mixin.Shadow
 	public abstract net.minecraft.resources.Identifier getTextureLocation(LivingEntityRenderState state);
 
+	/**
+	 * Player Model: a reshaped player skips the Female Gender Mod's layers, which don't fit the
+	 * new shape, and as Tung Tung Tung Sahur skips every extra layer (held items, armour, cape).
+	 */
+	@com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation(method = "submit", at = @At(value = "INVOKE",
+		target = "Lnet/minecraft/client/renderer/entity/layers/RenderLayer;submit(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;ILnet/minecraft/client/renderer/entity/state/EntityRenderState;FF)V"), require = 0)
+	private void femboyware$playerModelLayers(net.minecraft.client.renderer.entity.layers.RenderLayer<?, ?> layer, com.mojang.blaze3d.vertex.PoseStack matrices,
+			net.minecraft.client.renderer.SubmitNodeCollector queue, int light, net.minecraft.client.renderer.entity.state.EntityRenderState state, float yaw, float pitch,
+			com.llamalad7.mixinextras.injector.wrapoperation.Operation<Void> original) {
+		if (state instanceof net.minecraft.client.renderer.entity.state.AvatarRenderState avatar && FemboyWare.getModules() != null
+			&& FemboyWare.getModules().get(dev.femboyware.module.render.PlayerModelModule.class).hidesLayer(layer, avatar)) return;
+		original.call(layer, matrices, queue, light, state, yaw, pitch);
+	}
+
 	/** Self Visuals: your tint and see-through. */
 	@ModifyReturnValue(method = "getModelTint", at = @At("RETURN"))
 	private int femboyware$selfTint(int original, LivingEntityRenderState state) {

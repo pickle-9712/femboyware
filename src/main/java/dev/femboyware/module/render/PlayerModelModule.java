@@ -107,6 +107,15 @@ public class PlayerModelModule extends Module {
 		return isEnabled() && mc.player != null && (others.get() || entityId == mc.player.getId());
 	}
 
+	/**
+	 * Whether this player's render layer is skipped: the Female Gender Mod's whenever they're
+	 * reshaped, and every layer as Tung Sahur, who has nothing to hold armour, items or a cape.
+	 */
+	public boolean hidesLayer(Object layer, AvatarRenderState state) {
+		if (!applies(state.id)) return false;
+		return shape.is(Shape.TUNG_SAHUR) || layer.getClass().getName().startsWith("com.wildfire.");
+	}
+
 	/** As Tung Sahur your own skin's arm isn't drawn in first person. */
 	public boolean hidesOwnArm() {
 		return isEnabled() && shape.is(Shape.TUNG_SAHUR);
