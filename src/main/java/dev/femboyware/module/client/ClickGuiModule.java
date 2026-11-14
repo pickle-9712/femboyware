@@ -72,8 +72,31 @@ public class ClickGuiModule extends Module {
 
 	@Override
 	protected void onDisable() {
+		// Let go of whatever the world screen was walking with
+		if (walking && !nullCheck()) {
+			for (net.minecraft.client.KeyMapping key : new net.minecraft.client.KeyMapping[]{mc.options.keyUp, mc.options.keyDown, mc.options.keyLeft,
+				mc.options.keyRight, mc.options.keyJump, mc.options.keySprint, mc.options.keyShift}) key.setDown(false);
+		}
+		walking = false;
 		// When the screen itself is closing it already disables us; only close it when toggled elsewhere
 		if (screen != null && Mc.screen() == screen && !screen.isClosing()) screen.onClose();
+	}
+
+	/** Whether movement keys were last let through for the world screen, to let go of them after. */
+	private boolean walking;
+
+	/** With the GUI hanging in the world you can walk around while it's open, unless you're typing. */
+	@Override
+	public void onTick() {
+		boolean walk = screen != null && Mc.screen() == screen && dev.femboyware.gui.WorldGui.showing(screen) && !screen.takesKeys();
+		net.minecraft.client.KeyMapping[] keys = {mc.options.keyUp, mc.options.keyDown, mc.options.keyLeft, mc.options.keyRight,
+			mc.options.keyJump, mc.options.keySprint, mc.options.keyShift};
+		if (walk) {
+			for (net.minecraft.client.KeyMapping key : keys) dev.femboyware.util.KeyUtil.sync(key);
+		} else if (walking) {
+			for (net.minecraft.client.KeyMapping key : keys) key.setDown(false);
+		}
+		walking = walk;
 	}
 
 	@Override

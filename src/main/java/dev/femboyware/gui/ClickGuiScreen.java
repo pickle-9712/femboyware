@@ -251,6 +251,11 @@ public class ClickGuiScreen extends Screen {
 		return new MouseButtonEvent(point[0], point[1], click.buttonInfo());
 	}
 
+	/** Whether a text box or key bind is taking your keys, so they shouldn't also walk you around. */
+	public boolean takesKeys() {
+		return searching || typing != null || binding != null || bindingKey != null || hudEditing;
+	}
+
 	public boolean isHudEditing() {
 		return hudEditing;
 	}
@@ -797,6 +802,9 @@ public class ClickGuiScreen extends Screen {
 	}
 
 	private void showGroup(Category.Group g, boolean favs) {
+		// A new section starts with an empty search
+		clearSearch();
+		searching = false;
 		group = g == null ? group : g;
 		favorites = favs;
 		open = null;
@@ -834,6 +842,8 @@ public class ClickGuiScreen extends Screen {
 				case GUI_SETTINGS -> openSettings(dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.client.ClickGuiModule.class));
 				case HUD_DONE -> hudEditing = false;
 				case CHIP -> {
+					clearSearch();
+					searching = false;
 					tab.put(group, row.category);
 					scroll = 0;
 					smooth = 0;
@@ -1038,7 +1048,8 @@ public class ClickGuiScreen extends Screen {
 			clearSearch();
 			return true;
 		}
-		if (open == null && !cards.isEmpty()) {
+		// In the world your keys walk you around, so they don't move the card focus
+		if (open == null && !cards.isEmpty() && !WorldGui.showing(this)) {
 			int n = cards.size();
 			switch (key) {
 				case GLFW.GLFW_KEY_TAB -> {
@@ -1074,8 +1085,10 @@ public class ClickGuiScreen extends Screen {
 			editor(typing).type(input.codepointAsString());
 			return true;
 		}
-		// Typing with nothing else focused goes straight into the search
-		if (!hudEditing && binding == null && bindingKey == null && input.isAllowedChatCharacter() && (searching || !input.codepointAsString().isBlank())) {
+		// Typing with nothing else focused goes straight into the search; in the world only once
+		// you've clicked into it, so WASD walks instead
+		boolean autoSearch = !input.codepointAsString().isBlank() && !WorldGui.showing(this);
+		if (!hudEditing && binding == null && bindingKey == null && input.isAllowedChatCharacter() && (searching || autoSearch)) {
 			searching = true;
 			open = null;
 			scroll = 0;
