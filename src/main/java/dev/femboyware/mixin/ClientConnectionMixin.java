@@ -2,6 +2,7 @@ package dev.femboyware.mixin;
 
 import dev.femboyware.FemboyWare;
 import dev.femboyware.event.PacketEvent;
+import dev.femboyware.module.combat.BacktrackModule;
 import dev.femboyware.util.TickRate;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
@@ -24,9 +25,10 @@ public class ClientConnectionMixin {
 			for (Packet<?> inner : bundle.subPackets()) {
 				FemboyWare.getModules().onPacketReceive(new PacketEvent(inner));
 			}
+			if (BacktrackModule.hold(packet)) ci.cancel();
 			return;
 		}
-		if (FemboyWare.getModules().onPacketReceive(new PacketEvent(packet))) ci.cancel();
+		if (FemboyWare.getModules().onPacketReceive(new PacketEvent(packet)) || BacktrackModule.hold(packet)) ci.cancel();
 	}
 
 	@Inject(method = "send(Lnet/minecraft/network/protocol/Packet;Lio/netty/channel/ChannelFutureListener;Z)V", at = @At("HEAD"), cancellable = true)

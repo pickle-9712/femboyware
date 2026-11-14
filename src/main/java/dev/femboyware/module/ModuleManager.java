@@ -230,6 +230,7 @@ public class ModuleManager {
 		register(new AutoAnchorModule());
 		register(new AuraModule());
 		register(new LegitAuraModule());
+		register(new dev.femboyware.module.combat.BacktrackModule());
 		register(new LegitCrystalModule());
 		register(new LegitAnchorModule());
 		register(new LegitTotemModule());
@@ -382,6 +383,8 @@ public class ModuleManager {
 		register(new TracersModule());
 		// Customize: Targets
 		register(new dev.femboyware.module.effects.TargetParticlesModule());
+		register(new dev.femboyware.module.effects.SpellHitsModule());
+		register(new dev.femboyware.module.effects.SpectralAuraModule());
 		register(new dev.femboyware.module.larp.FakeSpawnerModule());
 		register(new dev.femboyware.module.larp.FakePayModule());
 		register(new dev.femboyware.module.larp.CasinoModule());
