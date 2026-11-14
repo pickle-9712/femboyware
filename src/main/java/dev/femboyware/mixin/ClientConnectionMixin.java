@@ -25,10 +25,10 @@ public class ClientConnectionMixin {
 			for (Packet<?> inner : bundle.subPackets()) {
 				FemboyWare.getModules().onPacketReceive(new PacketEvent(inner));
 			}
-			if (BacktrackModule.hold(packet)) ci.cancel();
+			if (BacktrackModule.hold((Connection) (Object) this, packet)) ci.cancel();
 			return;
 		}
-		if (FemboyWare.getModules().onPacketReceive(new PacketEvent(packet)) || BacktrackModule.hold(packet)) ci.cancel();
+		if (FemboyWare.getModules().onPacketReceive(new PacketEvent(packet)) || BacktrackModule.hold((Connection) (Object) this, packet)) ci.cancel();
 	}
 
 	@Inject(method = "send(Lnet/minecraft/network/protocol/Packet;Lio/netty/channel/ChannelFutureListener;Z)V", at = @At("HEAD"), cancellable = true)

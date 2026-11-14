@@ -74,7 +74,7 @@ public class SpectralAuraModule extends PlayerFxModule {
 	private final NumberSetting emberCount = under(embers, new NumberSetting("Embers", "How many embers", 18, 4, 60, 1));
 	private final NumberSetting emberSpeed = under(embers, new NumberSetting("Ember Speed", "How fast they rise", 1, 0.2, 3, 0.05));
 
-	private final Palette palette = palette(0xFF7FE8FF, 0xFFB98AFF);
+	private final Palette palette = palette(0xFFFFFFFF, 0xFFBFE4FF);
 	private final EnumSetting<ShowOn> showOn = showOnSetting();
 
 	private record Print(Vec3 pos, float yaw, boolean left, long born) {

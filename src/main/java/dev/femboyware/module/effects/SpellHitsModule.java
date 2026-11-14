@@ -36,6 +36,12 @@ public class SpellHitsModule extends FxModule {
 	private final NumberSetting scale = add(new NumberSetting("Scale", "How big the effects are", 1, 0.4, 2.5, 0.05));
 	private final BoolSetting throughWalls = add(new BoolSetting("Through Walls", "Draw over terrain", false));
 
+	private final BoolSetting bloom = add(new BoolSetting("White Bloom", "A big white flash swallowing them on every hit", true));
+	private final NumberSetting bloomSize = under(bloom, new NumberSetting("Bloom Size", "How big the flash gets", 1, 0.3, 2.5, 0.05));
+
+	private final BoolSetting slashes = add(new BoolSetting("Crescent Slash", "White crescents slicing across them", true));
+	private final NumberSetting slashCount = under(slashes, new NumberSetting("Slashes", "How many crescents per hit", 2, 1, 5, 1));
+
 	private final BoolSetting sigil = add(new BoolSetting("Sigil Burst", "A rune circle bursting open where your hit lands", true));
 	private final NumberSetting sigilRunes = under(sigil, new NumberSetting("Sigil Runes", "How many runes round the circle", 6, 0, 12, 1));
 
@@ -52,7 +58,7 @@ public class SpellHitsModule extends FxModule {
 	private final BoolSetting sparks = add(new BoolSetting("Shatter Sparks", "Shards bursting off them and falling away", true));
 	private final NumberSetting sparkCount = under(sparks, new NumberSetting("Sparks", "How many shards per hit", 14, 4, 40, 1));
 
-	private final Palette palette = palette(0xFFB98AFF, 0xFF7FE8FF);
+	private final Palette palette = palette(0xFFFFFFFF, 0xFFBFE4FF);
 
 	/** Where the hit landed, relative to their feet, so effects follow them; and where you hit from. */
 	private record Hit(LivingEntity target, Vec3 offset, float yaw, long start, long seed) {
@@ -103,6 +109,7 @@ public class SpellHitsModule extends FxModule {
 			if (shockwave.get()) shockwave(event, light, hit, feet, cam, age);
 			if (blades.get()) blades(event, light, hit, feet, cam, age);
 			if (sigil.get()) sigil(event, light, hit, feet, cam, age);
+			if (slashes.get()) slashes(event, light, hit, feet, cam, age);
 		}
 		VertexConsumer glow = FxRender.textured(event, FxRender.GLOW, true, walls);
 		for (Hit hit : hits) {
@@ -111,6 +118,7 @@ public class SpellHitsModule extends FxModule {
 			Vec3 impact = feet.add(hit.offset());
 			// A flash where it landed
 			if (age < 0.25f) FxRender.glow(event, glow, impact, 0.6f * scale.getFloat() * (1 - age * 2), FxRender.fade(FxRender.lighten(palette.at(0), 0.6f), 1 - age * 4));
+			if (bloom.get()) bloom(event, glow, hit, feet, age);
 			if (soulRip.get()) soulRip(event, glow, hit, impact, tickDelta, age);
 			if (sparks.get()) sparks(event, glow, hit, impact, age);
 		}
@@ -118,6 +126,68 @@ public class SpellHitsModule extends FxModule {
 
 	private static float easeOut(float t) {
 		return 1 - (1 - t) * (1 - t) * (1 - t);
+	}
+
+	/** A big white flash swallowing them, blooming out fast and fading, with a softer halo round it. */
+	private void bloom(Render3DEvent event, VertexConsumer glow, Hit hit, Vec3 feet, float age) {
+		float t = age / 0.45f;
+		if (t >= 1) return;
+		float grow = easeOut(Math.min(1, age / 0.18f));
+		float alpha = (1 - t) * (1 - t);
+		float h = hit.target().getBbHeight(), size = bloomSize.getFloat() * scale.getFloat();
+		Vec3 middle = feet.add(0, h / 2, 0);
+		int white = FxRender.lighten(palette.at(0), 0.7f);
+		// Stacked, so the middle blows out to pure white like an overexposed flash
+		for (int k = 0; k < 3; k++) {
+			FxRender.glow(event, glow, middle, (0.7f + 1.2f * grow) * h * 0.7f * size * (1 - k * 0.2f), FxRender.fade(white, alpha));
+		}
+		FxRender.glow(event, glow, middle, (1f + 1.8f * grow) * h * 0.75f * size, FxRender.fade(palette.at(0.5f), 0.7f * alpha));
+		FxRender.glow(event, glow, middle.add(0, h * 0.25, 0), 0.8f * h * size * grow, FxRender.fade(white, 0.8f * alpha));
+		FxRender.glow(event, glow, middle.add(0, -h * 0.25, 0), 0.8f * h * size * grow, FxRender.fade(white, 0.8f * alpha));
+	}
+
+	/**
+	 * Crescents swept across them on tilted planes: the leading edge races round, the tail follows
+	 * it, fat in the middle and sharp at both tips, like a sword's slash caught in light.
+	 */
+	private void slashes(Render3DEvent event, VertexConsumer light, Hit hit, Vec3 feet, Vec3 cam, float age) {
+		Random random = new Random(hit.seed() * 7 + 3);
+		int n = slashCount.getInt();
+		float h = hit.target().getBbHeight();
+		PoseStack matrices = event.matrices();
+		for (int i = 0; i < n; i++) {
+			float start = i * 0.06f;
+			float t = (age - start) / 0.5f;
+			float tilt = -55 + random.nextFloat() * 110, turn = random.nextFloat() * 60 - 30;
+			float radius = (0.75f + random.nextFloat() * 0.35f) * scale.getFloat() * Math.max(1, h / 1.8f);
+			if (t <= 0 || t >= 1) continue;
+			float head = easeOut(Math.min(1, t * 2.2f)), tail = easeOut(Math.max(0, t * 1.6f - 0.35f));
+			float alpha = 1 - Math.max(0, (t - 0.45f) / 0.55f);
+			matrices.pushPose();
+			matrices.translate((float) (feet.x - cam.x), (float) (feet.y - cam.y) + h * 0.55f, (float) (feet.z - cam.z));
+			matrices.mulPose(Axis.YP.rotationDegrees(-hit.yaw() + 90 + turn));
+			matrices.mulPose(Axis.ZP.rotationDegrees(tilt));
+			PoseStack.Pose pose = matrices.last();
+			float span = (float) Math.toRadians(220), from = (float) Math.toRadians(-110);
+			int segments = 28;
+			int core = FxRender.lighten(palette.at(i / (float) n), 0.6f), edge = palette.at(0.5f + i / (float) n);
+			for (int k = 0; k < segments; k++) {
+				float u1 = tail + (head - tail) * k / segments, u2 = tail + (head - tail) * (k + 1) / segments;
+				if (head - tail <= 0.001f) break;
+				float a1 = from + span * u1, a2 = from + span * u2;
+				// Fat in the middle of the visible stroke, sharp at both ends
+				float w1 = 0.32f * (float) Math.sin(Math.PI * k / segments), w2 = 0.32f * (float) Math.sin(Math.PI * (k + 1) / segments);
+				float c1 = (float) Math.cos(a1), s1 = (float) Math.sin(a1), c2 = (float) Math.cos(a2), s2 = (float) Math.sin(a2);
+				int in1 = FxRender.fade(edge, 0), in2 = FxRender.fade(edge, 0);
+				int mid1 = FxRender.fade(core, alpha * (0.4f + 0.6f * k / segments)), mid2 = FxRender.fade(core, alpha * (0.4f + 0.6f * (k + 1) / segments));
+				// Two strips per segment: soft inside edge to the bright line, and the bright line out to a soft outside edge
+				FxRender.quad(light, pose, c1 * (radius - w1), 0, s1 * (radius - w1), in1, c2 * (radius - w2), 0, s2 * (radius - w2), in2,
+					c2 * radius, 0, s2 * radius, mid2, c1 * radius, 0, s1 * radius, mid1);
+				FxRender.quad(light, pose, c1 * radius, 0, s1 * radius, mid1, c2 * radius, 0, s2 * radius, mid2,
+					c2 * (radius + w2 * 0.5f), 0, s2 * (radius + w2 * 0.5f), FxRender.fade(edge, 0), c1 * (radius + w1 * 0.5f), 0, s1 * (radius + w1 * 0.5f), FxRender.fade(edge, 0));
+			}
+			matrices.popPose();
+		}
 	}
 
 	/** A rune circle facing you at the impact point, flaring open and turning as it fades. */
