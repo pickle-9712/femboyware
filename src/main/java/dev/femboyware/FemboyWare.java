@@ -25,7 +25,9 @@ import org.slf4j.LoggerFactory;
 
 public class FemboyWare implements ClientModInitializer {
 	public static final String NAME = "femboyware";
-	public static final String VERSION = "1.0.0";
+	/** From the jar's fabric.mod.json (mod.version in stonecutter.properties.toml), minus the "+mc version" suffix. */
+	public static final String VERSION = net.fabricmc.loader.api.FabricLoader.getInstance().getModContainer(NAME)
+		.map(c -> c.getMetadata().getVersion().getFriendlyString().split("\\+")[0]).orElse("dev");
 	public static final Logger LOGGER = LoggerFactory.getLogger(NAME);
 
 	private static ModuleManager modules;
