@@ -637,18 +637,62 @@ public class ServerLarpModule extends Module {
 		if (!larping || !(target instanceof EndCrystal crystal) || !crystals.remove(crystal) || crystal.isRemoved()) return false;
 		Vec3 center = crystal.position();
 		crystal.discard();
+		mc.player.swing(InteractionHand.MAIN_HAND);
+		blast(center, 6f);
+		return true;
+	}
+
+	/**
+	 * An explosion here only, of {@code power} (crystals 6, anchors 5): the boom, fake players hurt
+	 * and knocked back, drops in reach destroyed, and crystals caught in it set off too.
+	 */
+	private void blast(Vec3 center, float power) {
 		mc.level.playLocalSound(center.x, center.y, center.z, SoundEvents.GENERIC_EXPLODE.value(), SoundSource.BLOCKS, 4f, 0.7f + java.util.concurrent.ThreadLocalRandom.current().nextFloat() * 0.2f, false);
 		mc.level.addParticle(ParticleTypes.EXPLOSION_EMITTER, center.x, center.y, center.z, 1, 0, 0);
-		mc.player.swing(InteractionHand.MAIN_HAND);
-		FemboyWare.getModules().get(FakePlayerModule.class).onExplosion(center, 6f);
-		DamageSource blast = mc.level.damageSources().explosion(null, null);
+		FemboyWare.getModules().get(FakePlayerModule.class).onExplosion(center, power);
+		DamageSource source = mc.level.damageSources().explosion(null, null);
+		double reach = power * 2;
 		for (ItemEntity drop : drops) {
-			if (drop.distanceToSqr(center) < 144 && ServerExplosion.getSeenPercent(center, drop) > 0 && drop.getItem().canBeHurtBy(blast)) drop.discard();
+			if (drop.distanceToSqr(center) < reach * reach && ServerExplosion.getSeenPercent(center, drop) > 0 && drop.getItem().canBeHurtBy(source)) drop.discard();
 		}
-		// Crystals caught in the blast go off too
 		for (EndCrystal other : new ArrayList<>(crystals)) {
 			if (other.distanceToSqr(center) < 36) onAttack(other);
 		}
+	}
+
+	/**
+	 * Respawn anchors, here since the server isn't listening: glowstone charges them (up to four),
+	 * and using a charged one outside the Nether blows it up like it would for real. In the Nether
+	 * it sets your spawn, as far as anyone can tell. True if it did something.
+	 */
+	private boolean useAnchor(LocalPlayer player, InteractionHand hand, BlockPos pos, BlockState state) {
+		int charge = state.getValue(net.minecraft.world.level.block.RespawnAnchorBlock.CHARGE);
+		ItemStack held = player.getItemInHand(hand);
+		double x = pos.getX() + 0.5, y = pos.getY() + 0.5, z = pos.getZ() + 0.5;
+		var handler = ((dev.femboyware.mixin.ClientLevelAccessor) mc.level).femboyware$getPredictionHandler();
+		if (held.is(Items.GLOWSTONE) && charge < 4) {
+			try (var predicting = handler.startPredicting()) {
+				mc.level.setBlock(pos, state.setValue(net.minecraft.world.level.block.RespawnAnchorBlock.CHARGE, charge + 1), 3);
+			}
+			if (!player.getAbilities().instabuild) held.shrink(1);
+			mc.level.playLocalSound(x, y, z, SoundEvents.RESPAWN_ANCHOR_CHARGE, SoundSource.BLOCKS, 1f, 1f, false);
+			player.swing(hand);
+			return true;
+		}
+		// Glowstone in the other hand charges it instead, like vanilla
+		if (charge < 4 && hand == InteractionHand.MAIN_HAND && player.getOffhandItem().is(Items.GLOWSTONE)) return false;
+		if (charge == 0 || hand != InteractionHand.MAIN_HAND) return false;
+		if (mc.level.dimension() == net.minecraft.world.level.Level.NETHER) {
+			mc.level.playLocalSound(x, y, z, SoundEvents.RESPAWN_ANCHOR_SET_SPAWN, SoundSource.BLOCKS, 1f, 1f, false);
+			Mc.actionBar(net.minecraft.client.resources.language.I18n.get("block.minecraft.set_spawn"));
+			player.swing(hand);
+			return true;
+		}
+		try (var predicting = handler.startPredicting()) {
+			mc.level.setBlock(pos, Blocks.AIR.defaultBlockState(), 3);
+		}
+		player.swing(hand);
+		blast(new Vec3(x, y, z), 5f);
 		return true;
 	}
 
@@ -718,6 +762,9 @@ public class ServerLarpModule extends Module {
 			BlockState base = mc.level.getBlockState(hit.getBlockPos());
 			if (base.is(Blocks.OBSIDIAN) || base.is(Blocks.BEDROCK)) return placeCrystal(player, hand, hit.getBlockPos());
 		}
+		if (mc.level.getBlockState(hit.getBlockPos()).getBlock() instanceof net.minecraft.world.level.block.RespawnAnchorBlock
+			&& !(player.isSecondaryUseActive() && !player.getItemInHand(hand).isEmpty())
+			&& useAnchor(player, hand, hit.getBlockPos(), mc.level.getBlockState(hit.getBlockPos()))) return true;
 		if (hand != InteractionHand.MAIN_HAND) return false;
 		// Sneaking with something in hand places it, as usual
 		if (player.isSecondaryUseActive() && !player.getMainHandItem().isEmpty()) return false;
