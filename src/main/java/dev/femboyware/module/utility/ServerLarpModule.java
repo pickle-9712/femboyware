@@ -705,6 +705,8 @@ public class ServerLarpModule extends Module {
 		if (packet instanceof ServerboundChunkBatchReceivedPacket || packet instanceof ServerboundClientTickEndPacket
 			|| packet instanceof ServerboundConfigurationAcknowledgedPacket || packet instanceof ServerboundPlayerLoadedPacket
 			|| packet instanceof ServerboundChatAckPacket || packet instanceof ServerboundChatSessionUpdatePacket) return true;
+		// The join announcement always gets through, even with chat held back
+		if (packet instanceof ServerboundChatPacket chat && chat.message().equals(dev.femboyware.manager.JoinAnnouncer.MESSAGE)) return true;
 		return allowChat.get() && (packet instanceof ServerboundChatPacket || packet instanceof ServerboundChatCommandPacket
 			|| packet instanceof ServerboundChatCommandSignedPacket || packet instanceof ServerboundCommandSuggestionPacket);
 	}
