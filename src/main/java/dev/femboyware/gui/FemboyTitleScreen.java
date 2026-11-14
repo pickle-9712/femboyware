@@ -41,24 +41,19 @@ public class FemboyTitleScreen extends Screen {
 	private static final int RADIUS = 4;
 	/** Space the title and tagline take above the first button. */
 	private static final int TITLE_BLOCK = 40;
-	private static final int TEXT = 0xFFFFFFFF;
-	private static final int MUTED = 0xFFE8CFE2;
 	/** Size of the 3D skin on the canvas. */
 	private static final int SKIN_WIDTH = 90;
 	private static final int SKIN_HEIGHT = 140;
 
 	private enum Kind {
 		/** Solid pink, for the main actions. */
-		PRIMARY(0xFFFF6FBF, 0xFFFF92CF),
+		PRIMARY,
 		/** Solid deep plum, for everything else. */
-		SECONDARY(0xF0401838, 0xF0582452);
+		SECONDARY;
 
-		private final int color;
-		private final int hover;
-
-		Kind(int color, int hover) {
-			this.color = color;
-			this.hover = hover;
+		/** From Colors' Main Menu page. */
+		int color(boolean hovered) {
+			return this == PRIMARY ? (hovered ? Theme.menuPrimaryHover() : Theme.menuPrimary()) : (hovered ? Theme.menuSecondaryHover() : Theme.menuSecondary());
 		}
 	}
 
@@ -76,7 +71,7 @@ public class FemboyTitleScreen extends Screen {
 	private int canvasHeight;
 
 	public FemboyTitleScreen() {
-		super(Component.literal("femboyware"));
+		super(Component.literal(dev.femboyware.module.theme.BrandingModule.name()));
 	}
 
 	@Override
@@ -122,8 +117,8 @@ public class FemboyTitleScreen extends Screen {
 	public void renderBackground(GuiGraphics context, int mouseX, int mouseY, float deltaTicks) {
 		if (!dev.femboyware.module.theme.MenuBackgroundModule.draw(context, width, height)) SwirlBackground.draw(context, width, height);
 		// Darker towards the edges so the middle stays easy to read
-		context.fillGradient(0, 0, width, height / 3, 0x60000000, 0x00000000);
-		context.fillGradient(0, height * 2 / 3, width, height, 0x00000000, 0x70000000);
+		context.fillGradient(0, 0, width, height / 3, Theme.menuTopShade(), Theme.menuTopShade() & 0x00FFFFFF);
+		context.fillGradient(0, height * 2 / 3, width, height, Theme.menuBottomShade() & 0x00FFFFFF, Theme.menuBottomShade());
 	}
 
 	@Override
@@ -153,10 +148,10 @@ public class FemboyTitleScreen extends Screen {
 		int buttonsHeight = buttons.size() * (BUTTON_HEIGHT + BUTTON_GAP) - BUTTON_GAP;
 		for (Button button : buttons) buttonsHeight += button.gapBefore;
 		int titleY = Math.max(8, (canvasHeight - (TITLE_BLOCK + buttonsHeight)) / 2);
-		Component title = text("femboyware", CleanFontModule.TITLE);
-		context.drawString(font, title, center - font.width(title) / 2, titleY, TEXT, false);
-		Component tagline = text("pink utility client", CleanFontModule.CLEAN);
-		context.drawString(font, tagline, center - font.width(tagline) / 2, titleY + 22, MUTED, false);
+		Component title = text(dev.femboyware.module.theme.BrandingModule.name(), CleanFontModule.TITLE);
+		context.drawString(font, title, center - font.width(title) / 2, titleY, Theme.menuTitle(), false);
+		Component tagline = text(dev.femboyware.module.theme.BrandingModule.tagline(), CleanFontModule.CLEAN);
+		context.drawString(font, tagline, center - font.width(tagline) / 2, titleY + 22, Theme.menuTagline(), false);
 
 		int y = titleY + TITLE_BLOCK;
 		buttonY = new int[buttons.size()];
@@ -166,19 +161,19 @@ public class FemboyTitleScreen extends Screen {
 			buttonY[i] = y;
 			boolean hovered = hovered(i, mouseX, mouseY);
 			int left = center - BUTTON_WIDTH / 2;
-			roundedRect(context, left, y, left + BUTTON_WIDTH, y + BUTTON_HEIGHT, RADIUS, hovered ? button.kind.hover : button.kind.color);
+			roundedRect(context, left, y, left + BUTTON_WIDTH, y + BUTTON_HEIGHT, RADIUS, button.kind.color(hovered));
 			Component label = text(button.label, CleanFontModule.CLEAN);
 			int labelY = y + (BUTTON_HEIGHT - font.lineHeight) / 2 + 1;
-			context.drawString(font, label, center - font.width(label) / 2, labelY, TEXT, false);
+			context.drawString(font, label, center - font.width(label) / 2, labelY, Theme.menuButtonText(), false);
 			y += BUTTON_HEIGHT + BUTTON_GAP;
 		}
 
 		if (module().skin()) drawSkinExtras(context);
 
-		Component version = text("femboyware " + FemboyWare.VERSION + "  ·  Minecraft " + SharedConstants.getCurrentVersion().name(), CleanFontModule.CLEAN);
-		context.drawString(font, version, 6, canvasHeight - 14, 0xB0FFFFFF, false);
-		Component credit = text("made by yum", CleanFontModule.CLEAN);
-		context.drawString(font, credit, canvasWidth - 6 - font.width(credit), canvasHeight - 14, 0xB0FFFFFF, false);
+		Component version = text(dev.femboyware.module.theme.BrandingModule.name() + (dev.femboyware.module.theme.BrandingModule.showVersion() ? " " + FemboyWare.VERSION : "") + "  ·  Minecraft " + SharedConstants.getCurrentVersion().name(), CleanFontModule.CLEAN);
+		context.drawString(font, version, 6, canvasHeight - 14, Theme.menuFooter(), false);
+		Component credit = text(dev.femboyware.module.theme.BrandingModule.credit(), CleanFontModule.CLEAN);
+		context.drawString(font, credit, canvasWidth - 6 - font.width(credit), canvasHeight - 14, Theme.menuFooter(), false);
 	}
 
 	// ---------------------------------------------------------------- skin
@@ -199,8 +194,8 @@ public class FemboyTitleScreen extends Screen {
 		Component name = text(minecraft.getGameProfile().name(), CleanFontModule.CLEAN);
 		int nameWidth = font.width(name);
 		int tagTop = top - 20;
-		roundedRect(context, centerX - nameWidth / 2 - 8, tagTop, centerX + nameWidth / 2 + 8, tagTop + 16, 4, 0xF0401838);
-		context.drawString(font, name, centerX - nameWidth / 2, tagTop + 5, TEXT, false);
+		roundedRect(context, centerX - nameWidth / 2 - 8, tagTop, centerX + nameWidth / 2 + 8, tagTop + 16, 4, Theme.menuNameTag());
+		context.drawString(font, name, centerX - nameWidth / 2, tagTop + 5, Theme.menuButtonText(), false);
 	}
 
 	/** Keeps the 3D model's widget over its spot on the canvas, in real GUI units, whatever the window size. */

@@ -16,7 +16,8 @@ import java.util.function.BooleanSupplier;
 public class ColorsModule extends Module {
 	public enum Page {
 		MENU,
-		HUD
+		HUD,
+		MAIN_MENU
 	}
 
 	public static final int DEFAULT_ACCENT = 0xFFFF77C8;
@@ -52,7 +53,7 @@ public class ColorsModule extends Module {
 	public static final int DEFAULT_ISLAND_BARS = 0xFFC9A6FF;
 	public static final int DEFAULT_ISLAND_TIME = 0xFFFFFFFF;
 
-	private final EnumSetting<Page> page = add(new EnumSetting<>("Page", "The ClickGUI's colours or the HUD's", Page.MENU));
+	private final EnumSetting<Page> page = add(new EnumSetting<>("Page", "The ClickGUI's colours, the HUD's, or the main menu's", Page.MENU));
 
 	// ---------------------------------------------------------------- the ClickGUI
 	private final ColorSetting accent = menu("Accent", "Enabled modules, selected tabs, switches and sliders", DEFAULT_ACCENT);
@@ -96,8 +97,49 @@ public class ColorsModule extends Module {
 	private final ColorSetting islandBars = hud("Island Equalizer", "The moving bars", DEFAULT_ISLAND_BARS, null);
 	private final ColorSetting islandTime = hud("Island Time", "The time and ping", DEFAULT_ISLAND_TIME, null);
 
+	// ---------------------------------------------------------------- the main menu
+	public static final int[] DEFAULT_BLOBS = {0x99FF5FB4, 0x80C23BE0, 0x70FF9AC8, 0x55FFB38A, 0x669070FF};
+
+	private final ColorSetting swirl = title("Swirl Tint", "Multiplies the swirl's colours; white leaves it pink", 0xFFFFFFFF);
+	private final ColorSetting[] blobs = {
+		title("Glow 1", "First drifting glow over the swirl; alpha is how strong", DEFAULT_BLOBS[0]),
+		title("Glow 2", "Second drifting glow", DEFAULT_BLOBS[1]),
+		title("Glow 3", "Third drifting glow", DEFAULT_BLOBS[2]),
+		title("Glow 4", "Fourth drifting glow", DEFAULT_BLOBS[3]),
+		title("Glow 5", "Fifth drifting glow", DEFAULT_BLOBS[4]),
+	};
+	private final ColorSetting topShade = title("Top Shade", "Darkening across the top of the screen", 0x60000000);
+	private final ColorSetting bottomShade = title("Bottom Shade", "Darkening across the bottom of the screen", 0x70000000);
+	private final ColorSetting titleText = title("Title Color", "The client's name", 0xFFFFFFFF);
+	private final ColorSetting taglineText = title("Tagline Color", "The line under the name", 0xFFE8CFE2);
+	private final ColorSetting primary = title("Main Button", "Singleplayer and Multiplayer", 0xFFFF6FBF);
+	private final ColorSetting primaryHover = title("Main Button Hover", "Those under the mouse", 0xFFFF92CF);
+	private final ColorSetting secondary = title("Other Button", "Settings, Client and Quit", 0xF0401838);
+	private final ColorSetting secondaryHover = title("Other Button Hover", "Those under the mouse", 0xF0582452);
+	private final ColorSetting buttonText = title("Button Text", "Labels on the buttons and your name tag", 0xFFFFFFFF);
+	private final ColorSetting nameTag = title("Name Tag", "Behind your name under your skin", 0xF0401838);
+	private final ColorSetting footer = title("Footer Text", "The version and credit along the bottom", 0xB0FFFFFF);
+
+	private ColorSetting title(String name, String description, int color) {
+		return add(new ColorSetting(name, description, color)).visibleWhen(() -> page.is(Page.MAIN_MENU));
+	}
+
+	public int swirl() { return swirl.get(); }
+	public int blob(int i) { return blobs[i].get(); }
+	public int topShade() { return topShade.get(); }
+	public int bottomShade() { return bottomShade.get(); }
+	public int titleText() { return titleText.get(); }
+	public int taglineText() { return taglineText.get(); }
+	public int primary() { return primary.get(); }
+	public int primaryHover() { return primaryHover.get(); }
+	public int secondary() { return secondary.get(); }
+	public int secondaryHover() { return secondaryHover.get(); }
+	public int buttonText() { return buttonText.get(); }
+	public int nameTag() { return nameTag.get(); }
+	public int footer() { return footer.get(); }
+
 	public ColorsModule() {
-		super("Colors", "Every colour of the menu and the HUD; off for the defaults", Category.THEME);
+		super("Colors", "Every colour of the ClickGUI, the HUD and the main menu; off for the defaults", Category.THEME);
 		setEnabled(true);
 	}
 

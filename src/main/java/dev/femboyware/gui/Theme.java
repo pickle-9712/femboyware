@@ -232,6 +232,22 @@ public final class Theme {
 		return p != null ? 0xFF000000 | p.text() : color(ColorsModule::islandTime, ColorsModule.DEFAULT_ISLAND_TIME);
 	}
 
+	// ---------------------------------------------------------------- the main menu
+
+	public static int swirl() { return color(ColorsModule::swirl, 0xFFFFFFFF); }
+	public static int blob(int i) { return color(c -> c.blob(i), ColorsModule.DEFAULT_BLOBS[i]); }
+	public static int menuTopShade() { return color(ColorsModule::topShade, 0x60000000); }
+	public static int menuBottomShade() { return color(ColorsModule::bottomShade, 0x70000000); }
+	public static int menuTitle() { return color(ColorsModule::titleText, 0xFFFFFFFF); }
+	public static int menuTagline() { return color(ColorsModule::taglineText, 0xFFE8CFE2); }
+	public static int menuPrimary() { return color(ColorsModule::primary, 0xFFFF6FBF); }
+	public static int menuPrimaryHover() { return color(ColorsModule::primaryHover, 0xFFFF92CF); }
+	public static int menuSecondary() { return color(ColorsModule::secondary, 0xF0401838); }
+	public static int menuSecondaryHover() { return color(ColorsModule::secondaryHover, 0xF0582452); }
+	public static int menuButtonText() { return color(ColorsModule::buttonText, 0xFFFFFFFF); }
+	public static int menuNameTag() { return color(ColorsModule::nameTag, 0xF0401838); }
+	public static int menuFooter() { return color(ColorsModule::footer, 0xB0FFFFFF); }
+
 	// ---------------------------------------------------------------- helpers
 
 	private static int color(ToIntFunction<ColorsModule> getter, int fallback) {

@@ -27,7 +27,7 @@ public final class ChatUtil {
 	/** Straight to chat, whatever the Notifications module says. */
 	public static void chat(String message) {
 		if (Minecraft.getInstance().gui == null) return;
-		Mc.addChat(Component.literal("[femboyware] ").withStyle(ChatFormatting.LIGHT_PURPLE)
+		Mc.addChat(Component.literal("[" + dev.femboyware.module.theme.BrandingModule.name() + "] ").withStyle(ChatFormatting.LIGHT_PURPLE)
 			.append(Component.literal(message).withStyle(ChatFormatting.WHITE)));
 	}
 

@@ -869,7 +869,7 @@ public class FakePlayerModule extends Module {
 			return;
 		}
 		(target == Rank.STAFF ? staffTag : mediaTag).set(template);
-		Mc.addChat(Component.literal("[femboyware] " + EnumSetting.prettify(target.name()) + " now looks like: ").append(ranked(template, "Name")));
+		Mc.addChat(Component.literal("[" + dev.femboyware.module.theme.BrandingModule.name() + "] " + EnumSetting.prettify(target.name()) + " now looks like: ").append(ranked(template, "Name")));
 	}
 
 	private Map<String, Rank> rankMap() {

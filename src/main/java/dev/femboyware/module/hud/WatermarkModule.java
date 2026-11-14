@@ -18,7 +18,7 @@ public class WatermarkModule extends HudElement {
 	}
 
 	private String text() {
-		return FemboyWare.NAME + " v" + FemboyWare.VERSION;
+		return dev.femboyware.module.theme.BrandingModule.nameWithVersion();
 	}
 
 	@Override

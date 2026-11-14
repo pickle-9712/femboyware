@@ -52,11 +52,12 @@ public final class SwirlBackground {
 		context.pose().pushMatrix();
 		context.pose().translate(width / 2f + driftX, height / 2f + driftY);
 		context.pose().rotate((float) (time * 0.025 % (Math.PI * 2)));
-		context.blit(RenderPipelines.GUI_TEXTURED, SWIRL, -size / 2, -size / 2, 0, 0, size, size, SWIRL_SIZE, SWIRL_SIZE, SWIRL_SIZE, SWIRL_SIZE);
+		context.blit(RenderPipelines.GUI_TEXTURED, SWIRL, -size / 2, -size / 2, 0, 0, size, size, SWIRL_SIZE, SWIRL_SIZE, SWIRL_SIZE, SWIRL_SIZE, Theme.swirl());
 		context.pose().popMatrix();
 
 		// The blobs, each moved by the matrix rather than whole GUI units so they glide smoothly
-		for (Blob blob : BLOBS) {
+		for (int i = 0; i < BLOBS.length; i++) {
+			Blob blob = BLOBS[i];
 			float x = width * (0.5f + blob.rangeX * (float) Math.sin(time * blob.speedX * Math.PI * 2 + blob.phase));
 			float y = height * (0.5f + blob.rangeY * (float) Math.cos(time * blob.speedY * Math.PI * 2 + blob.phase * 1.3f));
 			float swell = 1 + 0.1f * (float) Math.sin(time * 0.18 + blob.phase);
@@ -64,7 +65,7 @@ public final class SwirlBackground {
 			context.pose().pushMatrix();
 			context.pose().translate(x, y);
 			context.blit(RenderPipelines.GUI_TEXTURED, BLOB, -blobSize / 2, -blobSize / 2, 0, 0, blobSize, blobSize,
-				BLOB_SIZE, BLOB_SIZE, BLOB_SIZE, BLOB_SIZE, blob.color);
+				BLOB_SIZE, BLOB_SIZE, BLOB_SIZE, BLOB_SIZE, Theme.blob(i));
 			context.pose().popMatrix();
 		}
 	}

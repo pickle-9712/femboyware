@@ -80,7 +80,7 @@ public class NotificationsModule extends HudElement {
 		if (where == Where.CHAT) return false;
 		if (where == Where.HIDDEN) return true;
 		// "Phase: no ender pearl" reads as a title and a line
-		String title = "femboyware", text = message;
+		String title = dev.femboyware.module.theme.BrandingModule.name(), text = message;
 		int colon = message.indexOf(": ");
 		if (colon > 0 && colon <= 22 && !message.substring(0, colon).contains(" at ")) {
 			title = message.substring(0, colon);

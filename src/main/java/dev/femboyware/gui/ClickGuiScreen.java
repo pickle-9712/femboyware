@@ -401,8 +401,8 @@ public class ClickGuiScreen extends Screen {
 		int x = x1 + PAD, y = y1 + PAD + 2;
 		// The logo: a little star in the accent, the name, and the version
 		drawIcon(context, "logo", x - 1, y + 1, 12, accent);
-		context.drawString(font, "femboyware", x + 12, y, Theme.text());
-		context.drawString(font, "Version " + FemboyWare.VERSION, x + 12, y + 10, ColorUtil.withAlpha(accent, 0xFF));
+		context.drawString(font, ellipsize(dev.femboyware.module.theme.BrandingModule.name(), SIDEBAR - 2 * PAD - 12), x + 12, y, Theme.text());
+		if (dev.femboyware.module.theme.BrandingModule.showVersion()) context.drawString(font, "Version " + FemboyWare.VERSION, x + 12, y + 10, ColorUtil.withAlpha(accent, 0xFF));
 		y += 24;
 		y = sectionHeader(context, "FEATURES", x, y);
 		y = navItem(context, RowType.FAVORITES, null, "star", "Favorites", favorites && open == null, x1, y, mouseX, mouseY, accent);
