@@ -47,7 +47,8 @@ public class GameRendererMixin {
 	}
 	*///?} else {
 	@ModifyReturnValue(method = "getFov", at = @At("RETURN"))
-	private float femboyware$zoom(float fov) {
+	private float femboyware$zoom(float fov, @com.llamalad7.mixinextras.sugar.Local(argsOnly = true) boolean changingFov) {
+		if (changingFov) fov = dev.femboyware.module.render.CustomFovModule.apply(fov);
 		return FemboyWare.getModules().get(ZoomModule.class).modifyFov(fov);
 	}
 

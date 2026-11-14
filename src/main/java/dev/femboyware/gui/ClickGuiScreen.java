@@ -118,6 +118,7 @@ public class ClickGuiScreen extends Screen {
 		super.added();
 		openedAt = System.nanoTime();
 		closeAt = 0;
+		WorldGui.place(this);
 	}
 
 	/** Brought back while it was still animating shut. */
@@ -215,6 +216,7 @@ public class ClickGuiScreen extends Screen {
 
 	@Override
 	public void removed() {
+		WorldGui.forget(this);
 		closing = true;
 		binding = null;
 		bindingKey = null;
@@ -230,6 +232,8 @@ public class ClickGuiScreen extends Screen {
 
 	@Override
 	public void renderBackground(GuiGraphics context, int mouseX, int mouseY, float deltaTicks) {
+		// Hanging in the world: nothing over your screen
+		if (WorldGui.showing(this)) return;
 		if (hudEditing) {
 			context.fill(0, 0, width, height, 0x30000000);
 			return;
@@ -238,6 +242,13 @@ public class ClickGuiScreen extends Screen {
 		// The dim fades with the window
 		int dim = Theme.dim();
 		context.fill(0, 0, width, height, ColorUtil.withAlpha(dim, (int) ((dim >>> 24) * openness())));
+	}
+
+	/** A click on the world panel, moved to where it lands on the GUI. */
+	private MouseButtonEvent onPanel(MouseButtonEvent click) {
+		if (!WorldGui.showing(this)) return click;
+		double[] point = WorldGui.toGui(click.x(), click.y());
+		return new MouseButtonEvent(point[0], point[1], click.buttonInfo());
 	}
 
 	public boolean isHudEditing() {
@@ -255,6 +266,8 @@ public class ClickGuiScreen extends Screen {
 
 	@Override
 	public void render(GuiGraphics context, int mouseX, int mouseY, float deltaTicks) {
+		// In the world it's only drawn into the panel's texture (WorldGui.renderPass)
+		if (WorldGui.showing(this) && !WorldGui.drawing) return;
 		if (hudEditing) renderHudEditor(context, mouseX, mouseY);
 		float scale = UiScale.scale();
 		context.pose().pushMatrix();
@@ -795,6 +808,7 @@ public class ClickGuiScreen extends Screen {
 	@Override
 	public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
 		if (closeAt != 0) return true;
+		click = onPanel(click);
 		double mouseX = click.x() / UiScale.scale();
 		double mouseY = click.y() / UiScale.scale();
 		int button = click.button();
@@ -908,6 +922,7 @@ public class ClickGuiScreen extends Screen {
 
 	@Override
 	public boolean mouseDragged(MouseButtonEvent click, double offsetX, double offsetY) {
+		click = onPanel(click);
 		if (selectingText && typing != null) {
 			editor(typing).drag(font, click.x() / UiScale.scale(), typingRowX + 8);
 			return true;
@@ -917,6 +932,7 @@ public class ClickGuiScreen extends Screen {
 
 	@Override
 	public boolean mouseReleased(MouseButtonEvent click) {
+		click = onPanel(click);
 		draggingElement = null;
 		resizingElement = null;
 		slider = null;
@@ -926,6 +942,11 @@ public class ClickGuiScreen extends Screen {
 
 	@Override
 	public boolean mouseScrolled(double rawX, double rawY, double horizontalAmount, double verticalAmount) {
+		if (WorldGui.showing(this)) {
+			double[] point = WorldGui.toGui(rawX, rawY);
+			rawX = point[0];
+			rawY = point[1];
+		}
 		double mouseX = rawX / UiScale.scale();
 		double mouseY = rawY / UiScale.scale();
 		for (Row row : rows) {

@@ -92,6 +92,14 @@ public class EntityMixin {
 		return popChams.isGhost((Entity) (Object) this) ? popChams.getColor() : color;
 	}
 
+	/** Hit Boxes: bigger boxes for the crosshair's entity pick, on the client's entities only. */
+	@ModifyReturnValue(method = "getPickRadius", at = @At("RETURN"))
+	private float femboyware$hitBoxes(float radius) {
+		Entity self = (Entity) (Object) this;
+		if (!self.level().isClientSide()) return radius;
+		return radius + dev.femboyware.module.combat.HitBoxesModule.extra(self);
+	}
+
 	private boolean isLocalPlayer() {
 		return FemboyWare.getModules() != null && (Object) this == Minecraft.getInstance().player;
 	}

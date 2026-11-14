@@ -120,7 +120,7 @@ public class FemboyTitleScreen extends Screen {
 
 	@Override
 	public void renderBackground(GuiGraphics context, int mouseX, int mouseY, float deltaTicks) {
-		SwirlBackground.draw(context, width, height);
+		if (!dev.femboyware.module.theme.MenuBackgroundModule.draw(context, width, height)) SwirlBackground.draw(context, width, height);
 		// Darker towards the edges so the middle stays easy to read
 		context.fillGradient(0, 0, width, height / 3, 0x60000000, 0x00000000);
 		context.fillGradient(0, height * 2 / 3, width, height, 0x00000000, 0x70000000);

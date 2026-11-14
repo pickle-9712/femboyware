@@ -10,6 +10,7 @@ import org.lwjgl.glfw.GLFW;
 public class ClickGuiModule extends Module {
 	private ClickGuiScreen screen;
 	/** The starred modules, by name, kept in the config; set from the menu, not shown in it. */
+	private final dev.femboyware.setting.BoolSetting inWorld = add(new dev.femboyware.setting.BoolSetting("In World", "Open the ClickGUI on a panel in the world in front of you instead of over the screen (experimental)", false));
 	private final dev.femboyware.setting.StringSetting favorites = add(new dev.femboyware.setting.StringSetting("Favorites", "Starred modules", "")).visibleWhen(() -> false);
 
 	/** How the menu comes in and goes out; closing plays its animation backwards. */
@@ -75,9 +76,14 @@ public class ClickGuiModule extends Module {
 		if (screen != null && Mc.screen() == screen && !screen.isClosing()) screen.onClose();
 	}
 
-	/** Whether the GUI hangs in the world in front of you (WorldGui). Not finished yet, so always off. */
+	@Override
+	public void onRender3D(dev.femboyware.event.Render3DEvent event) {
+		dev.femboyware.gui.WorldGui.drawPanel(event);
+	}
+
+	/** Whether the GUI hangs in the world in front of you (WorldGui). */
 	public boolean worldScreen() {
-		return false;
+		return inWorld.get();
 	}
 
 	/** How tall the world screen is, in blocks, at its usual distance. */

@@ -71,7 +71,7 @@ public abstract class CameraMixin {
 	//? if >=26.1 {
 	/*@ModifyReturnValue(method = "calculateFov", at = @At("RETURN"))
 	private float femboyware$zoom(float fov) {
-		return FemboyWare.getModules().get(dev.femboyware.module.utility.ZoomModule.class).modifyFov(fov);
+		return FemboyWare.getModules().get(dev.femboyware.module.utility.ZoomModule.class).modifyFov(dev.femboyware.module.render.CustomFovModule.apply(fov));
 	}
 
 	@Inject(method = "update", at = @At("TAIL"))

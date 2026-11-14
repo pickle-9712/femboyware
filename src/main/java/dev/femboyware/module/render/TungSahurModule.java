@@ -361,7 +361,8 @@ public class TungSahurModule extends Module {
 	 * staring eyes in dark sockets under heavy brows, a long nose, a wide grin, long thin arms and
 	 * legs, and a tapered bat in his right hand. Lit from one direction for a solid 3D look.
 	 */
-	private void drawSahur(Render3DEvent event, Vec3 at, float yaw, float swingYaw, float armAngle, float size) {
+	/** Draws Tung Tung Tung Sahur at {@code at} (relative to the camera), for Player Model's Tung Sahur shape too. */
+	public static void drawSahur(Render3DEvent event, Vec3 at, float yaw, float swingYaw, float armAngle, float size) {
 		PoseStack matrices = event.matrices();
 		VertexConsumer quads = event.consumers().getBuffer(RenderTypes.debugQuads());
 		matrices.pushPose();

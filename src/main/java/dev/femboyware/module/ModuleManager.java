@@ -248,6 +248,19 @@ public class ModuleManager {
 		register(new MaceKillerModule());
 		register(new MoreKnockbackModule());
 		register(new TrapModule());
+		register(new dev.femboyware.module.combat.TriggerBotModule());
+		register(new dev.femboyware.module.combat.AimAssistModule());
+		register(new dev.femboyware.module.combat.HitBoxesModule());
+		register(new dev.femboyware.module.combat.CrystalOptimizerModule());
+		register(new dev.femboyware.module.combat.CrystalTapModule());
+		register(new dev.femboyware.module.combat.RodSwapModule());
+		register(new dev.femboyware.module.combat.ShieldBreakerModule());
+		register(new dev.femboyware.module.combat.TotemHitModule());
+		register(new dev.femboyware.module.combat.LungeSwapModule());
+		register(new dev.femboyware.module.combat.AutoCartModule());
+		register(new dev.femboyware.module.combat.WTapModule());
+		register(new dev.femboyware.module.combat.AntiTrapModule());
+		register(new dev.femboyware.module.combat.HoverTotemModule());
 		// Pvp: Protect
 		register(new AutoGappleModule());
 		register(new AutoTotemModule());
@@ -284,6 +297,7 @@ public class ModuleManager {
 		register(new AntiVoidModule());
 		register(new AntiWebModule());
 		register(new BlinkModule());
+		register(new dev.femboyware.module.movement.FakeLagModule());
 		register(new dev.femboyware.module.utility.ServerLarpModule());
 		register(new dev.femboyware.module.larp.ForceDispenserModule());
 		register(new dev.femboyware.module.render.ScoreboardEditModule());
@@ -338,6 +352,7 @@ public class ModuleManager {
 		register(new GlassModule());
 		register(new ShineModule());
 		register(new BackgroundModule());
+		register(new dev.femboyware.module.theme.MenuBackgroundModule());
 		register(new AspectModule());
 		register(new CrystalChamsModule());
 		register(new DamageParticlesModule());
@@ -358,6 +373,7 @@ public class ModuleManager {
 		register(new dev.femboyware.module.render.SelfVisualsModule());
 		register(new dev.femboyware.module.render.SkinChangerModule());
 		register(new dev.femboyware.module.render.PlayerModelModule());
+		register(new dev.femboyware.module.render.CustomFovModule());
 		register(new SpinbotModule());
 		register(new SwingAnimationsModule());
 		register(new ThrowPetardModule());
@@ -381,6 +397,8 @@ public class ModuleManager {
 		register(new NametagsModule());
 		register(new StorageEspModule());
 		register(new TracersModule());
+		register(new dev.femboyware.module.render.XRayModule());
+		register(new dev.femboyware.module.render.ItemEspModule());
 		// Customize: Targets
 		register(new dev.femboyware.module.effects.TargetParticlesModule());
 		register(new dev.femboyware.module.effects.SpellHitsModule());
@@ -451,6 +469,8 @@ public class ModuleManager {
 		register(new AuraParticlesModule());
 		register(new SwingTrailModule());
 		register(new dev.femboyware.module.effects.AstralTrailsModule());
+		register(new dev.femboyware.module.effects.LineGlyphsModule());
+		register(new dev.femboyware.module.effects.EchoHandModule());
 		// Customize: Sky
 		register(new PinkSkyModule());
 		register(new SkySwirlsModule());
@@ -511,6 +531,8 @@ public class ModuleManager {
 		register(new AutoReconnectModule());
 		register(new NameProtectModule());
 		register(new SoundBlockerModule());
+		register(new dev.femboyware.module.utility.StreamProofModule());
+		register(new dev.femboyware.module.utility.PerformanceModule());
 		register(new ClickGuiModule());
 		register(new dev.femboyware.module.client.LarpOnlyModule());
 		register(new WatermarkModule());

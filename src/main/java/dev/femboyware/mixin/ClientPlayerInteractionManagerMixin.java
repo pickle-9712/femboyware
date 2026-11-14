@@ -90,6 +90,10 @@ public class ClientPlayerInteractionManagerMixin {
 	/** Server Larp: chests, barrels and shulkers open locally while larping. */
 	@Inject(method = "useItemOn", at = @At("HEAD"), cancellable = true)
 	private void femboyware$onUseItemOn(LocalPlayer player, InteractionHand hand, BlockHitResult hit, CallbackInfoReturnable<InteractionResult> cir) {
+		if (dev.femboyware.module.combat.AntiTrapModule.blocks(hand, hit)) {
+			cir.setReturnValue(InteractionResult.FAIL);
+			return;
+		}
 		if (FemboyWare.getModules().get(dev.femboyware.module.larp.FakeSpawnerModule.class).onUse(hit)
 			|| FemboyWare.getModules().get(ServerLarpModule.class).onUseItemOn(player, hand, hit)) cir.setReturnValue(InteractionResult.SUCCESS);
 	}

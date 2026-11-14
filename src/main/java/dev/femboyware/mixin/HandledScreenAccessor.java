@@ -11,4 +11,7 @@ public interface HandledScreenAccessor {
 
 	@Accessor("topPos")
 	int femboyware$getY();
+
+	@Accessor("hoveredSlot")
+	net.minecraft.world.inventory.Slot femboyware$getHoveredSlot();
 }

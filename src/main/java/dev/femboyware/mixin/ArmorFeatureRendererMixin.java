@@ -20,6 +20,7 @@ public class ArmorFeatureRendererMixin {
 		at = @At("HEAD"), cancellable = true)
 	private void femboyware$hideArmor(PoseStack matrices, SubmitNodeCollector queue, int light, HumanoidRenderState state, float yaw, float pitch, CallbackInfo ci) {
 		if (FemboyWare.getModules() == null || !(state instanceof AvatarRenderState player)) return;
-		if (FemboyWare.getModules().get(NoRenderModule.class).playerArmor() || FemboyWare.getModules().get(FurryModule.class).hidesArmor(player)) ci.cancel();
+		if (FemboyWare.getModules().get(NoRenderModule.class).playerArmor() || FemboyWare.getModules().get(FurryModule.class).hidesArmor(player)
+			|| FemboyWare.getModules().get(dev.femboyware.module.render.PlayerModelModule.class).replaces(player)) ci.cancel();
 	}
 }
