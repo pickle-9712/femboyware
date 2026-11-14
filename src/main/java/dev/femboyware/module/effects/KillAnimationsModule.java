@@ -11,6 +11,7 @@ import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
+import dev.femboyware.util.IsraelFlag;
 import dev.femboyware.util.RenderUtil;
 import it.unimi.dsi.fastutil.ints.IntList;
 import java.util.ArrayList;
@@ -856,70 +857,21 @@ public class KillAnimationsModule extends TargetFxModule {
 
 	private void flagFlat(Render3DEvent event, VertexConsumer c, Kill kill, Vec3 cam, float t) {
 		// Drawn solid so the star sits properly on the cloth; at the end it sinks back into the ground instead of fading
-		float stay = easeOut(ending(kill, t)), fade = 1, s = size();
+		float stay = easeOut(ending(kill, t)), s = size();
 		Vec3 base = inPlane(kill, kill.feet, 0.75f * s, 0);
 		PoseStack matrices = event.matrices();
 		facing(event, kill, base, cam);
 		PoseStack.Pose pose = matrices.last();
-		// The pole shoots up out of the ground
+		// The pole shoots up out of the ground, then the flag runs up it and waves
 		float poleH = 3.1f * s * easeOut(t / 0.3f) * stay, pw = 0.035f * s;
-		int pole = argb(0xFFDADDE3, fade), poleDark = argb(0xFF9AA0AA, fade);
-		FxRender.quad(c, pose, -pw, 0, 0, poleDark, pw, 0, 0, pole, pw, poleH, 0, pole, -pw, poleH, 0, poleDark);
-		FxRender.quad(c, pose, 0, 0, -pw, poleDark, 0, 0, pw, pole, 0, poleH, pw, pole, 0, poleH, -pw, poleDark);
-		// The flag runs up the pole, then waves
+		IsraelFlag.pole(c, pose, poleH, pw);
 		float raise = easeOut((t - 0.3f) / 1f) * stay;
 		if (t > 0.3f) {
 			float fw = 1.5f * s * stay, fh = 1.08f * s * stay;
-			float top = poleH - 0.05f * s, bottom = (top - fh) * raise;
-			int columns = 20;
-			for (int i = 0; i < columns; i++) {
-				float u1 = i / (float) columns, u2 = (i + 1) / (float) columns;
-				float x1 = pw + fw * u1, x2 = pw + fw * u2;
-				float z1 = wave(u1, t) * s, z2 = wave(u2, t) * s;
-				float shade1 = 0.85f + 0.15f * (float) Math.cos(t * 6 - u1 * 7), shade2 = 0.85f + 0.15f * (float) Math.cos(t * 6 - u2 * 7);
-				// Five bands, top to bottom: white, blue stripe, white (with the star), blue stripe, white
-				float[] bands = {0, 0.1f, 0.25f, 0.75f, 0.9f, 1};
-				for (int b = 0; b < 5; b++) {
-					int color = b == 1 || b == 3 ? ISRAEL_BLUE : 0xFFFFFFFF;
-					float yb = bottom + fh * (1 - bands[b + 1]), yt = bottom + fh * (1 - bands[b]);
-					FxRender.quad(c, pose, x1, yb, z1, shade(color, shade1, fade), x2, yb, z2, shade(color, shade2, fade),
-						x2, yt, z2, shade(color, shade2, fade), x1, yt, z1, shade(color, shade1, fade));
-				}
-			}
-			// The Star of David in the middle, as two triangle outlines riding the wave
-			float cx = pw + fw / 2, cy = bottom + fh / 2, r = fh * 0.2f;
-			for (int tri = 0; tri < 2; tri++) {
-				float[][] p = starPoints(tri == 1);
-				for (int i = 0; i < 3; i++) {
-					float sx = cx + p[i][0] * r, sy = cy + p[i][1] * r, ex = cx + p[(i + 1) % 3][0] * r, ey = cy + p[(i + 1) % 3][1] * r;
-					// In short pieces so each one sits on the cloth where it bends
-					for (int k = 0; k < 8; k++) {
-						float ax = sx + (ex - sx) * k / 8f, ay = sy + (ey - sy) * k / 8f;
-						float bx = sx + (ex - sx) * (k + 1) / 8f, by = sy + (ey - sy) * (k + 1) / 8f;
-						float az = wave((ax - pw) / fw, t) * s + 0.006f, bz = wave((bx - pw) / fw, t) * s + 0.006f;
-						flagStroke(c, pose, ax, ay, az, bx, by, bz, 0.035f * s, argb(ISRAEL_BLUE, fade));
-					}
-				}
-			}
+			float top = poleH - 0.05f * s;
+			IsraelFlag.cloth(c, pose, pw, (top - fh) * raise, fw, fh, t, s);
 		}
 		matrices.popPose();
-	}
-
-	/** How far the cloth sways out at {@code u} along it: nothing at the pole, most at the free end. */
-	private static float wave(float u, float t) {
-		return (float) Math.sin(u * 6 - t * 6) * 0.1f * u;
-	}
-
-	private static int shade(int color, float light, float alpha) {
-		return argb(FxRender.darken(color, 1 - light), alpha);
-	}
-
-	/** A thin stroke between two points of the flag, flat in its plane. */
-	private static void flagStroke(VertexConsumer c, PoseStack.Pose pose, float ax, float ay, float az, float bx, float by, float bz, float width, int color) {
-		float dx = bx - ax, dy = by - ay, len = (float) Math.sqrt(dx * dx + dy * dy);
-		if (len < 1e-5f) return;
-		float nx = -dy / len * width / 2, ny = dx / len * width / 2;
-		FxRender.quad(c, pose, ax - nx, ay - ny, az, color, bx - nx, by - ny, bz, color, bx + nx, by + ny, bz, color, ax + nx, ay + ny, az, color);
 	}
 
 	private void flagGlow(Render3DEvent event, VertexConsumer glow, Kill kill, float t) {

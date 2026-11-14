@@ -386,6 +386,8 @@ public class ModuleManager {
 		register(new dev.femboyware.module.effects.SpellHitsModule());
 		register(new dev.femboyware.module.effects.KillAnimationsModule());
 		register(new dev.femboyware.module.effects.SpectralAuraModule());
+		register(new dev.femboyware.module.effects.StarHitsModule());
+		register(new dev.femboyware.module.effects.IsraelAuraModule());
 		register(new dev.femboyware.module.larp.FakeSpawnerModule());
 		register(new dev.femboyware.module.larp.FakePayModule());
 		register(new dev.femboyware.module.larp.CasinoModule());

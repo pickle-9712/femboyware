@@ -6,7 +6,13 @@ import dev.femboyware.mixin.InputAccessor;
 import dev.femboyware.mixin.MinecraftClientAccessor;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
+import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.setting.BoolSetting;
+import dev.femboyware.setting.ColorSetting;
+import dev.femboyware.util.FxRender;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.world.entity.Entity;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.InventoryUtil;
@@ -92,8 +98,17 @@ public class LegitAuraModule extends Module {
 	private final BoolSetting rangedWeapons = add(new BoolSetting("Bow", "With no pearl in the hotbar, aim and shoot a bow or crossbow at a far-off target", true));
 	private final NumberSetting rangedDistance = add(new NumberSetting("Bow Distance", "Only shoot at targets at least this far away", 8, 4, 60, 1)).visibleWhen(rangedWeapons::get);
 
+	private final BoolSetting highlight = add(new BoolSetting("Highlight", "Bright white light round whoever you're locked on to, flashing on every hit", true));
+	private final ColorSetting highlightColor = add(new ColorSetting("Highlight Color", "The highlight's main colour", 0xFFFFFFFF)).visibleWhen(highlight::get);
+	private final ColorSetting highlightRim = add(new ColorSetting("Highlight Rim", "The colour round its edges", 0xFFC8E4FF)).visibleWhen(highlight::get);
+	private final BoolSetting highlightWalls = add(new BoolSetting("Highlight Walls", "Show the highlight through walls", true)).visibleWhen(highlight::get);
+
 	private final Random random = new Random();
 	private Player target;
+	/** The highlight: who it's on (it fades out on them after you let go), how far faded in, and when you last hit. */
+	private Player shownOn;
+	private float shown;
+	private long highlightFrame, lastHit;
 	private CameraType previousPerspective;
 	/** Set when we just switched to the sword: no hit on the same tick, which no hand could do. */
 	private boolean justSwitched;
@@ -661,5 +676,77 @@ public class LegitAuraModule extends Module {
 		double side = 0.08 * Math.sin(time * 0.9);
 		Vec3 aim = player.getPosition(tickDelta).add(side, height, side * 0.5);
 		return Rotation.between(mc.player.getEyePosition(tickDelta), aim);
+	}
+
+	// ---------------------------------------------------------------- the white highlight
+
+	@Override
+	public void onPostAttack(Entity entity) {
+		if (entity == target) lastHit = System.currentTimeMillis();
+	}
+
+	@Override
+	public void onRender3D(Render3DEvent event) {
+		long now = System.nanoTime();
+		float delta = highlightFrame == 0 ? 0 : Math.min(0.1f, (now - highlightFrame) / 1e9f);
+		highlightFrame = now;
+		if (target != null) shownOn = target;
+		boolean on = highlight.get() && target != null;
+		shown = Math.max(0, Math.min(1, shown + (on ? delta : -delta) * 5));
+		if (shown <= 0 || shownOn == null || shownOn.isRemoved() || mc.level == null || shownOn.level() != mc.level) {
+			if (shown <= 0) shownOn = null;
+			return;
+		}
+		float tickDelta = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
+		double t = (System.nanoTime() % 1_000_000_000_000L) / 1e9;
+		Vec3 cam = event.camera().pos;
+		boolean walls = highlightWalls.get();
+		Vec3 feet = shownOn.getPosition(tickDelta);
+		float h = shownOn.getBbHeight(), w = shownOn.getBbWidth();
+		int core = highlightColor.get(), rim = highlightRim.get();
+		// A flash that blows out on each hit and dies away
+		float since = Math.max(0, 1 - (System.currentTimeMillis() - lastHit) / 350f), hit = since * since;
+
+		// Flat light: a ring turning round their feet and white edges up the corners of their hitbox
+		VertexConsumer light = FxRender.quads(event, true, walls);
+		PoseStack matrices = event.matrices();
+		matrices.pushPose();
+		matrices.translate((float) (feet.x - cam.x), (float) (feet.y - cam.y) + 0.02f, (float) (feet.z - cam.z));
+		PoseStack.Pose pose = matrices.last();
+		float r = w * 0.9f + 0.15f * hit, spin = (float) t * 1.5f;
+		FxRender.ring(light, pose, r - 0.05f, r, 0, 48, (a, inner) -> {
+			float bright = 0.55f + 0.45f * (float) Math.max(0, Math.cos((a * Math.PI * 2 - spin) * 2));
+			return FxRender.fade(inner ? rim : core, shown * (inner ? 0.3f : 0.9f) * bright);
+		});
+		FxRender.ring(light, pose, r * 0.2f, r * 1.6f * (0.6f + 0.4f * hit), 0, 32, (a, inner) -> FxRender.fade(core, inner ? 0.35f * hit * shown : 0));
+		float half = w / 2 + 0.06f, rise = 0.06f;
+		for (int i = 0; i < 4; i++) {
+			float x = (i & 1) == 0 ? -half : half, z = (i & 2) == 0 ? -half : half;
+			int bottom = FxRender.fade(core, 0.8f * shown), top = FxRender.fade(rim, 0.15f * shown);
+			FxRender.quad(light, pose, x - rise / 2, 0, z, bottom, x + rise / 2, 0, z, bottom, x + rise / 2, h + 0.1f, z, top, x - rise / 2, h + 0.1f, z, top);
+			FxRender.quad(light, pose, x, 0, z - rise / 2, bottom, x, 0, z + rise / 2, bottom, x, h + 0.1f, z + rise / 2, top, x, h + 0.1f, z - rise / 2, top);
+		}
+		matrices.popPose();
+
+		// Glows: sparkles drifting up round them, a bright shell, and the hit flash
+		VertexConsumer glow = FxRender.textured(event, FxRender.GLOW, true, walls);
+		for (int i = 0; i < 22; i++) {
+			double a = i * 2.39996 + t * 0.9;
+			double y = (((i * 0.618034) + t * 0.25) % 1) * (h + 0.3);
+			double out = w * 0.6;
+			Vec3 at = feet.add(Math.cos(a) * out, y, Math.sin(a) * out);
+			float flicker = 0.6f + 0.4f * (float) Math.sin(t * 6 + i * 1.7);
+			float edge = (float) Math.sin(y / (h + 0.3) * Math.PI);
+			FxRender.glow(event, glow, at, 0.14f + 0.08f * flicker, FxRender.fade(core, 0.85f * shown * flicker * edge));
+			FxRender.glow(event, glow, at, 0.35f, FxRender.fade(rim, 0.05f * shown * edge));
+		}
+		Vec3 middle = feet.add(0, h / 2, 0);
+		float pulse = 0.85f + 0.15f * (float) Math.sin(t * 4);
+		FxRender.glow(event, glow, middle, h * 1.1f, FxRender.fade(core, 0.1f * shown * pulse));
+		FxRender.glow(event, glow, middle, h * 1.5f, FxRender.fade(rim, 0.1f * shown * pulse));
+		FxRender.glow(event, glow, feet.add(0, 0.05, 0), w * 2.2f, FxRender.fade(core, 0.3f * shown));
+		if (hit > 0) {
+			for (int k = 0; k < 2; k++) FxRender.glow(event, glow, middle, h * (0.8f + 0.5f * (1 - hit)) * (1 - k * 0.25f), FxRender.fade(core, 0.75f * hit * shown));
+		}
 	}
 }
