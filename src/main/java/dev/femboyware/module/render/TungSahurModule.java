@@ -134,9 +134,22 @@ public class TungSahurModule extends Module {
 		removeHeldBodies(true);
 	}
 
+	/**
+	 * Sends sahur to {@code entity}, who just died, even with this module off: Kill Animations uses
+	 * this for its Tung Sahur style, so only your own kills get a visit.
+	 */
+	public void visit(LivingEntity entity) {
+		visits.putIfAbsent(entity.getId(), new Visit(System.currentTimeMillis()));
+	}
+
+	/** On, or still finishing a visit someone asked for. */
+	public boolean running() {
+		return isEnabled() || !visits.isEmpty();
+	}
+
 	/** Whether sahur still wants {@code entity}'s body around; the Fake Player checks this before despawning. */
 	public boolean holdsBody(Entity entity) {
-		if (!isEnabled() || entity == null) return false;
+		if (!running() || entity == null) return false;
 		Visit visit = visits.get(entity.getId());
 		return visit != null && System.currentTimeMillis() - visit.start < bodyLifetime();
 	}
@@ -185,8 +198,11 @@ public class TungSahurModule extends Module {
 		long now = System.currentTimeMillis();
 		removeHeldBodies(false);
 		visits.entrySet().removeIf(entry -> now - entry.getValue().start > bodyLifetime() + 2000);
-		for (Entity entity : mc.level.entitiesForRendering()) {
-			if (entity instanceof LivingEntity living && wantsVisit(living)) visits.putIfAbsent(entity.getId(), new Visit(now));
+		// Every death nearby when on; only the ones asked for (Kill Animations) when not
+		if (isEnabled()) {
+			for (Entity entity : mc.level.entitiesForRendering()) {
+				if (entity instanceof LivingEntity living && wantsVisit(living)) visits.putIfAbsent(entity.getId(), new Visit(now));
+			}
 		}
 		// One sound per bonk as each one lands
 		for (Map.Entry<Integer, Visit> entry : visits.entrySet()) {
@@ -232,11 +248,11 @@ public class TungSahurModule extends Module {
 	 * the normal death fall plays out from that pose.
 	 */
 	public void adjustRenderState(LivingEntity entity, LivingEntityRenderState state) {
-		if (!isEnabled()) return;
+		if (!running()) return;
 		Visit visit = visits.get(entity.getId());
 		if (visit == null) {
 			// Seen dying before the tick did; start now so there's no frame of the vanilla fall
-			if (!wantsVisit(entity)) return;
+			if (!isEnabled() || !wantsVisit(entity)) return;
 			visit = visits.computeIfAbsent(entity.getId(), id -> new Visit(System.currentTimeMillis()));
 		}
 		if (visit.pose == null) visit.pose = Pose.capture(state);

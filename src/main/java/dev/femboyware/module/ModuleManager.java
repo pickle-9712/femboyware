@@ -384,6 +384,7 @@ public class ModuleManager {
 		// Customize: Targets
 		register(new dev.femboyware.module.effects.TargetParticlesModule());
 		register(new dev.femboyware.module.effects.SpellHitsModule());
+		register(new dev.femboyware.module.effects.KillAnimationsModule());
 		register(new dev.femboyware.module.effects.SpectralAuraModule());
 		register(new dev.femboyware.module.larp.FakeSpawnerModule());
 		register(new dev.femboyware.module.larp.FakePayModule());
