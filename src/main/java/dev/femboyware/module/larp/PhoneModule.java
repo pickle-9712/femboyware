@@ -1153,6 +1153,13 @@ public class PhoneModule extends Module {
 		return link != null && link.connected();
 	}
 
+	/** Why there's nobody to call or text for real, or null when connected to femboyware.xyz. */
+	public String linkProblem() {
+		if (!online.get()) return "Turn on Online Messages in the Phone module";
+		if (link == null) return "Connecting...";
+		return link.connected() ? null : "Not connected to femboyware.xyz";
+	}
+
 	/** Other femboyware users online now. */
 	public List<String> onlineUsers() {
 		return link == null ? List.of() : link.online();

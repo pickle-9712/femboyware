@@ -334,6 +334,7 @@ public class PhoneScreen extends Screen {
 		gvDialing = false;
 		gvCalling = null;
 		cbSheet = -1;
+		cbDetail = -1;
 		xFocused = false;
 		searchFocused = false;
 		search = "";
@@ -352,6 +353,7 @@ public class PhoneScreen extends Screen {
 	private void home() {
 		app = null;
 		cbSheet = -1;
+		cbDetail = -1;
 		xFocused = false;
 		searchFocused = false;
 		wiring = false;
@@ -1292,8 +1294,9 @@ public class PhoneScreen extends Screen {
 		int h = 5 * d, t = Math.max(2, d * 3 / 2);
 		for (int i = 0; i <= h; i++) {
 			int x = cx * d - h / 2 + i, y = cy * d;
-			context.fill(x, y - h + i - t / 2, x + t, y - h + i + t / 2 + 1, color);
-			context.fill(x, y + h - i - t / 2, x + t, y + h - i + t / 2 + 1, color);
+			// The point on the left, the arms spreading out to the right
+			context.fill(x, y - i - t / 2, x + t, y - i + t / 2 + 1, color);
+			context.fill(x, y + i - t / 2, x + t, y + i + t / 2 + 1, color);
 		}
 		context.pose().popMatrix();
 	}
@@ -2069,31 +2072,70 @@ public class PhoneScreen extends Screen {
 	}
 
 	/** A rising line with a little noise, sharp at any size. */
-	private void drawChart(GuiGraphics context, int x1, int y1, int x2, int y2, int color) {
-		int d = UiScale.density();
-		context.pose().pushMatrix();
-		context.pose().scale(1f / d, 1f / d);
-		int prev = -1;
-		long seed = 99;
-		double v = 0, min = 0, max = 0;
-		int columns = (x2 - x1) * d;
-		double[] values = new double[columns];
-		java.util.Random random = new java.util.Random(seed);
-		for (int i = 0; i < columns; i++) {
-			v += random.nextGaussian() * 0.6 + 0.08;
-			values[i] = v;
+	/**
+	 * A price chart filling (x1, y1) to (x2, y2): {@code values} oldest first, or until real ones are
+	 * in, a made-up line ending at {@code now} (a different one per range). Hovering over it shows the
+	 * value at that point.
+	 */
+	private void drawChart(GuiGraphics context, int x1, int y1, int x2, int y2, int color, double[] values, double now, int range, float mx, float my) {
+		if (values == null || values.length < 2) values = madeUpSeries(now, range);
+		double min = Double.MAX_VALUE, max = -Double.MAX_VALUE;
+		for (double v : values) {
 			min = Math.min(min, v);
 			max = Math.max(max, v);
 		}
+		if (max - min < 1e-9) {
+			max += Math.max(1e-6, Math.abs(max) * 0.01);
+			min -= Math.max(1e-6, Math.abs(min) * 0.01);
+		}
+		int d = UiScale.density();
+		context.pose().pushMatrix();
+		context.pose().scale(1f / d, 1f / d);
+		int columns = (x2 - x1) * d, prev = -1;
 		for (int i = 0; i < columns; i++) {
+			double v = sample(values, i / (double) Math.max(1, columns - 1));
 			int px = x1 * d + i;
-			int py = (int) (y2 * d - (values[i] - min) / (max - min) * (y2 - y1) * d);
+			int py = (int) (y2 * d - (v - min) / (max - min) * (y2 - y1) * d);
 			context.fillGradient(px, py, px + 1, y2 * d, (color & 0x00FFFFFF) | 0x40000000, color & 0x00FFFFFF);
 			int from = prev < 0 ? py : Math.min(prev, py), to = prev < 0 ? py : Math.max(prev, py);
 			context.fill(px, from - d / 2, px + 1, to + Math.max(1, d / 2), color);
 			prev = py;
 		}
 		context.pose().popMatrix();
+		// Scrubbing: a line where the mouse is, with the value there
+		if (mx >= x1 && mx < x2 && my >= y1 && my < y2) {
+			double v = sample(values, Mth.clamp((mx - x1) / (double) Math.max(1, x2 - x1 - 1), 0, 1));
+			int px = (int) mx, py = (int) (y2 - (v - min) / (max - min) * (y2 - y1));
+			context.fill(px, y1, px + 1, y2, 0x50FFFFFF);
+			Glass.rounded(context, px - 3, py - 3, px + 3, py + 3, 3, TEXT);
+			String label = LedgerModule.usd(v);
+			int lw = font.width(label) + 8, lx = Mth.clamp(px - lw / 2, x1, x2 - lw);
+			Glass.rounded(context, lx, y1, lx + lw, y1 + 12, 4, 0xF023262D);
+			context.drawString(font, label, lx + 4, y1 + 2, TEXT, false);
+		}
+	}
+
+	/** {@code values} at {@code t} (0 is the first, 1 the last), between points in a straight line. */
+	private static double sample(double[] values, double t) {
+		double at = t * (values.length - 1);
+		int i = Math.min(values.length - 2, (int) at);
+		return values[i] + (values[i + 1] - values[i]) * (at - i);
+	}
+
+	/** A believable wander ending at {@code now}, the same every time for a range. */
+	private static double[] madeUpSeries(double now, int range) {
+		java.util.Random random = new java.util.Random(99 + range * 7919L);
+		double[] walk = new double[160];
+		double v = 0, lo = 0, hi = 0;
+		for (int i = 0; i < walk.length; i++) {
+			v += random.nextGaussian() * 0.6 + 0.08;
+			walk[i] = v;
+			lo = Math.min(lo, v);
+			hi = Math.max(hi, v);
+		}
+		double spread = 0.01 + range * 0.02, last = walk[walk.length - 1];
+		for (int i = 0; i < walk.length; i++) walk[i] = now * (1 + spread * (walk[i] - last) / Math.max(1e-9, hi - lo));
+		return walk;
 	}
 
 	// ---------------------------------------------------------------- Coinbase
@@ -2109,8 +2151,10 @@ public class PhoneScreen extends Screen {
 	private static final String[] CB_RANGES = {"1H", "1D", "1W", "1M", "1Y", "ALL"};
 	private int cbRange = 1;
 
-	/** A coin's price right now: its rough price, drifting a little over the minutes. */
+	/** A coin's price right now: the real one from Coinbase, or until that's in, its rough price drifting a little. */
 	private static double coinPrice(Object[] coin) {
+		double real = CoinbaseMarket.price((String) coin[0]);
+		if (!Double.isNaN(real)) return real;
 		double t = System.currentTimeMillis() / 1000.0, wobble = (double) coin[5];
 		int seed = ((String) coin[0]).hashCode();
 		return (double) coin[3] * (1 + wobble * (0.6 * Math.sin(t / 47.0 + seed) + 0.4 * Math.sin(t / 13.0 + seed * 0.7)));
@@ -2118,6 +2162,8 @@ public class PhoneScreen extends Screen {
 
 	/** How much a coin's up (or down) today, as a fraction. */
 	private static double coinChange(Object[] coin) {
+		double real = CoinbaseMarket.change((String) coin[0]);
+		if (!Double.isNaN(real)) return real;
 		double wobble = (double) coin[5];
 		if (wobble == 0) return 0;
 		return wobble * 1.4 * Math.sin(System.currentTimeMillis() / 90_000.0 + ((String) coin[0]).hashCode()) + wobble * 0.6;
@@ -2136,6 +2182,137 @@ public class PhoneScreen extends Screen {
 	/** Which sheet is open over Coinbase (0 buy, 1 sell, 2 send, 3 receive; -1 none), on which coin, and the amount typed. */
 	private int cbSheet = -1, cbCoin;
 	private String cbAmount = "";
+
+	/** The coin whose page is open over Coinbase's home, or -1. */
+	private int cbDetail = -1;
+
+	private record CbActivity(String ticker, String kind, double units, double usd, long time) {
+	}
+
+	/** What you've done on Coinbase this session, newest first. */
+	private static final java.util.ArrayDeque<CbActivity> CB_ACTIVITY = new java.util.ArrayDeque<>();
+	private static final String[] CB_RANGE_NAMES = {"past hour", "past day", "past week", "past month", "past year", "all time"};
+
+	private static void activity(String ticker, String kind, double units, double usd) {
+		CB_ACTIVITY.addFirst(new CbActivity(ticker, kind, units, usd, System.currentTimeMillis()));
+		while (CB_ACTIVITY.size() > 40) CB_ACTIVITY.removeLast();
+	}
+
+	/** Your whole balance over a range, from each coin's real chart (coins without one held at today's price); null until any are in. */
+	private double[] portfolioSeries(int range) {
+		int n = 160;
+		double[] sum = new double[n];
+		boolean any = false;
+		for (Object[] coin : COINS) {
+			double amount = held(coin);
+			double[] chart = CoinbaseMarket.chart((String) coin[0], range);
+			if (chart != null) any = true;
+			double price = coinPrice(coin);
+			for (int i = 0; i < n; i++) sum[i] += amount * (chart == null ? price : sample(chart, i / (double) (n - 1)));
+		}
+		return any ? sum : null;
+	}
+
+	private void coinIcon(GuiGraphics context, Object[] coin, int x, int y, int size) {
+		if (coin[0].equals("BTC")) {
+			context.blit(RenderPipelines.GUI_TEXTURED, dev.femboyware.module.render.EmotesModule.BTC, x, y, 0, 0, size, size, 64, 64, 64, 64);
+			return;
+		}
+		Glass.rounded(context, x, y, x + size, y + size, size / 2, (int) coin[4]);
+		drawCentered(context, font, ((String) coin[0]).substring(0, 1), x + size / 2f, y + size / 2f + 0.5f, size / 22f, TEXT);
+	}
+
+	/** The time ranges under a chart. */
+	private void drawRanges(GuiGraphics context, int y) {
+		int rw = (SCREEN_W - 28) / CB_RANGES.length;
+		for (int i = 0; i < CB_RANGES.length; i++) {
+			int rx = 14 + i * rw;
+			if (i == cbRange) Glass.rounded(context, rx + 2, y, rx + rw - 2, y + 14, 7, 0xFF1C2541);
+			context.drawString(font, CB_RANGES[i], rx + (rw - font.width(CB_RANGES[i])) / 2, y + 3, i == cbRange ? 0xFF578BFA : CB_MUTED, false);
+			int which = i;
+			hits.add(new Hit(rx, y, rw, 14, () -> cbRange = which));
+		}
+	}
+
+	/** A coin's page: its price and chart, what you hold, buy/sell/send/receive, and what you've done with it. */
+	private void drawCoinPage(GuiGraphics context, float mx, float my, int index) {
+		Object[] coin = COINS[index];
+		String ticker = (String) coin[0];
+		boolean frozen = FbiRaidModule.assetsFrozen();
+		// Back, and the coin
+		boolean hotBack = mx >= 6 && mx < 34 && my >= 34 && my < 58;
+		chevronLeft(context, 18, 46, hotBack ? TEXT : CB_MUTED);
+		hits.add(new Hit(6, 34, 28, 24, () -> cbDetail = -1));
+		String name = (String) coin[1];
+		int nw = 18 + font.width(name);
+		coinIcon(context, coin, (SCREEN_W - nw) / 2, 38, 14);
+		context.drawString(font, name, (SCREEN_W - nw) / 2 + 18, 42, TEXT, false);
+		// The price, and how it's moved over the range shown
+		double price = coinPrice(coin);
+		double[] chart = CoinbaseMarket.chart(ticker, cbRange);
+		context.drawString(font, ticker + " price", 14, 64, CB_MUTED, false);
+		scaled(context, LedgerModule.usd(price), 14, 76, 2f, TEXT);
+		double from = chart != null ? chart[0] : price / (1 + coinChange(coin));
+		double moved = price - from, pct = from > 0 ? moved / from * 100 : 0;
+		String rangeName = chart != null ? CB_RANGE_NAMES[cbRange] : "past day";
+		String delta = (moved >= 0 ? "▲ " : "▼ ") + LedgerModule.usd(Math.abs(moved)) + String.format(Locale.US, " (%.2f%%) ", Math.abs(pct)) + rangeName;
+		context.drawString(font, font.plainSubstrByWidth(delta, SCREEN_W - 28), 14, 98, moved >= 0 ? 0xFF27AD75 : 0xFFF0616D, false);
+		drawChart(context, 14, 112, SCREEN_W - 14, 174, (int) coin[4] | 0xFF000000, chart, price, cbRange, mx, my);
+		drawRanges(context, 180);
+		// Buy, Sell, Send, Receive this coin
+		String[] actions = {"Buy", "Sell", "Send", "Receive"};
+		String[] glyphs = {"+", "-", "↑", "↓"};
+		int bw = (SCREEN_W - 28) / 4;
+		for (int i = 0; i < actions.length; i++) {
+			int cx = 14 + i * bw + bw / 2;
+			boolean hot = mx >= cx - 15 && mx < cx + 15 && my >= 202 && my < 232;
+			Glass.rounded(context, cx - 15, 202, cx + 15, 232, 15, hot ? 0xFF3D7BFF : CB_BLUE);
+			drawCentered(context, font, glyphs[i], cx, 217.5f, 1.6f, TEXT);
+			context.drawString(font, actions[i], cx - font.width(actions[i]) / 2, 236, TEXT, false);
+			int action = i;
+			hits.add(new Hit(cx - 18, 202, 36, 44, () -> {
+				if (frozen) say("Your account is restricted");
+				else openSheet(action, index);
+			}));
+		}
+		// What you hold
+		context.fill(14, 250, SCREEN_W - 14, 251, CB_LINE);
+		context.drawString(font, "Your balance", 14, 258, TEXT, false);
+		double amount = held(coin);
+		coinIcon(context, coin, 14, 272, 22);
+		context.drawString(font, amountText(amount) + " " + ticker, 44, 274, TEXT, false);
+		double total = coinbaseTotal();
+		String share = total > 0 ? String.format(Locale.US, "%.1f%% of your crypto", amount * price / total * 100) : "";
+		context.drawString(font, share, 44, 285, CB_MUTED, false);
+		String worth = frozen ? "Frozen" : LedgerModule.usd(amount * price);
+		context.drawString(font, worth, SCREEN_W - 14 - font.width(worth), 274, frozen ? 0xFFFF6B6B : TEXT, false);
+		// What you've done with it
+		context.fill(14, 302, SCREEN_W - 14, 303, CB_LINE);
+		context.drawString(font, "Recent activity", 14, 310, TEXT, false);
+		int y = 326;
+		boolean none = true;
+		for (CbActivity a : CB_ACTIVITY) {
+			if (!a.ticker().equals(ticker)) continue;
+			if (y + 24 > SCREEN_H - 16) break;
+			none = false;
+			Glass.rounded(context, 14, y + 1, 34, y + 21, 10, 0xFF23262D);
+			drawCentered(context, font, a.kind().equals("Bought") ? "+" : a.kind().equals("Sold") ? "-" : "↑", 24, y + 11.5f, 1.2f, TEXT);
+			context.drawString(font, a.kind() + " " + ticker, 42, y + 2, TEXT, false);
+			String when = ago(a.time());
+			context.drawString(font, when.equals("now") ? "Just now" : when + " ago", 42, y + 13, CB_MUTED, false);
+			String units = (a.kind().equals("Bought") ? "+" : "-") + amountText(a.units()) + " " + ticker;
+			context.drawString(font, units, SCREEN_W - 14 - font.width(units), y + 2, TEXT, false);
+			String usd = LedgerModule.usd(a.usd());
+			context.drawString(font, usd, SCREEN_W - 14 - font.width(usd), y + 13, CB_MUTED, false);
+			y += 26;
+		}
+		if (none) {
+			for (FormattedCharSequence line : font.split(Component.literal("Nothing yet. Buy or sell " + ticker + " and it shows up here."), SCREEN_W - 28)) {
+				context.drawString(font, line, 14, y, CB_MUTED, false);
+				y += 10;
+			}
+		}
+	}
 
 	private void openSheet(int action, int coin) {
 		cbSheet = action;
@@ -2156,6 +2333,7 @@ public class PhoneScreen extends Screen {
 			case 0 -> {
 				if (!phone.spend("Coinbase: bought " + ticker, usd)) return "Not enough in your bank";
 				phone.setCoinbaseAmount(ticker, held(coin) + units);
+				activity(ticker, "Bought", units, usd);
 				return "Bought " + amountText(units) + " " + ticker;
 			}
 			case 1 -> {
@@ -2163,6 +2341,7 @@ public class PhoneScreen extends Screen {
 				if (units <= 0) return "You don't have any " + ticker;
 				phone.setCoinbaseAmount(ticker, held(coin) - units);
 				phone.credit("Coinbase: sold " + ticker, units * price);
+				activity(ticker, "Sold", units, units * price);
 				return "Sold " + amountText(units) + " " + ticker + " for " + LedgerModule.usd(units * price);
 			}
 			case 2 -> {
@@ -2172,6 +2351,7 @@ public class PhoneScreen extends Screen {
 				if (units <= 0) return "You don't have any " + ticker;
 				phone.setCoinbaseAmount(ticker, held(coin) - units);
 				FemboyWare.getModules().get(LedgerModule.class).deposit(ledgerCoin, units);
+				activity(ticker, "Sent", units, units * price);
 				return "Sent " + amountText(units) + " " + ticker + " to your Ledger";
 			}
 			default -> {
@@ -2296,6 +2476,11 @@ public class PhoneScreen extends Screen {
 	/** Coinbase: your crypto balance, a chart, buy/sell/send/receive, and your coins. */
 	private void drawCoinbase(GuiGraphics context, float mx, float my) {
 		context.fill(0, 30, SCREEN_W, SCREEN_H - 12, CB_BG);
+		if (cbDetail >= 0) {
+			drawCoinPage(context, mx, my, cbDetail);
+			if (cbSheet >= 0) drawCoinbaseSheet(context, mx, my);
+			return;
+		}
 		coinbaseLogo(context, 14, 36, 20, CB_BLUE);
 		Glass.rounded(context, 42, 36, SCREEN_W - 44, 56, 10, CB_PANEL);
 		context.drawString(font, "Search", 54, 42, CB_MUTED, false);
@@ -2313,7 +2498,7 @@ public class PhoneScreen extends Screen {
 			String delta = (change >= 0 ? "▲ " : "▼ ") + LedgerModule.usd(Math.abs(change)) + String.format(Locale.US, " (%.2f%%)", change / total * 100);
 			context.drawString(font, delta, 14, 102, change >= 0 ? 0xFF27AD75 : 0xFFF0616D, false);
 		}
-		drawChart(context, 14, 116, SCREEN_W - 14, 176, frozen ? 0xFF5B616E : CB_BLUE);
+		drawChart(context, 14, 116, SCREEN_W - 14, 176, frozen ? 0xFF5B616E : CB_BLUE, frozen ? null : portfolioSeries(cbRange), total, cbRange, mx, my);
 		// Time ranges
 		int rw = (SCREEN_W - 28) / CB_RANGES.length;
 		for (int i = 0; i < CB_RANGES.length; i++) {
@@ -2347,7 +2532,8 @@ public class PhoneScreen extends Screen {
 			Object[] coin = COINS[ci];
 			if (y + 34 > SCREEN_H - 16) break;
 			int which = ci;
-			hits.add(new Hit(10, y, SCREEN_W - 20, 32, () -> openSheet(0, which)));
+			hits.add(new Hit(10, y, SCREEN_W - 20, 32, () -> cbDetail = which));
+			if (mx >= 10 && mx < SCREEN_W - 10 && my >= y && my < y + 32) Glass.rounded(context, 8, y - 1, SCREEN_W - 8, y + 31, 6, 0xFF14161B);
 			int color = (int) coin[4];
 			if (coin[0].equals("BTC")) context.blit(RenderPipelines.GUI_TEXTURED, dev.femboyware.module.render.EmotesModule.BTC, 14, y + 2, 0, 0, 26, 26, 64, 64, 64, 64);
 			else {
@@ -2392,7 +2578,7 @@ public class PhoneScreen extends Screen {
 		{"Dealership", "0:21", "Hi, your Cullinan's back from detail and ready whenever you want to swing by."},
 		{"Lawyer", "0:12", "Call me back. Don't post anything until we talk."},
 		{"Promoter", "0:18", "Yo, got you the big table tonight, sparklers and everything. Pull up around eleven."}};
-	private static final String[] GV_TABS = {"Calls", "Messages", "Voicemail"};
+	private static final String[] GV_TABS = {"Calls", "Contacts", "Messages", "Voicemail"};
 	private int gvTab;
 	private boolean gvDialing, gvMuted, gvSpeaker, gvKeypad;
 	/** The voicemail playing, and when it started. */
@@ -2453,7 +2639,8 @@ public class PhoneScreen extends Screen {
 					y += 36;
 				}
 			}
-			case 1 -> {
+			case 1 -> y = drawVoiceContacts(context, mx, my, y, tabsY);
+			case 2 -> {
 				for (String[] text : GV_TEXTS) {
 					if (y + 36 > tabsY) break;
 					avatar(context, text[0], 14, y + 4, 26);
@@ -2518,12 +2705,57 @@ public class PhoneScreen extends Screen {
 			int tx = i * tw;
 			boolean on = i == gvTab;
 			if (on) Glass.rounded(context, tx + tw / 2 - 22, tabsY + 6, tx + tw / 2 + 22, tabsY + 22, 8, 0xFF3C4A5E);
-			String glyph = i == 0 ? "☏" : i == 1 ? "✉" : "◉";
+			String glyph = i == 0 ? "☏" : i == 1 ? "☺" : i == 2 ? "✉" : "◉";
 			drawCentered(context, font, glyph, tx + tw / 2f, tabsY + 14.5f, 1f, on ? GV_BLUE : GV_MUTED);
 			context.drawString(font, GV_TABS[i], tx + (tw - font.width(GV_TABS[i])) / 2, tabsY + 26, on ? GV_TEXT : GV_MUTED, false);
 			int which = i;
 			hits.add(new Hit(tx, tabsY, tw, 38, () -> gvTab = which));
 		}
+	}
+
+	/** Contacts: everyone online with femboyware right now, to call (over voice chat) or text. */
+	private int drawVoiceContacts(GuiGraphics context, float mx, float my, int y, int tabsY) {
+		List<String> people = phone.onlineUsers();
+		String problem = phone.linkProblem();
+		String head = problem != null ? problem : people.isEmpty() ? "No one else is online" : people.size() + " online with femboyware";
+		context.drawString(font, font.plainSubstrByWidth(head, SCREEN_W - 28), 14, y, problem != null ? 0xFFF28B82 : GV_MUTED, false);
+		y += 14;
+		if (people.isEmpty()) {
+			String hint = problem != null ? "Calls and texts go through femboyware.xyz" : "Friends show up here while they're playing with femboyware and the Phone module on";
+			for (FormattedCharSequence line : font.split(Component.literal(hint), SCREEN_W - 28)) {
+				context.drawString(font, line, 14, y, GV_MUTED, false);
+				y += 10;
+			}
+			return y;
+		}
+		for (String name : people) {
+			if (y + 36 > tabsY - 50) break;
+			avatar(context, name, 14, y + 4, 26);
+			Glass.rounded(context, 32, y + 22, 40, y + 30, 4, GV_BG);
+			Glass.rounded(context, 33, y + 23, 39, y + 29, 3, GREEN_DOT);
+			context.drawString(font, font.plainSubstrByWidth(name, SCREEN_W - 140), 48, y + 6, GV_TEXT, false);
+			context.drawString(font, dev.femboyware.util.VoiceChat.available() ? "Online · voice chat" : "Online", 48, y + 18, GV_MUTED, false);
+			// Message, then call
+			int mxb = SCREEN_W - 82, cxb = SCREEN_W - 46;
+			boolean hotMsg = mx >= mxb && mx < mxb + 32 && my >= y + 6 && my < y + 26;
+			Glass.rounded(context, mxb, y + 6, mxb + 32, y + 26, 10, hotMsg ? 0xFF4A5A70 : GV_PANEL);
+			drawCentered(context, font, "✉", mxb + 16f, y + 16.5f, 1f, GV_BLUE);
+			hits.add(new Hit(mxb, y + 4, 32, 24, () -> {
+				openApp(App.MESSAGES);
+				openThread(name);
+			}));
+			boolean hotCall = mx >= cxb && mx < cxb + 32 && my >= y + 6 && my < y + 26;
+			Glass.rounded(context, cxb, y + 6, cxb + 32, y + 26, 10, hotCall ? 0xFF46B866 : GV_GREEN);
+			handset(context, cxb + 16, y + 16, 0xFFFFFFFF);
+			Runnable call = () -> {
+				String why = phone.call(name);
+				if (why != null) say(why);
+			};
+			hits.add(new Hit(0, y, mxb - 4, 34, call));
+			hits.add(new Hit(cxb, y + 4, 32, 24, call));
+			y += 36;
+		}
+		return y;
 	}
 
 	private static final String[] DIAL_KEYS = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"};
@@ -3300,6 +3532,7 @@ public class PhoneScreen extends Screen {
 			else if (app == App.DISCORD && discordChannel != null) discordChannel = null;
 			else if (app == App.SPOTIFY && spPlayerOpen && spPlayerAnim == 1 && FemboyWare.getModules() != null && dev.femboyware.module.hud.SpotifyWeb.signedIn()) spPlayerOpen = false;
 			else if (app == App.SPOTIFY && spList != null) spList = null;
+			else if (app == App.COINBASE && cbDetail >= 0) cbDetail = -1;
 			else home();
 			return true;
 		}
