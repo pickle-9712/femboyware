@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
+import dev.femboyware.module.client.LarpOnlyModule;
 import dev.femboyware.module.client.ClickGuiModule;
 import dev.femboyware.module.hud.HudElement;
 import dev.femboyware.setting.BoolSetting;
@@ -386,7 +387,9 @@ public class ClickGuiScreen extends Screen {
 		y += 24;
 		y = sectionHeader(context, "FEATURES", x, y);
 		y = navItem(context, RowType.FAVORITES, null, "star", "Favorites", favorites && open == null, x1, y, mouseX, mouseY, accent);
-		for (Category.Group g : FEATURES) y = navItem(context, RowType.NAV, g, icon(g), g.getDisplayName(), !favorites && group == g, x1, y, mouseX, mouseY, accent);
+		// With Larp Only hiding cheats, sections left with nothing in them go too
+		if (tabs(group).isEmpty() && !favorites) group = Category.Group.VISUAL;
+		for (Category.Group g : FEATURES) if (!tabs(g).isEmpty()) y = navItem(context, RowType.NAV, g, icon(g), g.getDisplayName(), !favorites && group == g, x1, y, mouseX, mouseY, accent);
 		y += 6;
 		y = sectionHeader(context, "OTHERS", x, y);
 		for (Category.Group g : OTHERS) y = navItem(context, RowType.NAV, g, icon(g), g == Category.Group.HUD ? "HUD Elements" : g.getDisplayName(), !favorites && group == g, x1, y, mouseX, mouseY, accent);
@@ -503,12 +506,12 @@ public class ClickGuiScreen extends Screen {
 		if (!query.isEmpty()) return matches(query);
 		if (favorites) {
 			List<Module> list = new ArrayList<>();
-			for (Module m : FemboyWare.getModules().getModules()) if (module.isFavorite(m)) list.add(m);
+			for (Module m : FemboyWare.getModules().getModules()) if (module.isFavorite(m) && !LarpOnlyModule.hides(m)) list.add(m);
 			list.sort((a, b) -> a.getName().compareToIgnoreCase(b.getName()));
 			return list;
 		}
 		Category c = currentTab();
-		return c == null ? List.of() : FemboyWare.getModules().getModules(c);
+		return c == null ? List.of() : visible(c);
 	}
 
 	private int renderCards(GuiGraphics context, int x1, int y, int x2, int mouseX, int mouseY, int accent) {
@@ -583,6 +586,7 @@ public class ClickGuiScreen extends Screen {
 		List<Module> byName = new ArrayList<>();
 		List<Module> byDescription = new ArrayList<>();
 		for (Module m : FemboyWare.getModules().getModules()) {
+			if (LarpOnlyModule.hides(m)) continue;
 			if (m.getName().toLowerCase().contains(query)) byName.add(m);
 			else if (m.getDescription().toLowerCase().contains(query)) byDescription.add(m);
 		}
@@ -595,9 +599,15 @@ public class ClickGuiScreen extends Screen {
 	private static List<Category> tabs(Category.Group group) {
 		List<Category> tabs = new ArrayList<>();
 		for (Category category : Category.values()) {
-			if (category.getGroup() == group && !FemboyWare.getModules().getModules(category).isEmpty()) tabs.add(category);
+			if (category.getGroup() == group && !visible(category).isEmpty()) tabs.add(category);
 		}
 		return tabs;
+	}
+
+	/** A tab's modules, less any Larp Only is hiding. */
+	private static List<Module> visible(Category category) {
+		List<Module> list = FemboyWare.getModules().getModules(category);
+		return list.stream().anyMatch(LarpOnlyModule::hides) ? list.stream().filter(m -> !LarpOnlyModule.hides(m)).toList() : list;
 	}
 
 	// ---------------------------------------------------------------- a module's settings

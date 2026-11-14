@@ -4,12 +4,14 @@ import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.math.Axis;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.mixin.AbstractTextureAccessor;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.FxRender;
+import dev.femboyware.util.IsraelFlag;
 import java.util.HashSet;
 import java.util.Random;
 import java.util.Set;
@@ -31,7 +33,9 @@ public class AuraSkyModule extends SkyFxModule {
 		SANDSTORM(Pattern.PLASMA, 0xFF1E0F04, 0xFF4E2C0C, 0xFFFFA43C, 0xFFFFD890, 0xFFFFB050),
 		CRIMSON(Pattern.PLASMA, 0xFF1C0408, 0xFF4A1218, 0xFFFF4A5E, 0xFFFFB0B8, 0xFFFF7080),
 		VIOLET(Pattern.PLASMA, 0xFF0E0418, 0xFF2C1248, 0xFFB46CFF, 0xFFE4C8FF, 0xFFC890FF),
-		CRYSTAL(Pattern.CELLS, 0xFF010208, 0xFF061630, 0xFF3A96FF, 0xFF9CCCFF, 0xFFC8E4FF);
+		CRYSTAL(Pattern.CELLS, 0xFF010208, 0xFF061630, 0xFF3A96FF, 0xFF9CCCFF, 0xFFC8E4FF),
+		/** Deep Israeli blue with white wisps drifting through it and a giant Star of David overhead. */
+		ISRAEL(Pattern.PLASMA, 0xFF001A5C, 0xFF3F74D0, 0xFFFFFFFF, 0xFFC8DCFF, 0xFFFFFFFF);
 
 		final Pattern pattern;
 		/** Overhead, at the horizon, the pattern's colour, its highlights, and the streaks. */
@@ -57,7 +61,7 @@ public class AuraSkyModule extends SkyFxModule {
 	private static final int SEGMENTS = 72;
 	private static final int STREAKS = 70;
 
-	private final EnumSetting<Style> style = add(new EnumSetting<>("Style", "Aurora green, sandstorm gold, crimson, violet, or crystal blue cells", Style.AURORA));
+	private final EnumSetting<Style> style = add(new EnumSetting<>("Style", "Aurora green, sandstorm gold, crimson, violet, crystal blue cells, or Israel blue and white with a giant Star of David", Style.AURORA));
 	private final NumberSetting speed = add(new NumberSetting("Speed", "How fast the sky moves", 1, 0, 4, 0.05));
 	private final NumberSetting brightness = add(new NumberSetting("Brightness", "How bright the glowing pattern is", 1, 0.2, 2, 0.05));
 	private final NumberSetting scale = add(new NumberSetting("Scale", "How big the pattern is", 1, 0.3, 3, 0.05));
@@ -68,7 +72,7 @@ public class AuraSkyModule extends SkyFxModule {
 	private final float[] streakSeeds = new float[STREAKS * 4];
 
 	public AuraSkyModule() {
-		super("Aura Sky", "A glowing, moving aurora, plasma or crystal sky");
+		super("Aura Sky", "A glowing, moving aurora, plasma, crystal or Israel sky");
 		Random random = new Random(42);
 		for (int i = 0; i < streakSeeds.length; i++) streakSeeds[i] = random.nextFloat();
 	}
@@ -135,6 +139,22 @@ public class AuraSkyModule extends SkyFxModule {
 			layer(event, pose, CELLS, distance, 0.18f * zoom, t * 0.002f, t * 0.001f, s.highlight, 0.25f * bright * breathe);
 		}
 		if (streaks.get()) streaks(event, s, t);
+		if (s == Style.ISRAEL) bigStar(event, distance, t, bright);
+	}
+
+	/** A giant Star of David high overhead, turning slowly and breathing: blue, with white down the middle. */
+	private void bigStar(Render3DEvent event, float distance, float t, float bright) {
+		PoseStack matrices = event.matrices();
+		matrices.pushPose();
+		matrices.translate(0, distance * 0.62f, 0);
+		matrices.mulPose(Axis.YP.rotation(t * 0.03f));
+		PoseStack.Pose pose = matrices.last();
+		float r = distance * 0.42f, breathe = 0.8f + 0.2f * (float) Math.sin(t * 0.5);
+		VertexConsumer light = FxRender.quads(event, true, false);
+		IsraelFlag.starXZ(light, pose, r, 0, distance * 0.06f, FxRender.fade(0xFF3D7BFF, 0.5f * breathe * bright));
+		IsraelFlag.starXZ(light, pose, r, -0.05f, distance * 0.022f, FxRender.fade(0xFFFFFFFF, 0.85f * breathe * bright));
+		FxRender.ring(light, pose, r * 1.12f, r * 1.16f, -0.1f, 96, (a, inner) -> FxRender.fade(0xFFFFFFFF, 0.45f * breathe * bright));
+		matrices.popPose();
 	}
 
 	private interface Shade {

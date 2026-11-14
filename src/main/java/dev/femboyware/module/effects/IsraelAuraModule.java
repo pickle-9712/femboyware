@@ -10,6 +10,8 @@ import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.Setting;
 import dev.femboyware.util.FxRender;
 import dev.femboyware.util.IsraelFlag;
+import dev.femboyware.FemboyWare;
+import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
@@ -39,6 +41,7 @@ public class IsraelAuraModule extends PlayerFxModule {
 	private final NumberSetting flagSpeed = under(flags, new NumberSetting("Flag Speed", "How fast they go round you", 0.5, 0, 3, 0.05));
 
 	private final EnumSetting<ShowOn> showOn = showOnSetting();
+	private final BoolSetting othersOnly = add(new BoolSetting("Others Only", "Only on other players, never on you (Show On You then means everyone else)", false));
 
 	public IsraelAuraModule() {
 		super("Israel Aura", "A Star of David aura and Israeli flags floating round you");
@@ -52,10 +55,10 @@ public class IsraelAuraModule extends PlayerFxModule {
 	@Override
 	public void onRender3D(Render3DEvent event) {
 		if (mc.level == null) return;
-		List<Player> all = wearers(true);
+		List<Player> all = who(true);
 		if (all.isEmpty()) return;
 		// The orbiting stars would sit in front of your eyes in first person
-		List<Player> shown = wearers(false);
+		List<Player> shown = who(false);
 		float tickDelta = tickDelta();
 		Vec3 cam = event.camera().pos;
 		double t = time();
@@ -90,6 +93,18 @@ public class IsraelAuraModule extends PlayerFxModule {
 				for (int i = 0; i < n; i++) FxRender.glow(event, glow, orbitPos(p, feet, i, n, t), 0.22f, FxRender.fade(i % 2 == 0 ? IsraelFlag.LIGHT_BLUE : 0xFFFFFFFF, 0.55f));
 			}
 		}
+	}
+
+	/** Who gets the aura: the usual Show On players, or with Others Only everyone but you. */
+	private List<Player> who(boolean inFirstPerson) {
+		if (!othersOnly.get()) return wearers(inFirstPerson);
+		List<Player> others = new ArrayList<>();
+		for (Player player : mc.level.players()) {
+			if (player == mc.player || player.isSpectator() || player.isInvisible() || player.isRemoved()) continue;
+			if (showOn.is(ShowOn.FRIENDS) && !FemboyWare.getFriends().isFriend(player)) continue;
+			others.add(player);
+		}
+		return others;
 	}
 
 	// ---------------------------------------------------------------- the ground star

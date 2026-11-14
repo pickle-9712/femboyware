@@ -50,6 +50,8 @@ public abstract class Module {
 
 	public void setEnabled(boolean enabled) {
 		if (this.enabled == enabled) return;
+		// Larp Only keeps cheats off (and remembers them for later)
+		if (enabled && !dev.femboyware.module.client.LarpOnlyModule.allows(this)) return;
 		this.enabled = enabled;
 		try {
 			if (enabled) onEnable();

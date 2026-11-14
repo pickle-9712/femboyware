@@ -10,6 +10,7 @@ import dev.femboyware.module.render.TungSahurModule;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
+import dev.femboyware.module.larp.JetModule;
 import dev.femboyware.util.FxRender;
 import dev.femboyware.util.IsraelFlag;
 import dev.femboyware.util.RenderUtil;
@@ -29,6 +30,8 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.component.FireworkExplosion;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 /**
  * Big animations where someone you were fighting dies. Money larp: Rug Pull (a stock line pumps
@@ -61,6 +64,7 @@ public class KillAnimationsModule extends TargetFxModule {
 	private static final int STAR_BLUE = 0xFF3D7BFF;
 
 	private final EnumSetting<Animation> animation = add(new EnumSetting<>("Animation", "What plays when they die", Animation.RUG_PULL));
+	private final BoolSetting jetFlyby = add(new BoolSetting("Jet Flyby", "Your private jet roars low over them on every kill, trailing contrails", true));
 	private final BoolSetting playersOnly = add(new BoolSetting("Players Only", "Only on players, not mobs", true));
 	private final BoolSetting sounds = add(new BoolSetting("Sounds", "Sound effects with each animation", true));
 	private final NumberSetting scale = add(new NumberSetting("Scale", "How big the animations are", 1, 0.5, 2, 0.05));
@@ -101,6 +105,40 @@ public class KillAnimationsModule extends TargetFxModule {
 	private final List<Kill> kills = new ArrayList<>();
 	private final Random random = new Random();
 
+	/** A jet flying over a body: the point it passes over, the way it's flying, and when it set off. */
+	private record Flyby(Vec3 over, double dirX, double dirZ, long start) {
+		static final float LENGTH = 7f, SPEED = 30, LOWEST = 12;
+
+		float age() {
+			return (System.currentTimeMillis() - start) / 1000f;
+		}
+
+		/** Distance along the pass at {@code t} seconds, negative before it's over them. */
+		double along(float t) {
+			return (t - LENGTH / 2) * SPEED;
+		}
+
+		/** Where it is at {@code t}: swooping down to its lowest right over them, then climbing away. */
+		Vec3 at(float t) {
+			double d = along(t);
+			return over.add(dirX * d, LOWEST + 0.0022 * d * d, dirZ * d);
+		}
+
+		float yaw() {
+			return (float) Math.toDegrees(Math.atan2(-dirX, dirZ));
+		}
+
+		float pitch(float t) {
+			return (float) Math.toDegrees(Math.atan(0.0044 * along(t)));
+		}
+
+		Quaternionf rotation(float t) {
+			return new Quaternionf().rotateY((float) Math.toRadians(-yaw())).rotateX((float) Math.toRadians(-pitch(t)));
+		}
+	}
+
+	private final List<Flyby> flybys = new ArrayList<>();
+
 	public KillAnimationsModule() {
 		super("Kill Animations", "Rug pulls, margin calls, Tung Sahur, Star of David and more when you kill someone");
 	}
@@ -115,6 +153,7 @@ public class KillAnimationsModule extends TargetFxModule {
 		super.onDisable();
 		engaged.clear();
 		kills.clear();
+		flybys.clear();
 	}
 
 	private TungSahurModule tung() {
@@ -140,6 +179,7 @@ public class KillAnimationsModule extends TargetFxModule {
 			}
 		}
 		kills.removeIf(kill -> kill.age() * 1000 > kill.animation.length);
+		flybys.removeIf(flyby -> flyby.age() > Flyby.LENGTH);
 		for (Kill kill : kills) cues(kill);
 		// Sahur's visits keep going with his own module off
 		TungSahurModule tung = tung();
@@ -163,6 +203,13 @@ public class KillAnimationsModule extends TargetFxModule {
 			default -> kills.add(new Kill(picked, entity, yaw));
 		}
 		while (kills.size() > 8) kills.remove(0);
+		if (jetFlyby.get() && flybys.size() < 3) {
+			// Crossing left to right a way behind them, so the whole jet's in view past their body
+			double away = Math.max(1e-3, Math.sqrt(toYou.x * toYou.x + toYou.z * toYou.z));
+			Vec3 over = entity.position().add(-toYou.x / away * 25, 0, -toYou.z / away * 25);
+			flybys.add(new Flyby(over, Math.cos(yaw), -Math.sin(yaw), System.currentTimeMillis()));
+			if (sounds.get()) mc.level.playLocalSound(over.x, over.y + 6, over.z, SoundEvents.ELYTRA_FLYING, SoundSource.PLAYERS, 1.2f, 0.55f, false);
+		}
 	}
 
 	/** Sounds at the right moments of each animation. */
@@ -217,7 +264,9 @@ public class KillAnimationsModule extends TargetFxModule {
 	public void onRender3D(Render3DEvent event) {
 		TungSahurModule tung = tung();
 		if (!tung.isEnabled() && tung.running()) tung.onRender3D(event);
-		if (kills.isEmpty() || mc.level == null) return;
+		if (mc.level == null) return;
+		if (!flybys.isEmpty()) flybys(event);
+		if (kills.isEmpty()) return;
 		Vec3 cam = event.camera().pos;
 		boolean xray = walls.get();
 
@@ -271,6 +320,34 @@ public class KillAnimationsModule extends TargetFxModule {
 				case EXIT_LIQUIDITY -> liquidityText(event, kill, t);
 				case CARD_DECLINED -> cardText(event, kill, t);
 				default -> {
+				}
+			}
+		}
+	}
+
+	// ---------------------------------------------------------------- jet flyby
+
+	private void flybys(Render3DEvent event) {
+		JetModule jet = FemboyWare.getModules().get(JetModule.class);
+		for (Flyby flyby : flybys) {
+			float t = flyby.age();
+			Vec3 at = flyby.at(t);
+			// x y z, yaw pitch roll, door (shut), gear (up), flying (engines lit)
+			jet.drawShared(event, new double[]{at.x, at.y, at.z, flyby.yaw(), flyby.pitch(t), 6 * Math.sin(t * 1.3), 0, 0, 1}, new int[0]);
+		}
+		// Contrails streaming back from both engines, spreading out and fading
+		VertexConsumer glow = FxRender.textured(event, FxRender.GLOW, true, false);
+		for (Flyby flyby : flybys) {
+			float t = flyby.age();
+			for (int k = 0; k < 60; k++) {
+				float back = k * 0.04f, when = t - back;
+				if (when < 0) break;
+				Vec3 at = flyby.at(when);
+				Quaternionf rot = flyby.rotation(when);
+				float alpha = (1 - k / 60f) * 0.55f * Math.min(1, (Flyby.LENGTH - t) / 0.8f);
+				for (int side = -1; side <= 1; side += 2) {
+					Vector3f engine = new Vector3f(side * 2.85f, 3.7f, -12.5f).rotate(rot);
+					FxRender.glow(event, glow, at.add(engine.x, engine.y, engine.z), 0.5f + back * 1.4f, FxRender.fade(0xFFFFFFFF, alpha));
 				}
 			}
 		}

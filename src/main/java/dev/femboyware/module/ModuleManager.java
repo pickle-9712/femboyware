@@ -512,6 +512,7 @@ public class ModuleManager {
 		register(new NameProtectModule());
 		register(new SoundBlockerModule());
 		register(new ClickGuiModule());
+		register(new dev.femboyware.module.client.LarpOnlyModule());
 		register(new WatermarkModule());
 		register(new ModuleListModule());
 		register(new CoordinatesModule());
