@@ -75,7 +75,6 @@ public class FemboyWare implements ClientModInitializer {
 		});
 		//?}
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> config.save());
-		dev.femboyware.manager.JoinAnnouncer.register();
 
 		LOGGER.info("{} {} loaded", NAME, VERSION);
 	}
