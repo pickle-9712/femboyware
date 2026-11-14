@@ -37,4 +37,10 @@ public abstract class AbstractBlockStateMixin {
 		if (entity == null || (entity != mc.player && entity != mc.player.getVehicle())) return shape;
 		return FemboyWare.getModules().get(JesusModule.class).isSolid((BlockState) (Object) this, pos) ? Shapes.block() : shape;
 	}
+
+	/** No Block Rotation: every block of a kind picks the same model variant, so grass, sand and stone don't turn at random. */
+	@ModifyReturnValue(method = "getSeed(Lnet/minecraft/core/BlockPos;)J", at = @At("RETURN"))
+	private long femboyware$noBlockRotation(long seed) {
+		return dev.femboyware.module.render.NoBlockRotationModule.on ? 0L : seed;
+	}
 }

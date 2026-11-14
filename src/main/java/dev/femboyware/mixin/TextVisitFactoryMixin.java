@@ -15,6 +15,7 @@ public class TextVisitFactoryMixin {
 		index = 0)
 	private static String femboyware$nameProtect(String text) {
 		if (FemboyWare.getModules() == null) return text;
+		text = FemboyWare.getModules().get(dev.femboyware.module.larp.LarpAsModule.class).replace(text);
 		return FemboyWare.getModules().get(NameProtectModule.class).replaceName(text);
 	}
 }

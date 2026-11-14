@@ -90,7 +90,8 @@ public class ClientPlayerInteractionManagerMixin {
 	/** Server Larp: chests, barrels and shulkers open locally while larping. */
 	@Inject(method = "useItemOn", at = @At("HEAD"), cancellable = true)
 	private void femboyware$onUseItemOn(LocalPlayer player, InteractionHand hand, BlockHitResult hit, CallbackInfoReturnable<InteractionResult> cir) {
-		if (FemboyWare.getModules().get(ServerLarpModule.class).onUseItemOn(player, hand, hit)) cir.setReturnValue(InteractionResult.SUCCESS);
+		if (FemboyWare.getModules().get(dev.femboyware.module.larp.FakeSpawnerModule.class).onUse(hit)
+			|| FemboyWare.getModules().get(ServerLarpModule.class).onUseItemOn(player, hand, hit)) cir.setReturnValue(InteractionResult.SUCCESS);
 	}
 
 	/**
@@ -99,8 +100,10 @@ public class ClientPlayerInteractionManagerMixin {
 	 */
 	@Inject(method = "handleInventoryMouseClick", at = @At("HEAD"), cancellable = true)
 	private void femboyware$larpClick(int containerId, int slotId, int button, net.minecraft.world.inventory.ClickType clickType, Player player, CallbackInfo ci) {
-		if (FemboyWare.getModules() == null || !FemboyWare.getModules().get(ServerLarpModule.class).isLarping()) return;
+		if (FemboyWare.getModules() == null) return;
 		net.minecraft.world.inventory.AbstractContainerMenu menu = player.containerMenu;
+		// Our own fake menus (shop, sell, spawners) are always clicked here; otherwise only while larping
+		if (!(menu instanceof dev.femboyware.util.LocalMenu) && !FemboyWare.getModules().get(ServerLarpModule.class).isLarping()) return;
 		if (containerId == menu.containerId) menu.clicked(slotId, button, clickType, player);
 		ci.cancel();
 	}

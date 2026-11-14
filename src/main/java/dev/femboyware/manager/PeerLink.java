@@ -30,6 +30,28 @@ public final class PeerLink {
 	private static final int MAX_MESSAGE = 4000, IV = 12, CONNECT_TIMEOUT = 10000, RECONNECT_DELAY = 5000, KEEPALIVE = 25000;
 	private static final SecureRandom RANDOM = new SecureRandom();
 	private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(CONNECT_TIMEOUT)).build();
+	/**
+	 * Files go over HTTP/1.1 on their own client: Java's HTTP/2 can break the connection partway
+	 * through big uploads ("bad_record_mac"), which stopped videos sharing.
+	 */
+	private static final HttpClient FILES = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(CONNECT_TIMEOUT)).version(HttpClient.Version.HTTP_1_1).build();
+
+	/** Sends a file request, trying again a couple of times if the connection drops. */
+	private static <T> java.net.http.HttpResponse<T> fileRequest(java.net.http.HttpRequest request, java.net.http.HttpResponse.BodyHandler<T> body)
+		throws java.io.IOException, InterruptedException {
+		java.io.IOException last = null;
+		for (int attempt = 0; attempt < 4; attempt++) {
+			try {
+				var response = FILES.send(request, body);
+				if (response.statusCode() < 500) return response;
+				last = new java.io.IOException("relay said " + response.statusCode());
+			} catch (java.io.IOException e) {
+				last = e;
+			}
+			Thread.sleep(500L << attempt);
+		}
+		throw last;
+	}
 
 	private final String server;
 	private final SecretKeySpec key;
@@ -206,7 +228,7 @@ public final class PeerLink {
 	/** Whether everyone here can already fetch this file. Blocks: call off the main thread. */
 	public boolean hasFile(String sha256) {
 		try {
-			var response = HTTP.send(java.net.http.HttpRequest.newBuilder(URI.create(blobUrl(sha256))).timeout(Duration.ofSeconds(20)).GET().build(),
+			var response = fileRequest(java.net.http.HttpRequest.newBuilder(URI.create(blobUrl(sha256))).timeout(Duration.ofSeconds(20)).GET().build(),
 				java.net.http.HttpResponse.BodyHandlers.discarding());
 			return response.statusCode() == 200;
 		} catch (Exception e) {
@@ -226,7 +248,7 @@ public final class PeerLink {
 			byte[] sealed = sealBytes(java.util.Arrays.copyOfRange(data, i * PART, Math.min(data.length, (i + 1) * PART)));
 			if (sealed == null) throw new java.io.IOException("couldn't encrypt");
 			try {
-				var response = HTTP.send(java.net.http.HttpRequest.newBuilder(URI.create(blobUrl(sha256) + "/" + i + "?n=" + parts))
+				var response = fileRequest(java.net.http.HttpRequest.newBuilder(URI.create(blobUrl(sha256) + "/" + i + "?n=" + parts))
 						.timeout(Duration.ofSeconds(60)).PUT(java.net.http.HttpRequest.BodyPublishers.ofByteArray(sealed)).build(),
 					java.net.http.HttpResponse.BodyHandlers.ofString());
 				if (response.statusCode() != 200) throw new java.io.IOException("relay said " + response.statusCode() + " " + response.body());
@@ -240,7 +262,7 @@ public final class PeerLink {
 	/** A file someone here shared, checked against its hash; null if it isn't there (yet). Blocks: call off the main thread. */
 	public byte[] downloadFile(String sha256) throws java.io.IOException {
 		try {
-			var count = HTTP.send(java.net.http.HttpRequest.newBuilder(URI.create(blobUrl(sha256))).timeout(Duration.ofSeconds(20)).GET().build(),
+			var count = fileRequest(java.net.http.HttpRequest.newBuilder(URI.create(blobUrl(sha256))).timeout(Duration.ofSeconds(20)).GET().build(),
 				java.net.http.HttpResponse.BodyHandlers.ofString());
 			if (count.statusCode() == 404) return null;
 			if (count.statusCode() != 200) throw new java.io.IOException("relay said " + count.statusCode());
@@ -248,7 +270,7 @@ public final class PeerLink {
 			if (parts < 1 || parts > MAX_FILE / PART + 1) throw new java.io.IOException("bad file");
 			java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
 			for (int i = 0; i < parts; i++) {
-				var part = HTTP.send(java.net.http.HttpRequest.newBuilder(URI.create(blobUrl(sha256) + "/" + i)).timeout(Duration.ofSeconds(60)).GET().build(),
+				var part = fileRequest(java.net.http.HttpRequest.newBuilder(URI.create(blobUrl(sha256) + "/" + i)).timeout(Duration.ofSeconds(60)).GET().build(),
 					java.net.http.HttpResponse.BodyHandlers.ofByteArray());
 				if (part.statusCode() != 200) throw new java.io.IOException("relay said " + part.statusCode());
 				byte[] plain = openBytes(part.body());
@@ -264,6 +286,51 @@ public final class PeerLink {
 			throw new java.io.IOException("interrupted");
 		} catch (java.security.NoSuchAlgorithmException | NumberFormatException e) {
 			throw new java.io.IOException(e.getMessage());
+		}
+	}
+
+	// ---------------------------------------------------------------- live casts
+
+	private String liveUrl(String cast, int seq) {
+		return RELAY.replaceFirst("^ws", "http") + room + "/live/" + cast + "/" + seq;
+	}
+
+	/** Sends the next segment of a live cast. Blocks: call off the main thread. */
+	public void putLive(String cast, int seq, byte[] data) throws java.io.IOException {
+		byte[] sealed = sealBytes(data);
+		if (sealed == null) throw new java.io.IOException("couldn't encrypt");
+		try {
+			var response = FILES.send(java.net.http.HttpRequest.newBuilder(URI.create(liveUrl(cast, seq))).timeout(Duration.ofSeconds(10))
+				.PUT(java.net.http.HttpRequest.BodyPublishers.ofByteArray(sealed)).build(), java.net.http.HttpResponse.BodyHandlers.discarding());
+			if (response.statusCode() != 200) throw new java.io.IOException("relay said " + response.statusCode());
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new java.io.IOException("interrupted");
+		}
+	}
+
+	/**
+	 * A live segment fetched: {@code data} if it came (null if it isn't there yet), the newest one
+	 * the relay has, and whether the cast's gone or that segment's too old ({@code gone}).
+	 */
+	public record LiveSegment(byte[] data, int latest, boolean gone) {
+	}
+
+	/** Asks for one segment of a live cast; the relay waits a few seconds for it if it's due. Blocks. */
+	public LiveSegment getLive(String cast, int seq) throws java.io.IOException {
+		try {
+			var response = FILES.send(java.net.http.HttpRequest.newBuilder(URI.create(liveUrl(cast, seq))).timeout(Duration.ofSeconds(10)).GET().build(),
+				java.net.http.HttpResponse.BodyHandlers.ofByteArray());
+			int latest = (int) response.headers().firstValueAsLong("X-Latest").orElse(-1);
+			if (response.statusCode() == 404 || response.statusCode() == 410) return new LiveSegment(null, latest, true);
+			if (response.statusCode() == 204) return new LiveSegment(null, latest, false);
+			if (response.statusCode() != 200) throw new java.io.IOException("relay said " + response.statusCode());
+			byte[] plain = openBytes(response.body());
+			if (plain == null) throw new java.io.IOException("couldn't decrypt");
+			return new LiveSegment(plain, latest, false);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new java.io.IOException("interrupted");
 		}
 	}
 

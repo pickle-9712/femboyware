@@ -1,4 +1,63 @@
 {
+	"ui.typing": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/typing"
+			}
+		]
+	},
+	"ui.money_counter": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/money_counter"
+			}
+		]
+	},
+	"ui.fbi_siren": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/fbi_siren",
+				"attenuation_distance": 48
+			}
+		]
+	},
+	"ui.fbi_breach": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/fbi_breach"
+			}
+		]
+	},
+	"ui.fbi_flashbang": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/fbi_flashbang"
+			}
+		]
+	},
+	"ui.fbi_cuffs": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/fbi_cuffs"
+			}
+		]
+	},
+	"ui.fbi_door": {
+		"sounds": [
+			{
+				"name": "femboyware:ui/fbi_door"
+			}
+		]
+	},
+	"tv": {
+		"sounds": [
+			{
+				"name": "fabric-sound-api-v1:empty",
+				"stream": true,
+				"attenuation_distance": 24
+			}
+		]
+	},
 	"emote.queen_st": {
 		"sounds": [
 			{
@@ -11,6 +70,14 @@
 		"sounds": [
 			{
 				"name": "femboyware:emotes/vyzee",
+				"stream": true
+			}
+		]
+	},
+	"emote.bitcoin": {
+		"sounds": [
+			{
+				"name": "femboyware:emotes/bitcoin",
 				"stream": true
 			}
 		]

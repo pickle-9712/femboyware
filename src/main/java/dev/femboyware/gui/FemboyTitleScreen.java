@@ -66,6 +66,7 @@ public class FemboyTitleScreen extends Screen {
 
 	private final List<Button> buttons = new ArrayList<>();
 	private Supplier<PlayerSkin> skin;
+	private com.mojang.authlib.GameProfile skinProfile;
 	private PlayerSkinWidget skinWidget;
 	/** Top of each button, from the last frame, for clicks. */
 	private int[] buttonY = new int[0];
@@ -92,10 +93,16 @@ public class FemboyTitleScreen extends Screen {
 		//?}
 		buttons.add(new Button("Client", Kind.SECONDARY, () -> Mc.setScreen(new ClickGuiScreen(FemboyWare.getModules().get(ClickGuiModule.class))), 0));
 		buttons.add(new Button("Quit Game", Kind.SECONDARY, minecraft::stop, 10));
-		skin = minecraft.getSkinManager().createLookup(minecraft.getGameProfile(), false);
-		Supplier<PlayerSkin> loaded = skin;
+		skinProfile = minecraft.getGameProfile();
+		skin = minecraft.getSkinManager().createLookup(skinProfile, false);
 		skinWidget = addRenderableWidget(new PlayerSkinWidget(SKIN_WIDTH, SKIN_HEIGHT, minecraft.getEntityModels(), () -> {
-			PlayerSkin textures = loaded.get();
+			// Your profile is refetched in the background (FreshProfile): look the skin up again when it lands
+			var profile = dev.femboyware.util.FreshProfile.of(minecraft.getGameProfile());
+			if (profile != skinProfile) {
+				skinProfile = profile;
+				skin = minecraft.getSkinManager().createLookup(profile, false);
+			}
+			PlayerSkin textures = skin.get();
 			return textures != null ? textures : DefaultPlayerSkin.get(minecraft.getGameProfile());
 		}) {
 			/** Spins left and right only: tilting would swing the head away from the name tag above it. */

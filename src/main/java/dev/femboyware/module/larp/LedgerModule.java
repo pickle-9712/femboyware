@@ -224,7 +224,7 @@ public class LedgerModule extends Module {
 		if (!payment.received() || !isEnabled() || !paymentAlerts.get()) return;
 		toasts.add(new Toast(null, payment, payment.time()));
 		while (toasts.size() > 3) toasts.removeFirst();
-		if (sound.get()) LarpSounds.play(LarpSounds.LEDGER_NOTIFY, 0.9f);
+		if (sound.get() && dev.femboyware.module.hud.NotificationsModule.on()) LarpSounds.play(LarpSounds.LEDGER_NOTIFY, 0.9f);
 	}
 
 	private void loadPayments() {
@@ -288,6 +288,9 @@ public class LedgerModule extends Module {
 	 * -1 if neither has said.
 	 */
 	public double balance() {
+		// A fake balance set with /fakebal is the one the larp goes by
+		double fake = dev.femboyware.module.utility.FakeEconomy.balance();
+		if (fake >= 0) return fake;
 		double side = scoreboardBalance();
 		if (exactBalance >= 0) {
 			double adjusted = exactBalance;
@@ -458,10 +461,10 @@ public class LedgerModule extends Module {
 		save();
 		toasts.add(new Toast(op, null, op.time()));
 		while (toasts.size() > 3) toasts.removeFirst();
-		if (sound.get()) {
+		if (sound.get() && dev.femboyware.module.hud.NotificationsModule.on()) {
 			LarpSounds.play(LarpSounds.LEDGER_NOTIFY, 0.9f);
 		}
-		if (chat.get()) ChatUtil.info("Ledger: received " + coin.amount(amount) + " " + coin.name() + " (" + usd(op.usd) + ")");
+		if (chat.get() && dev.femboyware.module.hud.NotificationsModule.on()) ChatUtil.info("Ledger: received " + coin.amount(amount) + " " + coin.name() + " (" + usd(op.usd) + ")");
 	}
 
 	private void record(Operation op) {
@@ -566,6 +569,11 @@ public class LedgerModule extends Module {
 	}
 
 	public void open() {
+		// Taken in the raid: it's in an evidence bag until the freeze lifts
+		if (FbiRaidModule.assetsFrozen()) {
+			dev.femboyware.util.ChatUtil.info("Your Ledger was seized by the FBI");
+			return;
+		}
 		Mc.setScreen(new LedgerScreen(this));
 	}
 
@@ -573,6 +581,10 @@ public class LedgerModule extends Module {
 
 	@Override
 	public void onRender2D(GuiGraphics context, float tickDelta) {
+		if (!dev.femboyware.module.hud.NotificationsModule.on()) {
+			toasts.clear();
+			return;
+		}
 		if (toasts.isEmpty() || Mc.hudHidden()) return;
 		long now = System.currentTimeMillis();
 		toasts.removeIf(toast -> now - toast.time() > life());

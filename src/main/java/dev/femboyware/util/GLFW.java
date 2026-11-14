@@ -30,6 +30,7 @@ public final class GLFW {
 	public static final int GLFW_KEY_Z = InputConstants.KEY_Z;
 	public static final int GLFW_KEY_6 = InputConstants.KEY_6;
 	public static final int GLFW_KEY_ESCAPE = InputConstants.KEY_ESCAPE;
+	public static final int GLFW_KEY_SPACE = InputConstants.KEY_SPACE;
 	public static final int GLFW_KEY_ENTER = InputConstants.KEY_RETURN;
 	/^* SDL_SCANCODE_KP_ENTER ^/
 	public static final int GLFW_KEY_KP_ENTER = 88;

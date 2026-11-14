@@ -86,7 +86,8 @@ public class ClientPlayerEntityMixin {
 	private static HitResult femboyware$noMiningTrace(HitResult hit, @Local(argsOnly = true) Entity camera,
 			@Local(argsOnly = true, ordinal = 0) double blockRange, @Local(argsOnly = true) float tickDelta) {
 		if (!(hit instanceof EntityHitResult entityHit) || FemboyWare.getModules() == null) return hit;
-		if (!FemboyWare.getModules().get(NoMiningTraceModule.class).shouldSkip(entityHit.getEntity())) return hit;
+		if (!FemboyWare.getModules().get(NoMiningTraceModule.class).shouldSkip(entityHit.getEntity())
+			&& !FemboyWare.getModules().get(dev.femboyware.module.utility.IgnoreEntityModule.class).ignores(entityHit.getEntity())) return hit;
 		HitResult block = camera.pick(blockRange, tickDelta, false);
 		return block.getType() == HitResult.Type.BLOCK ? block : hit;
 	}

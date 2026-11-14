@@ -49,6 +49,8 @@ public class EntityMixin {
 	private void femboyware$noEntityPush(Entity entity, CallbackInfo ci) {
 		if (isLocalPlayer() && FemboyWare.getModules().get(NoPushModule.class).entities()) ci.cancel();
 		else if (FemboyWare.getModules() != null && FemboyWare.getModules().get(FakePlayerModule.class).ignoresPush((Entity) (Object) this, entity)) ci.cancel();
+		else if (FemboyWare.getModules() != null && (FemboyWare.getModules().get(dev.femboyware.module.larp.FbiRaidModule.class).isActor((Entity) (Object) this)
+			|| FemboyWare.getModules().get(dev.femboyware.module.larp.FbiRaidModule.class).isActor(entity))) ci.cancel();
 	}
 
 	@ModifyReturnValue(method = "isPushedByFluid", at = @At("RETURN"))

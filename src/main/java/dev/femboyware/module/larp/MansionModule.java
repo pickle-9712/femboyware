@@ -49,6 +49,8 @@ public class MansionModule extends Module {
 	private static final int STEPS = 11;
 	private static final float STAIR_X1 = -13.6f, STAIR_X2 = -11.6f, STAIR_Z = -11, STAIR_RUN = 0.6f;
 	private static final float HOLE_END = STAIR_Z + STAIR_RUN * STEPS;
+	/** The cash room upstairs, between the bedroom and the terrace door: its left wall (with the vault door) and back and front walls. */
+	private static final float CASH_X1 = 1.0f, CASH_Z1 = -7.1f, CASH_Z2 = -2.6f, VAULT_WALL = 0.15f, VAULT_DOOR_Z1 = -4.6f, VAULT_DOOR_Z2 = -3.4f;
 	/** Where the palms stand, and which way each leans (out, away from the house). */
 	private static final float[][] PALMS = {{-16.4f, 14.8f, -1, 1}, {16.4f, 14.8f, 1, 1}, {-16.2f, -14.4f, -1, -1}, {16.2f, -14.4f, 1, -1}};
 
@@ -83,14 +85,30 @@ public class MansionModule extends Module {
 				at = mc.player.position().add(-Math.sin(rad) * 21, 0, Math.cos(rad) * 21);
 				at = new Vec3(at.x, ground(), at.z);
 				if (!isEnabled()) setEnabled(true);
-				ChatUtil.info("Welcome home. Walk up the front steps; the garage is round the right");
+				dev.femboyware.util.Mc.addChat(net.minecraft.network.chat.Component.literal("<Butler> Welcome home. The house is ready for you."));
 			}
 			case "remove", "clear" -> {
 				at = null;
-				ChatUtil.info("Mansion's gone");
 			}
 			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "mansion <spawn|remove>");
 		}
+	}
+
+
+	/** For LarpSave: where it stands (x, y, z, yaw), or null. */
+	public double[] savePlace() {
+		return at == null ? null : new double[]{at.x, at.y, at.z, yaw};
+	}
+
+	/** For LarpSave: puts it back where it was saved (or takes it away), quietly. */
+	public void restorePlace(double[] p) {
+		if (p == null || p.length < 4) {
+			at = null;
+			return;
+		}
+		at = new Vec3(p[0], p[1], p[2]);
+		yaw = (float) p[3];
+		if (!isEnabled()) setEnabled(true);
 	}
 
 	/** For tests and the like: builds it at {@code where} facing {@code facing}. */
@@ -198,14 +216,79 @@ public class MansionModule extends Module {
 		boxes.add(new float[]{GARAGE_X, F2, BACK, HX, F2 + 1, BACK + 0.08f});
 		// The roof
 		boxes.add(new float[]{-HX - 0.5f, ROOF, BACK - 0.5f, GARAGE_X + 0.5f, ROOF + 0.35f, FRONT + 0.5f});
+		// The cash room upstairs: its vault walls with the doorway, the open vault door, the shelves, the pallet and the counting table
+		boxes.add(new float[]{CASH_X1, F2, CASH_Z1, CASH_X1 + VAULT_WALL, ROOF, VAULT_DOOR_Z1});
+		boxes.add(new float[]{CASH_X1, F2, VAULT_DOOR_Z2, CASH_X1 + VAULT_WALL, ROOF, CASH_Z2});
+		boxes.add(new float[]{CASH_X1, F2 + 2.3f, VAULT_DOOR_Z1, CASH_X1 + VAULT_WALL, ROOF, VAULT_DOOR_Z2});
+		boxes.add(new float[]{CASH_X1, F2, CASH_Z1, GARAGE_X - WALL, ROOF, CASH_Z1 + VAULT_WALL});
+		boxes.add(new float[]{CASH_X1, F2, CASH_Z2 - VAULT_WALL, GARAGE_X - WALL, ROOF, CASH_Z2});
+		boxes.add(new float[]{CASH_X1 - 1.28f, F2, VAULT_DOOR_Z2, CASH_X1 - 0.02f, F2 + 2.3f, VAULT_DOOR_Z2 + 0.24f});
+		boxes.add(new float[]{CASH_X1 + VAULT_WALL, F2, CASH_Z1 + VAULT_WALL, GARAGE_X - WALL, ROOF, CASH_Z1 + VAULT_WALL + 0.5f});
+		boxes.add(new float[]{GARAGE_X - WALL - 0.5f, F2, CASH_Z1 + VAULT_WALL + 0.5f, GARAGE_X - WALL, ROOF, CASH_Z2 - VAULT_WALL});
+		boxes.add(new float[]{2.4f, F2, -5.6f, 3.8f, F2 + 0.75f, -4.4f});
+		boxes.add(new float[]{1.35f, F2, -3.35f, 2.35f, F2 + 0.8f, -2.75f});
 		// The big things you'd bump into: the kitchen island, the dining table and the bed
 		boxes.add(new float[]{-6, PLINTH, -9.2f, 0, PLINTH + 0.95f, -7.8f});
 		boxes.add(new float[]{0.5f, PLINTH, -6, 3.5f, PLINTH + 0.78f, -2});
 		boxes.add(new float[]{-10, F2, -12.7f, -5, F2 + 0.6f, -8});
+		// The watch room: the winder wall, and the two vitrines up to their glass tops
+		boxes.add(new float[]{-11.3f, F2, -4.3f, -6.1f, F2 + 2.6f, -3.9f});
+		boxes.add(new float[]{-12.92f, F2, -2.62f, -7.08f, F2 + 1.16f, -1.78f});
+		boxes.add(new float[]{-12.92f, F2, 0.58f, -7.08f, F2 + 1.16f, 1.42f});
 		return boxes;
 	}
 
 	private static final List<float[]> BOXES = boxes();
+
+	/**
+	 * What the raid's agents walk round: everything solid, plus the furniture you can walk into
+	 * (sofas, chairs, stools, tables, the watch cases, plants), the pool and the hole over the stairs.
+	 */
+	static List<float[]> navBoxes() {
+		List<float[]> out = new ArrayList<>(BOXES);
+		float p = PLINTH, u = F2, gz = FRONT - GLASS_DEPTH;
+		// Living room: the L sofa, the coffee table and the fireplace
+		out.add(new float[]{-9, p, 1, -4, p + 0.9f, 2});
+		out.add(new float[]{-9, p, -2, -8, p + 0.9f, 1});
+		out.add(new float[]{-7, p, -1, -5, p + 0.6f, 0.2f});
+		out.add(new float[]{-HX + WALL, p, -2.2f, -HX + 1.0f, p + 1, 1.2f});
+		// Kitchen units and the stools along the island
+		out.add(new float[]{-8, p, BACK, 2, p + 1, BACK + 0.92f});
+		out.add(new float[]{-5.25f, p, -7.4f, -0.85f, p + 0.8f, -6.9f});
+		// The dining chairs either side of the table
+		out.add(new float[]{-0.25f, p, -5.65f, 0.25f, p + 1.05f, -2.15f});
+		out.add(new float[]{3.75f, p, -5.65f, 4.25f, p + 1.05f, -2.15f});
+		// Plants in the corners
+		for (float[] q : new float[][]{{-HX + 0.8f, p}, {GARAGE_X - 0.7f, p}, {-HX + 0.8f, u}, {GARAGE_X - WALL - 0.7f, u}})
+			out.add(new float[]{q[0] - 0.35f, q[1], gz - 0.95f, q[0] + 0.35f, q[1] + 1.3f, gz - 0.25f});
+		// Out on the deck: the pool, the loungers and parasols
+		out.add(new float[]{POOL_X1 - COPING, p, POOL_Z1 - COPING, POOL_X2 + COPING, p + 1, POOL_Z2 + COPING});
+		for (float z : new float[]{7.5f, 11.2f}) {
+			out.add(new float[]{3.74f, p, z, 6.26f, p + 0.8f, z + 2});
+		}
+		// Upstairs: the hole over the stairs, the nightstands, wardrobe, desk and its stool, the sofa
+		out.add(new float[]{STAIR_X1, u, STAIR_Z, STAIR_X2 + 0.08f, u + 1, HOLE_END - 0.35f});
+		for (float x : new float[]{-11, -4}) out.add(new float[]{x - 0.4f, u, -12.6f, x + 0.4f, u + 1, -12});
+		out.add(new float[]{GARAGE_X - WALL - 0.65f, u, -11, GARAGE_X - WALL, u + 2.6f, -7});
+		out.add(new float[]{0, u, -12.6f, 3, u + 0.75f, -11.8f});
+		out.add(new float[]{1.2f, u, -11.4f, 1.8f, u + 0.5f, -10.8f});
+		out.add(new float[]{-4, u, 0, 1, u + 0.9f, 1});
+		// (The watch room's winder wall and vitrines are solid, so already in BOXES)
+		return out;
+	}
+
+	/**
+	 * For EntityRendererMixin: the block light the mansion's lamps give something standing at
+	 * {@code pos}: bright indoors, lamplit out on the grounds, or 0 away from it.
+	 */
+	public int lampLight(Vec3 pos) {
+		if (!isEnabled() || at == null) return 0;
+		Vector3f v = new Vector3f((float) (pos.x - at.x), (float) (pos.y - at.y), (float) (pos.z - at.z)).rotate(new Quaternionf().rotateY((float) Math.toRadians(yaw)));
+		if (v.y < -2 || v.y > ROOF + 4) return 0;
+		if (v.x > -HX - 0.5f && v.x < HX + 0.5f && v.z > BACK - 0.5f && v.z < FRONT + 2.5f) return 14;
+		if (v.x > PX1 - 3 && v.x < PX2 + 3 && v.z > PZ1 - 3 && v.z < PZ2 + 14) return 11;
+		return 0;
+	}
 
 	/** Called through LarpProps: its floors, walls, glass, stairs, pool and hedges as solid boxes. */
 	public List<VoxelShape> collisions(Entity entity, AABB area) {
@@ -276,13 +359,29 @@ public class MansionModule extends Module {
 		if (cam.distanceToSqr(at) > 260 * 260) return;
 		float ox = (float) (at.x - cam.x), oy = (float) (at.y - cam.y), oz = (float) (at.z - cam.z);
 		Quaternionf turn = turn();
-		ShapeBuilder b = new ShapeBuilder(FxRender.solidQuads(event), event.matrices().last(), turn, ox, oy, oz);
-		ShapeBuilder in = new ShapeBuilder(FxRender.solidQuads(event), event.matrices().last(), turn, ox, oy, oz).soft();
+		// Floodlit outside and the lamps on inside, so it's never a dark hulk at night
+		ShapeBuilder b = new ShapeBuilder(FxRender.solidQuads(event), event.matrices().last(), turn, ox, oy, oz).lit(0.6f);
+		ShapeBuilder in = new ShapeBuilder(FxRender.solidQuads(event), event.matrices().last(), turn, ox, oy, oz).soft().lit(0.9f);
 		ShapeBuilder glass = new ShapeBuilder(null, event.matrices().last(), turn, ox, oy, oz);
 		int wall = look != null ? look[0] : wallColor.get(), stone = look != null ? look[1] : stoneColor.get(), wood = look != null ? look[2] : woodColor.get();
 		drawGrounds(b, glass, stone);
 		drawHouse(b, glass, wall, stone, wood);
+		watchLights.clear();
 		drawInside(in, glass, wood);
+		// The cash room's walls, vault door and shelving, with the rest of the inside (before another batch closes this one)
+		drawCashRoomShell(in, F2 + 0.016f);
+		// The watch room, in a batch of its own, only up close: it's a lot of little shapes
+		Vec3 room = world(-9.5f, F2 + 1, -0.5f);
+		if (cam.distanceToSqr(room) < 20 * 20) {
+			ShapeBuilder watches = new ShapeBuilder(FxRender.solidDetail(event), event.matrices().last(), turn, ox, oy, oz).soft().lit(0.9f);
+			drawWatchRoom(watches, glass, F2 + 0.016f);
+		}
+		// The cash in the cash room and round the house, close up only, gone once the FBI's seized it
+		Vec3 middle = world(-2, F2, -5);
+		if (cam.distanceToSqr(middle) < 26 * 26) {
+			ShapeBuilder cash = new ShapeBuilder(FxRender.solidDetail(event), event.matrices().last(), turn, ox, oy, oz).soft().lit(0.9f);
+			drawCash(cash, glass, PLINTH + 0.016f, F2 + 0.016f, (System.currentTimeMillis() % 600_000) / 1000f);
+		}
 		glass.flush(FxRender.quads(event, false, false));
 
 		// Lights: the pool from under the water, lamps round the deck, a light each side of the doors, and the rooms at night
@@ -300,7 +399,27 @@ public class MansionModule extends Module {
 			}
 		}
 		light(event, glow, turn, ox, oy, oz, 2, F2 - SLAB - 1.25f, -4, 0.8f, 0xA0FFE8C0);
+		// At night: uplights washing the front and the ends of the house, and a glow out of every room through the glass
+		float night = LarpLight.night();
+		if (night > 0.05f) {
+			int wash = (Math.round(0x70 * night) << 24) | 0xFFD9A0;
+			for (float x = -12; x <= 12; x += 3) light(event, glow, turn, ox, oy, oz, x, PLINTH + 0.6f, FRONT + 0.5f, 1.7f, wash);
+			for (float x = -12; x <= 4; x += 4) light(event, glow, turn, ox, oy, oz, x, F2 + 0.8f, FRONT + 0.6f, 1.6f, wash);
+			for (float z = -11; z <= 2; z += 4.3f) {
+				light(event, glow, turn, ox, oy, oz, -HX - 0.5f, PLINTH + 0.6f, z, 1.6f, wash);
+				light(event, glow, turn, ox, oy, oz, HX + 0.5f, PLINTH + 0.6f, z, 1.6f, wash);
+			}
+			int roomGlow = (Math.round(0x58 * night) << 24) | 0xFFE6B8;
+			for (float x = -11; x < 5; x += 3.2f) {
+				for (float z = -10; z < 3; z += 3.2f) {
+					light(event, glow, turn, ox, oy, oz, x, PLINTH + 1.6f, z, 2.2f, roomGlow);
+					light(event, glow, turn, ox, oy, oz, x, F2 + 1.5f, z, 2.2f, roomGlow);
+				}
+			}
+		}
 		for (float x = -5; x <= -1; x += 2) light(event, glow, turn, ox, oy, oz, x, F2 - SLAB - 1, -8.5f, 0.3f, 0xA0FFE8C0);
+		// Spotlights over the cash
+		for (float[] l : new float[][]{{3.1f, -5.0f}, {2.0f, -6.5f}, {4.6f, -6.5f}, {5.3f, -4.5f}}) light(event, glow, turn, ox, oy, oz, l[0], ROOF - 0.12f, l[1], 0.45f, 0xB0FFE6B8);
 		// The fire in the fireplace
 		long ms = System.currentTimeMillis();
 		float flicker = 0.8f + 0.2f * (float) Math.sin(ms / 90.0) * (float) Math.sin(ms / 230.0);
@@ -310,6 +429,22 @@ public class MansionModule extends Module {
 		light(event, glow, turn, ox, oy, oz, GARAGE_X + 5.2f, F2 + 0.65f, -1.6f, 0.7f * flicker, 0xD0FF8A2A);
 		// Garage strip lights
 		for (float z = -11; z < 3; z += 3.5f) light(event, glow, turn, ox, oy, oz, 10, F2 - SLAB - 0.1f, z, 0.4f, 0x80F2F6FF);
+		// The watch room's case lights, and diamonds twinkling on the iced ones
+		for (float[] w : watchLights) {
+			int color = Float.floatToRawIntBits(w[4]);
+			float size = w[3];
+			if (w.length > 5) {
+				// A twinkle: a quick sharp glint now and then, each diamond on its own beat
+				double phase = (ms / 1000.0 * 1.7 + w[5]) % 1.0;
+				float glint = phase < 0.12 ? (float) Math.sin(phase / 0.12 * Math.PI) : 0;
+				if (glint <= 0.02f) continue;
+				size *= glint;
+			}
+			light(event, glow, turn, ox, oy, oz, w[0], w[1], w[2], size, color);
+		}
+		// The living room TV, facing the sofa, last since it's its own layer
+		dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.larp.TvModule.class).drawBuiltIn(event, turn, ox, oy, oz,
+			new Vector3f(-HX + WALL + 0.075f, PLINTH + 2.4f, -0.5f), new Vector3f(0, 0, -1), 2.78f, 1.48f);
 	}
 
 	private static float[][] lamps() {
@@ -693,7 +828,8 @@ public class MansionModule extends Module {
 		for (float x = -7.8f; x < -4; x += 1.2f) in.box(x, y + 0.42f, 1.45f, x + 0.5f, y + 0.8f, 1.75f, 0xFFD6CFC0);
 		in.box(-7, y + 0.01f, -1, -5, y + 0.36f, 0.2f, oak);
 		in.box(-6.6f, y + 0.36f, -0.7f, -6.2f, y + 0.6f, -0.3f, 0xFF3A6B2F);
-		in.box(-HX + WALL + 0.01f, PLINTH + 1.6f, -3, -HX + WALL + 0.07f, PLINTH + 3.2f, 2, 0xFF0B0C0F);
+		in.box(-HX + WALL + 0.01f, PLINTH + 1.6f, -1.95f, -HX + WALL + 0.07f, PLINTH + 3.2f, 0.95f, 0xFF0B0C0F);
+		in.box(-HX + WALL + 0.07f, PLINTH + 1.65f, -1.9f, -HX + WALL + 0.075f, PLINTH + 3.15f, 0.9f, 0xFF050507);
 		in.box(-HX + WALL + 0.01f, y, -2, -HX + 0.85f, y + 0.9f, 1, 0xFF3A3B40);
 		in.box(-HX + 0.85f, y + 0.9f, -2.2f, -HX + 1.0f, y + 1.0f, 1.2f, marble);
 		in.box(-HX + 0.86f, y + 0.12f, -1.4f, -HX + 0.87f, y + 0.68f, 0.4f, 0xFF120E0A);
@@ -748,6 +884,11 @@ public class MansionModule extends Module {
 		in.box(0.4f, u + 0.75f, -12.5f, 1.4f, u + 1.35f, -12.44f, 0xFF0B0C0F);
 		in.box(1.6f, u + 0.75f, -12.5f, 2.6f, u + 1.35f, -12.44f, 0xFF0B0C0F);
 		in.box(1.2f, u, -11.4f, 1.8f, u + 0.5f, -10.8f, dark);
+		// Your Ledger on the desk, until the FBI bag it
+		java.util.UUID deskOwner = dev.femboyware.FemboyWare.getModules().get(TvModule.class).drawingForOwner();
+		if (!dev.femboyware.FemboyWare.getModules().get(FbiRaidModule.class).ledgerGone(deskOwner)) {
+			drawLedger(in, FbiRaidModule.LEDGER_SPOT[0], u + 0.75f, FbiRaidModule.LEDGER_SPOT[2]);
+		}
 		int[] canvas = {0xFFE85D75, 0xFF4BA3C3, 0xFFF2C14E};
 		for (int i = 0; i < 3; i++) {
 			float x = -3.5f + i * 1.2f;
@@ -761,6 +902,225 @@ public class MansionModule extends Module {
 		for (float[] p : new float[][]{{-HX + 0.8f, gz - 0.6f, y}, {GARAGE_X - 0.7f, gz - 0.6f, y}, {-HX + 0.8f, gz - 0.6f, u}, {GARAGE_X - WALL - 0.7f, gz - 0.6f, u}}) {
 			in.box(p[0] - 0.25f, p[2], p[1] - 0.25f, p[0] + 0.25f, p[2] + 0.5f, p[1] + 0.25f, 0xFF2A2C31);
 			in.box(p[0] - 0.35f, p[2] + 0.5f, p[1] - 0.35f, p[0] + 0.35f, p[2] + 1.3f, p[1] + 0.35f, 0xFF3A6B2F);
+		}
+	}
+
+	/**
+	 * The cash room's vault: steel walls round it, a heavy door frame on the doorway, and the vault
+	 * door standing open into the room outside with its wheel and bolts. Its floor, shelves and pallet too.
+	 */
+	private void drawCashRoomShell(ShapeBuilder in, float u) {
+		int steel = 0xFF50545C, dark = 0xFF2B2D33, chrome = 0xFFC3C7CE, shelf = 0xFF1C1D21;
+		float top = ROOF - 0.02f, x2 = GARAGE_X - WALL - 0.01f, w = CASH_X1 + VAULT_WALL;
+		// Walls
+		in.box(CASH_X1, u, CASH_Z1, w, top, VAULT_DOOR_Z1, steel);
+		in.box(CASH_X1, u, VAULT_DOOR_Z2, w, top, CASH_Z2, steel);
+		in.box(CASH_X1, u + 2.3f, VAULT_DOOR_Z1, w, top, VAULT_DOOR_Z2, steel);
+		in.box(w, u, CASH_Z1, x2, top, CASH_Z1 + VAULT_WALL, steel);
+		in.box(w, u, CASH_Z2 - VAULT_WALL, x2, top, CASH_Z2, steel);
+		// The door frame, thick round the opening on the outside
+		in.box(CASH_X1 - 0.08f, u, VAULT_DOOR_Z1 - 0.14f, CASH_X1, u + 2.44f, VAULT_DOOR_Z1, dark);
+		in.box(CASH_X1 - 0.08f, u, VAULT_DOOR_Z2, CASH_X1, u + 2.44f, VAULT_DOOR_Z2 + 0.14f, dark);
+		in.box(CASH_X1 - 0.08f, u + 2.3f, VAULT_DOOR_Z1, CASH_X1, u + 2.44f, VAULT_DOOR_Z2, dark);
+		// The vault door, swung open: a thick slab out from the hinge, the wheel on its face, bolts along its edge
+		float dz1 = VAULT_DOOR_Z2 + 0.02f, dz2 = dz1 + 0.22f, dx1 = CASH_X1 - 1.28f, dx2 = CASH_X1 - 0.02f;
+		in.box(dx1, u, dz1, dx2, u + 2.28f, dz2, steel);
+		in.box(dx1 + 0.08f, u + 0.08f, dz2, dx2 - 0.08f, u + 2.2f, dz2 + 0.02f, ShapeBuilder.shade(steel, 1.1f));
+		float cx = (dx1 + dx2) / 2, cy = u + 1.15f, fz = dz2 + 0.02f;
+		in.box(cx - 0.06f, cy - 0.06f, fz, cx + 0.06f, cy + 0.06f, fz + 0.08f, chrome);
+		for (int i = 0; i < 3; i++) {
+			double a = Math.PI * i / 3;
+			float ex = (float) Math.cos(a) * 0.32f, ey = (float) Math.sin(a) * 0.32f;
+			float[][] bar = {{cx - ex - 0.015f, cy - ey, fz + 0.04f}, {cx + ex - 0.015f, cy + ey, fz + 0.04f}, {cx + ex + 0.015f, cy + ey, fz + 0.04f}, {cx - ex + 0.015f, cy - ey, fz + 0.04f}};
+			in.plate(bar, 0, 0, 1, 0.03f, chrome);
+			in.box(cx + ex - 0.03f, cy + ey - 0.03f, fz, cx + ex + 0.03f, cy + ey + 0.03f, fz + 0.07f, chrome);
+			in.box(cx - ex - 0.03f, cy - ey - 0.03f, fz, cx - ex + 0.03f, cy - ey + 0.03f, fz + 0.07f, chrome);
+		}
+		for (float by = u + 0.35f; by < u + 2.1f; by += 0.42f) in.box(dx1 - 0.09f, by, dz1 + 0.06f, dx1, by + 0.09f, dz2 - 0.06f, chrome);
+		// Inside: a dark floor, steel shelving along the back and right walls, the pallet's base, the counting table
+		in.box(w, u, CASH_Z1 + VAULT_WALL, x2, u + 0.004f, CASH_Z2 - VAULT_WALL, 0xFF1B1B1E);
+		float bz1 = CASH_Z1 + VAULT_WALL, bz2 = bz1 + 0.5f;
+		for (float sx : new float[]{w + 0.05f, 2.75f, 4.2f, x2 - 0.05f}) in.box(sx - 0.025f, u, bz1, sx + 0.025f, u + 2.5f, bz2, shelf);
+		float rx1 = x2 - 0.5f, rz2 = CASH_Z2 - VAULT_WALL;
+		for (float sz : new float[]{bz2 + 0.03f, -4.6f, rz2 - 0.05f}) in.box(rx1, u, sz - 0.025f, x2, u + 2.5f, sz + 0.025f, shelf);
+		for (float sy : SHELVES) {
+			in.box(w + 0.02f, u + sy - 0.03f, bz1, x2, u + sy, bz2, shelf);
+			in.box(rx1, u + sy - 0.03f, bz2, x2, u + sy, rz2, shelf);
+		}
+		in.box(2.4f, u, -5.6f, 3.8f, u + 0.14f, -4.4f, 0xFF9C7A50);
+		in.box(1.35f, u + 0.76f, -3.35f, 2.35f, u + 0.8f, -2.75f, 0xFF16171A);
+		for (float lx : new float[]{1.4f, 2.3f}) in.box(lx - 0.02f, u, -3.1f, lx + 0.02f, u + 0.76f, -3.0f, 0xFF8C9098);
+	}
+
+	/** A Ledger lying flat, its bottom at {@code y}: the black body, the steel swivel cover and the little screen. */
+	static void drawLedger(ShapeBuilder b, float x, float y, float z) {
+		b.box(x - 0.17f, y, z - 0.045f, x + 0.17f, y + 0.035f, z + 0.045f, 0xFF15161A);
+		b.box(x - 0.1f, y + 0.035f, z - 0.048f, x + 0.19f, y + 0.042f, z + 0.048f, 0xFFB9BBC2);
+		b.box(x - 0.16f, y + 0.035f, z - 0.03f, x - 0.11f, y + 0.039f, z + 0.03f, 0xFF262A30);
+		b.box(x - 0.08f, y + 0.042f, z - 0.025f, x + 0.04f, y + 0.044f, z + 0.025f, 0xFF7FB2E8);
+	}
+
+	/** The heights of the cash room's shelf boards, from the floor. */
+	private static final float[] SHELVES = {0.06f, 0.62f, 1.18f, 1.74f, 2.3f};
+
+	/**
+	 * Cash everywhere: the cash room's shelves full of bricks, a shrink-wrapped pallet and a counting
+	 * machine running, and stacks and loose bills left on the coffee table, the kitchen island, the
+	 * dining table, the bed, the nightstand, the desk and the sofa. Gone once the FBI's seized it.
+	 */
+	private void drawCash(ShapeBuilder in, ShapeBuilder glass, float y, float u, float seconds) {
+		java.util.UUID owner = dev.femboyware.FemboyWare.getModules().get(TvModule.class).drawingForOwner();
+		boolean seized = dev.femboyware.FemboyWare.getModules().get(FbiRaidModule.class).watchesTaken(owner) >= WATCH_COUNT;
+		float x2 = GARAGE_X - WALL - 0.01f, bz1 = CASH_Z1 + VAULT_WALL, w = CASH_X1 + VAULT_WALL;
+		// The counting machines: one on the dining table, one in the cash room (both running unless it's all gone)
+		Cash.counter(in, 2.0f, y + 0.78f, -4.6f, 1, !seized, seconds);
+		Cash.counter(in, 1.85f, u + 0.8f, -3.05f, -1, !seized, seconds + 3);
+		if (seized) return;
+		// Back wall shelves: each bay a row of bricks five high at the front, packed solid behind
+		float[] bays = {w + 0.08f, 2.78f, 4.23f};
+		float[] bayEnds = {2.72f, 4.17f, x2 - 0.08f};
+		for (int s = 0; s < SHELVES.length; s++) {
+			int layers = s == SHELVES.length - 1 ? 2 : 5;
+			for (int bay = 0; bay < 3; bay++) {
+				int across = (int) ((bayEnds[bay] - bays[bay]) / (Cash.LENGTH + 0.01f));
+				in.box(bays[bay] + 0.02f, u + SHELVES[s], bz1 + 0.02f, bays[bay] + across * (Cash.LENGTH + 0.01f) - 0.02f, u + SHELVES[s] + Cash.height(layers) - 0.01f, bz1 + 0.33f, 0xFF8E9E7E);
+				Cash.stack(in, bays[bay], u + SHELVES[s], bz1 + 0.34f, across, 1, layers, true);
+			}
+		}
+		// Right wall shelves: bricks end on, two bays
+		float rx1 = x2 - 0.5f;
+		float[][] rbays = {{bz1 + 0.56f, -4.63f}, {-4.57f, CASH_Z2 - VAULT_WALL - 0.08f}};
+		for (int s = 0; s < SHELVES.length; s++) {
+			int layers = s == SHELVES.length - 1 ? 2 : 5;
+			for (float[] rb : rbays) {
+				int deep = (int) ((rb[1] - rb[0]) / (Cash.WIDTH + 0.01f));
+				in.box(rx1 + 0.33f, u + SHELVES[s], rb[0] + 0.02f, x2 - 0.02f, u + SHELVES[s] + Cash.height(layers) - 0.01f, rb[0] + deep * (Cash.WIDTH + 0.01f) - 0.02f, 0xFF8E9E7E);
+				Cash.stack(in, rx1 + 0.01f, u + SHELVES[s], rb[0], 1, deep, layers, true);
+			}
+		}
+		// The pallet: a block of bricks, its outside and top drawn brick by brick, wrapped in film
+		float px = 2.45f, pz = -5.55f, py = u + 0.14f;
+		int across = 4, deep = 7, layers = 7;
+		float sx = Cash.LENGTH + 0.01f, sz = Cash.WIDTH + 0.01f;
+		in.box(px + 0.03f, py, pz + 0.03f, px + across * sx - 0.03f, py + Cash.height(layers) - 0.01f, pz + deep * sz - 0.03f, 0xFF8E9E7E);
+		for (int l = 0; l < layers; l++) {
+			float ly = py + Cash.height(l);
+			boolean top = l == layers - 1;
+			for (int i = 0; i < across; i++) {
+				for (int j = 0; j < deep; j++) {
+					if (!top && i > 0 && i < across - 1 && j > 0 && j < deep - 1) continue;
+					Cash.brick(in, px + sx * (i + 0.5f), ly, pz + sz * (j + 0.5f), true);
+				}
+			}
+		}
+		glass.box(px - 0.01f, py, pz - 0.01f, px + across * sx + 0.01f, py + Cash.height(layers) + 0.01f, pz + deep * sz + 0.01f, 0x28E8F0F8);
+		// Loose bills on the counting table and spilled on the vault floor
+		Cash.stack(in, 2.05f, u + 0.8f, -3.3f, 1, 2, 3, false);
+		Cash.loose(in, 3.2f, u + 0.005f, -3.6f, 14, 1.2f, 11);
+		// Round the house
+		Cash.stack(in, -6.9f, y + 0.36f, -0.95f, 2, 1, 2, true);
+		Cash.loose(in, -5.6f, y + 0.36f, -0.4f, 6, 0.5f, 1);
+		in.box(-3.3f, y + 0.01f, -1.05f, -2.55f, y + 0.3f, -0.6f, 0xFF1A1A1C);
+		Cash.stack(in, -3.25f, y + 0.3f, -1.0f, 2, 2, 1, true);
+		Cash.loose(in, -4.2f, y + 0.012f, -1.6f, 9, 0.9f, 7);
+		Cash.stack(in, -5.6f, y + 0.95f, -8.95f, 2, 2, 3, true);
+		Cash.stack(in, -1.4f, y + 0.95f, -8.85f, 1, 2, 2, true);
+		Cash.loose(in, -3.5f, y + 0.95f, -8.5f, 6, 0.8f, 2);
+		Cash.stack(in, 0.9f, y + 0.78f, -3.4f, 2, 2, 4, false);
+		Cash.loose(in, 2.8f, y + 0.78f, -2.9f, 8, 0.7f, 3);
+		Cash.stack(in, -8.7f, u + 0.62f, -9.7f, 2, 2, 2, true);
+		Cash.loose(in, -6.8f, u + 0.62f, -9.2f, 12, 1.2f, 4);
+		Cash.brick(in, -4.25f, u + 0.6f, -12.3f, false);
+		Cash.stack(in, 2.65f, u + 0.75f, -12.35f, 1, 1, 4, false);
+		Cash.loose(in, 1.0f, u + 0.75f, -12.0f, 4, 0.4f, 5);
+		Cash.stack(in, -1.6f, u + 0.42f, 0.35f, 2, 1, 1, true);
+		Cash.loose(in, 0.0f, u + 0.42f, 0.6f, 3, 0.4f, 6);
+	}
+
+	/** Lights and twinkles from the watch room to draw with the others: x, y, z, size, colour (as float bits), and a twinkle phase for diamonds. */
+	private final List<float[]> watchLights = new ArrayList<>();
+	private static final float WATCH_MINUTES = 10 * 60 + 10;
+	/** Watches in the room: three rows of eight in the winder wall, and two vitrines of two rows of nine. */
+	public static final int WATCH_COUNT = 3 * 8 + 2 * 2 * 9;
+
+	/**
+	 * The watch room upstairs at the front: a dark floor, a walnut wall of lit winder cubbies with a
+	 * watch standing in each, and two black lacquer vitrines with glass tops, watches laid out on
+	 * velvet under spotlights. Rolexes and Audemars Piguets, a few iced out.
+	 */
+	private void drawWatchRoom(ShapeBuilder in, ShapeBuilder glass, float u) {
+		int walnut = 0xFF3B2416, lacquer = 0xFF101012, gold = 0xFFC9A14A, velvet = 0xFF2B1220, pillow = 0xFFEDE6DA;
+		int next = 0;
+		// Bagged by the FBI in a raid (or gone while your assets are frozen): those cases stay empty
+		java.util.UUID owner = dev.femboyware.FemboyWare.getModules().get(TvModule.class).drawingForOwner();
+		FbiRaidModule raid = dev.femboyware.FemboyWare.getModules().get(FbiRaidModule.class);
+		in.box(-13.4f, u + 0.001f, -3.9f, -6.1f, u + 0.006f, 3.0f, 0xFF1B1B1E);
+		// The winder wall: a walnut partition, drawers below, three rows of lit cubbies above
+		in.box(-11.3f, u, -4.25f, -6.1f, u + 2.55f, -3.95f, walnut);
+		in.box(-11.3f, u + 2.55f, -4.3f, -6.1f, u + 2.6f, -3.9f, gold);
+		for (float x = -11.0f; x < -6.3f; x += 1.15f) in.box(x, u + 0.12f, -3.95f, x + 1.0f, u + 0.68f, -3.93f, ShapeBuilder.shade(walnut, 1.2f));
+		for (int row = 0; row < 3; row++) {
+			float cy = u + 1.05f + row * 0.5f;
+			for (int col = 0; col < 8; col++) {
+				float cx = -10.85f + col * 0.6f;
+				in.box(cx - 0.25f, cy - 0.21f, -3.95f, cx + 0.25f, cy + 0.21f, -3.935f, gold);
+				in.box(cx - 0.23f, cy - 0.19f, -3.935f, cx + 0.23f, cy + 0.19f, -3.93f, 0xFF0E0E10);
+				in.box(cx - 0.07f, cy - 0.16f, -3.93f, cx + 0.07f, cy + 0.08f, -3.86f, pillow);
+				if (raid.watchGone(owner, next)) {
+					next++;
+					continue;
+				}
+				Watches.Style style = Watches.COLLECTION.get(next++ % Watches.COLLECTION.size());
+				float[] at = {cx, cy - 0.02f, -3.84f};
+				Watches.draw(in, at, new float[]{1, 0, 0}, new float[]{0, 1, 0}, 0.14f, style, WATCH_MINUTES);
+				watchLights.add(new float[]{cx, cy + 0.16f, -3.9f, 0.16f, Float.intBitsToFloat(0x50FFE8C0)});
+				for (float[] p : Watches.sparkles(at, new float[]{1, 0, 0}, new float[]{0, 1, 0}, 0.14f, style))
+					watchLights.add(new float[]{p[0], p[1], p[2], 0.07f, Float.intBitsToFloat(0xF0FFFFFF), (float) Math.random()});
+			}
+		}
+		// Two vitrines either side of the walkway, watches laid out facing whoever's in between
+		for (int side = 0; side < 2; side++) {
+			float z1 = side == 0 ? -2.6f : 0.6f, z2 = z1 + 0.8f, top = u + 0.86f;
+			// The lacquer stops under the gold rim, so their tops don't fight over the same plane
+			in.box(-12.9f, u, z1, -7.1f, top - 0.03f, z2, lacquer);
+			in.box(-12.92f, top - 0.03f, z1 - 0.02f, -7.08f, top, z2 + 0.02f, gold);
+			in.box(-12.85f, top + 0.002f, z1 + 0.05f, -7.15f, top + 0.01f, z2 - 0.05f, velvet);
+			// The glass: its four sides, and the lid, which lifts up on chrome posts when the FBI open it
+			float lid = raid.caseLid(owner, side), g1 = top + 0.3f, lift = 0.45f * lid, pane = 0.012f;
+			int glassTint = 0x30C8E0F0, chrome = 0xFFD6D9DE;
+			glass.box(-12.9f, top + 0.01f, z1, -7.1f, g1, z1 + pane, glassTint);
+			glass.box(-12.9f, top + 0.01f, z2 - pane, -7.1f, g1, z2, glassTint);
+			glass.box(-12.9f, top + 0.01f, z1 + pane, -12.9f + pane, g1, z2 - pane, glassTint);
+			glass.box(-7.1f - pane, top + 0.01f, z1 + pane, -7.1f, g1, z2 - pane, glassTint);
+			glass.box(-12.9f, g1 + lift - 0.015f, z1, -7.1f, g1 + lift, z2, glassTint);
+			if (lift > 0.01f) {
+				for (float px : new float[]{-12.88f, -7.14f}) for (float pz : new float[]{z1 + 0.02f, z2 - 0.04f})
+					in.box(px, g1, pz, px + 0.02f, g1 + lift, pz + 0.02f, chrome);
+				// A thin gold rim round the lifted glass
+				float ry = g1 + lift - 0.02f, rt = g1 + lift - 0.012f, rw = 0.025f;
+				in.box(-12.9f, ry, z1, -7.1f, rt, z1 + rw, gold);
+				in.box(-12.9f, ry, z2 - rw, -7.1f, rt, z2, gold);
+				in.box(-12.9f, ry, z1 + rw, -12.9f + rw, rt, z2 - rw, gold);
+				in.box(-7.1f - rw, ry, z1 + rw, -7.1f, rt, z2 - rw, gold);
+			}
+			float[] right = side == 0 ? new float[]{1, 0, 0} : new float[]{-1, 0, 0};
+			float[] up = side == 0 ? new float[]{0, 0, -1} : new float[]{0, 0, 1};
+			for (int row = 0; row < 2; row++) {
+				float cz = z1 + 0.22f + row * 0.36f;
+				for (int col = 0; col < 9; col++) {
+					float cx = -12.55f + col * 0.64f;
+					if (raid.watchGone(owner, next)) {
+						next++;
+						continue;
+					}
+					Watches.Style style = Watches.COLLECTION.get(next++ % Watches.COLLECTION.size());
+					float[] at = {cx, top + 0.035f, cz};
+					Watches.draw(in, at, right, up, 0.16f, style, WATCH_MINUTES);
+					for (float[] p : Watches.sparkles(at, right, up, 0.16f, style))
+						watchLights.add(new float[]{p[0], p[1], p[2], 0.08f, Float.intBitsToFloat(0xF0FFFFFF), (float) Math.random()});
+				}
+			}
+			for (float x = -12.3f; x < -7.2f; x += 1.3f) watchLights.add(new float[]{x, top + 0.28f, (z1 + z2) / 2, 0.35f, Float.intBitsToFloat(0x40FFF0D8)});
 		}
 	}
 

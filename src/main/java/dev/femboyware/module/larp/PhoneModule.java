@@ -68,16 +68,56 @@ public class PhoneModule extends Module {
 
 	/** Who texts you, and what they say. */
 	private static final Map<String, String[]> CONTACTS = new LinkedHashMap<>();
+	/** Who messages you on Telegram rather than iMessage: the plug, the OTC desk, ZachXBT and the like. */
+	private static final Map<String, String[]> TELEGRAM = new LinkedHashMap<>();
 	private static final String[] REPLIES = {"bet", "say less", "on my way", "already did", "send it", "u know how i rock", "lmk", "facts", "we up", "aight", "ok bet", "hold on im in the maybach"};
 
 	static {
 		CONTACTS.put("Accountant", new String[]{"the wire cleared", "we need to talk about your taxes lol", "the 2.4M hit the account", "offshore account is set up", "your card limit got raised again", "Q3 numbers are insane", "stop buying chains for a week pls"});
 		CONTACTS.put("Twin", new String[]{"bro where u at", "send pics of the new whip", "u really bought another chain??", "we outside tonight", "lend me 20k i got u friday", "u seen the new drop", "pull up"});
 		CONTACTS.put("Shorty", new String[]{"wyd tonight", "the maybach looked crazy today", "come thru", "u said u were taking me shopping", "miss u", "i saw ur story"});
-		CONTACTS.put("Plug", new String[]{"got that for u", "pulling up in 10", "sent the address", "new shipment of watches came in", "the AP is ready", "u still want the iced one?"});
 		CONTACTS.put("Mom", new String[]{"proud of you baby", "call me when u can", "thank u for the house", "did u eat today", "your cousin says hi"});
 		CONTACTS.put("Realtor", new String[]{"the penthouse is yours", "closing docs are ready to sign", "seller accepted cash", "found another one with an ocean view"});
 		CONTACTS.put("Car Dealer", new String[]{"your car is ready for pickup", "we got the matte black one in", "delivery truck is on the way", "paid in full, thank you"});
+		TELEGRAM.put("Plug", new String[]{"yo i have some fresh leads", "got a new batch of leads for u", "leads are fresh today", "100 fresh leads ready when u are",
+			"these leads are clean", "u want the leads or not", "new leads just came in, send the usual", "dont text me on imessage"});
+		TELEGRAM.put("ZachXBT", new String[]{"we need to talk about your crypto transactions", "interesting wallet activity last night", "nice Lambo. which wallet paid for it?",
+			"traced it 4 hops from your address to the exchange", "posting a thread about you tomorrow. any comment?", "you might want to stop posting the watches",
+			"the club receipts match the timestamps", "your friend already talked to me", "on-chain is forever", "who's the Huracan registered to?",
+			"that $500k bar tab was a bad idea", "saw the rental mansion on your story. same night as the transfer"});
+		TELEGRAM.put("OTC Desk", new String[]{"the 200 BTC is ready", "rate locked for 10 min", "cash pickup at 3", "usual fee", "send the wallet, not a screenshot",
+			"split it across 6 wallets like last time?", "desk is closed after 9"});
+		TELEGRAM.put("Promoter", new String[]{"table's set for tonight", "the club wants u back friday", "we're spelling ur name in sparklers", "DJ's gonna shout u out",
+			"rented the whole floor for u", "bringing the champagne parade at midnight", "the girls from last time asked about u"});
+		TELEGRAM.put("Burner", new String[]{"new number, delete the old one", "use this one from now on", "dont text the old line", "switching phones again tomorrow",
+			"wipe the chats", "someone was asking about u"});
+		TELEGRAM.put("Lawyer", new String[]{"stop posting the cars", "dont say anything on any app", "call me from a different phone",
+			"retainer received", "we need to meet in person", "who else knows about the wallets?"});
+		TELEGRAM.put("Coinbase", new String[]{"Your withdrawal of 12.4 BTC has completed", "New sign-in detected from Dubai, UAE", "Your account limits have been increased",
+			"Your Coinbase One subscription has renewed", "Your USDC transfer has completed", "Verification complete. Welcome back"});
+		TELEGRAM.put("Caller", new String[]{"YO I JUST MADE IT 80 BANDS", "LETS GOOO 120 BANDS", "WE UP 45 BANDS TODAY", "200 BANDS JUST HIT"});
+	}
+
+	private static final String[] ZACH_REPLIES = {"who is this", "no comment", "talk to my lawyer", "wrong guy bro", "delete this", "?"};
+
+	/** Whether a thread lives in Telegram instead of Messages. */
+	public static boolean isTelegram(String contact) {
+		return TELEGRAM.containsKey(contact) || contact.startsWith(TG_THREAD);
+	}
+
+	/**
+	 * A Telegram chat with a real femboyware user is kept under this plus their name, so it stays
+	 * apart from your iMessage thread with the same person.
+	 */
+	public static final String TG_THREAD = "⁣tg:";
+
+	public static String telegramThread(String name) {
+		return TG_THREAD + name;
+	}
+
+	/** The name to show for a thread: without the Telegram marker. */
+	public static String shownName(String contact) {
+		return contact.startsWith(TG_THREAD) ? contact.substring(TG_THREAD.length()) : contact;
 	}
 
 	private static final int TOAST_WIDTH = 200, TOAST_HEIGHT = 40;
@@ -95,6 +135,9 @@ public class PhoneModule extends Module {
 	private final NumberSetting maxInterval = add(new NumberSetting("Max Interval", "Longest wait between texts, in seconds", 140, 3, 600, 1)).visibleWhen(dms::get);
 	private final EnumSetting<Placement> placement = add(new EnumSetting<>("Placement", "Where the banners show", Placement.TOP));
 	private final BoolSetting sound = add(new BoolSetting("Sound", "A ding with each text", true));
+	private final BoolSetting telegram = add(new BoolSetting("Telegram", "Telegram messages now and then: the plug, the OTC desk, the promoter, and ZachXBT asking about your transactions", true));
+	private final NumberSetting tgMin = add(new NumberSetting("Telegram Min Interval", "Shortest wait between Telegram messages, in seconds", 70, 5, 900, 5)).visibleWhen(telegram::get);
+	private final NumberSetting tgMax = add(new NumberSetting("Telegram Max Interval", "Longest wait between Telegram messages, in seconds", 260, 5, 1800, 5)).visibleWhen(telegram::get);
 	private final StringSetting contactLines = add(new StringSetting("Contact Messages",
 		"What your contacts text you: Name: message; message | Name: message; ...", defaultContacts()));
 	private final StringSetting strangerNames = add(new StringSetting("Stranger Names", "Names of random people who text you, separated by commas", String.join(", ", STRANGERS)));
@@ -118,7 +161,7 @@ public class PhoneModule extends Module {
 	private final List<Transaction> bankActivity = new ArrayList<>();
 	private final Map<String, Double> stockDrift = new LinkedHashMap<>();
 	private final Random random = new Random();
-	private int nextTextTicks = -1, nextWireTicks = -1;
+	private int nextTextTicks = -1, nextWireTicks = -1, nextTelegramTicks = -1;
 
 	/** A wire transfer's notification, or a Forbes alert when {@code headline} is set. */
 	private record Wire(String from, double amount, long time, String headline) {
@@ -147,13 +190,15 @@ public class PhoneModule extends Module {
 		long now = System.currentTimeMillis();
 		// Some history so the apps aren't empty the first time
 		int i = 0;
-		for (Map.Entry<String, String[]> contact : CONTACTS.entrySet()) {
+		Map<String, String[]> everyone = new LinkedHashMap<>(CONTACTS);
+		everyone.putAll(TELEGRAM);
+		for (Map.Entry<String, String[]> contact : everyone.entrySet()) {
 			List<Message> thread = new ArrayList<>();
 			long t = now - (i + 1) * 3_600_000L * (1 + random.nextInt(5));
 			for (int k = 0; k < 3; k++) {
 				thread.add(new Message(contact.getKey(), pick(contact.getValue()), false, t));
 				t += 60_000L * (2 + random.nextInt(20));
-				if (random.nextBoolean()) thread.add(new Message(contact.getKey(), pick(REPLIES), true, t));
+				if (random.nextBoolean()) thread.add(new Message(contact.getKey(), pick(contact.getKey().equals("ZachXBT") ? ZACH_REPLIES : REPLIES), true, t));
 				t += 60_000L * (1 + random.nextInt(30));
 			}
 			threads.put(contact.getKey(), thread);
@@ -253,6 +298,9 @@ public class PhoneModule extends Module {
 
 	@Override
 	public void onTick() {
+		tickPending();
+		tickX();
+		tickPhoto();
 		if (mc.player.tickCount % 200 == 0) {
 			for (Position p : POSITIONS) {
 				double d = stockDrift.get(p.ticker());
@@ -273,6 +321,20 @@ public class PhoneModule extends Module {
 				scheduleForbes();
 			}
 		}
+		if (discordOn.get()) {
+			if (nextDiscordTicks < 0) nextDiscordTicks = 20 * (15 + random.nextInt(40));
+			if (--nextDiscordTicks == 0) {
+				randomDiscord();
+				nextDiscordTicks = 20 * (15 + random.nextInt(40));
+			}
+		}
+		if (telegram.get()) {
+			if (nextTelegramTicks < 0) scheduleTelegram();
+			if (--nextTelegramTicks == 0) {
+				randomTelegram();
+				scheduleTelegram();
+			}
+		}
 		if (!dms.get()) return;
 		if (nextTextTicks < 0) schedule();
 		if (--nextTextTicks == 0) {
@@ -291,6 +353,28 @@ public class PhoneModule extends Module {
 		nextTextTicks = -1;
 		nextWireTicks = -1;
 		nextForbesTicks = -1;
+		nextTelegramTicks = -1;
+	}
+
+	private void scheduleTelegram() {
+		double low = Math.min(tgMin.get(), tgMax.get()), high = Math.max(tgMin.get(), tgMax.get());
+		nextTelegramTicks = Math.max(20, (int) ((low + random.nextDouble() * (high - low)) * 20));
+	}
+
+	/** A Telegram message: ZachXBT a fair share of the time, otherwise one of the others. */
+	public void randomTelegram() {
+		List<String> names = new ArrayList<>(TELEGRAM.keySet());
+		String name = random.nextFloat() < 0.3f ? ZACH : names.get(random.nextInt(names.size()));
+		// After enough warnings he stops asking and posts it
+		if (name.equals(CALLER)) {
+			callerWin();
+			return;
+		}
+		if (name.equals(ZACH) && zachMessages >= 4 && expose == null && pending.stream().noneMatch(p -> p.contact() == null)) {
+			threatenExpose(8);
+			return;
+		}
+		receive(name, pick(TELEGRAM.get(name)));
 	}
 
 	private void scheduleForbes() {
@@ -310,7 +394,7 @@ public class PhoneModule extends Module {
 	public void forbesAlert(String headline) {
 		wireToasts.add(new Wire("Forbes", 0, System.currentTimeMillis(), headline));
 		while (wireToasts.size() > 2) wireToasts.removeFirst();
-		if (sound.get()) LarpSounds.play(LarpSounds.PHONE_TEXT, 1.1f, 0.8f);
+		if (sound.get() && dev.femboyware.module.hud.NotificationsModule.on()) LarpSounds.play(LarpSounds.PHONE_TEXT, 1.1f, 0.8f);
 	}
 
 	private void scheduleWire() {
@@ -334,7 +418,7 @@ public class PhoneModule extends Module {
 		bankActivity.addFirst(new Transaction("Wire from " + from, amount, System.currentTimeMillis()));
 		wireToasts.add(new Wire(from, amount, System.currentTimeMillis()));
 		while (wireToasts.size() > 2) wireToasts.removeFirst();
-		if (sound.get()) LarpSounds.play(LarpSounds.LEDGER_NOTIFY, 0.8f, 0.9f);
+		if (sound.get() && dev.femboyware.module.hud.NotificationsModule.on()) LarpSounds.play(LarpSounds.LEDGER_NOTIFY, 0.8f, 0.9f);
 	}
 
 	@Override
@@ -373,7 +457,8 @@ public class PhoneModule extends Module {
 			if (colon <= 0) continue;
 			String name = part.substring(0, colon).trim();
 			List<String> lines = split(part.substring(colon + 1), ";");
-			if (!name.isEmpty() && !lines.isEmpty()) parsed.put(name, lines.toArray(new String[0]));
+			// Telegram people (the plug, from older settings) message on Telegram instead
+			if (!name.isEmpty() && !lines.isEmpty() && !isTelegram(name)) parsed.put(name, lines.toArray(new String[0]));
 		}
 		contactsParsed = parsed.isEmpty() ? CONTACTS : parsed;
 		return contactsParsed;
@@ -574,7 +659,7 @@ public class PhoneModule extends Module {
 		String line = "Sold " + (sale.count() > 1 ? sale.count() + "x " : "") + sale.item() + (who != null ? " to " + who : "") + " for " + LedgerModule.usd(sale.price());
 		toasts.add(new Message(SHOPIFY, line, false, System.currentTimeMillis()));
 		while (toasts.size() > 3) toasts.removeFirst();
-		if (sound.get()) LarpSounds.play(LarpSounds.LEDGER_SUCCESS, 0.8f);
+		if (sound.get() && dev.femboyware.module.hud.NotificationsModule.on()) LarpSounds.play(LarpSounds.LEDGER_SUCCESS, 0.8f);
 	}
 
 
@@ -624,11 +709,432 @@ public class PhoneModule extends Module {
 		if (want && link == null) {
 			link = new dev.femboyware.manager.PhoneLink(self, incoming -> mc.execute(() -> {
 				String thread = incoming.direct() ? incoming.from() : EVERYONE;
-				realThreads.add(thread);
+				if (!incoming.direct() && incoming.text().startsWith(DISCORD_MARK)) {
+					discordFrom(incoming.from(), incoming.text().substring(DISCORD_MARK.length()));
+					return;
+				}
+				if (incoming.direct() && incoming.text().startsWith(TELEGRAM_MARK)) {
+					String text = incoming.text().substring(TELEGRAM_MARK.length()).trim();
+					if (text.isEmpty()) return;
+					String tg = telegramThread(incoming.from());
+					realThreads.add(tg);
+					receive(tg, text);
+					return;
+				}
+				boolean signal = incoming.text().startsWith(CALL_MARK) || incoming.text().startsWith(X_MARK);
+				if (!signal) realThreads.add(thread);
+				if (incoming.direct() && incoming.text().startsWith(WIRE_MARK)) {
+					wireFrom(incoming.from(), incoming.text().substring(WIRE_MARK.length()));
+					return;
+				}
+				if (incoming.direct() && incoming.text().startsWith(CALL_MARK)) {
+					callSignal(incoming.from(), incoming.text().substring(CALL_MARK.length()));
+					return;
+				}
+				if (!incoming.direct() && incoming.text().startsWith(X_MARK)) {
+					xPosts.addFirst(new XPost(incoming.from(), incoming.text().substring(X_MARK.length()), System.currentTimeMillis(), 0, false));
+					return;
+				}
 				receive(thread, incoming.direct() ? incoming.text() : incoming.from() + ": " + incoming.text());
 			}));
 		}
 		if (link != null) link.tick();
+		tickCall();
+	}
+
+	// ---------------------------------------------------------------- phone calls, over Simple Voice Chat
+
+	/**
+	 * Marks a direct message as call signalling rather than a text. A call goes: invite (with the
+	 * voice chat group and its password), then accept, decline or busy, and end from either side.
+	 */
+	private static final String CALL_MARK = "\u2063call ";
+
+	public enum CallState { NONE, DIALING, RINGING_OUT, RINGING_IN, CONNECTED }
+
+	private CallState callState = CallState.NONE;
+	private String callWith, callPassword, callEnded;
+	private java.util.UUID callGroup, groupBefore;
+	private long callSince, connectedAt, lastRing, endedAt;
+	/** Your voice chat mute and deafen from before the call, put back when it ends; null when not saved. */
+	private Boolean mutedBefore, deafenedBefore;
+
+	/** Remembers your voice chat mute and deafen so the call's buttons don't stick after it. */
+	private void saveVoice() {
+		if (mutedBefore != null || !dev.femboyware.util.VoiceChat.available()) return;
+		mutedBefore = dev.femboyware.util.VoiceChat.muted();
+		deafenedBefore = dev.femboyware.util.VoiceChat.deafened();
+	}
+
+	/** On the call: you can't hear it deafened, so make sure you aren't. */
+	private void connectVoice() {
+		connectedAt = System.currentTimeMillis();
+		if (dev.femboyware.util.VoiceChat.deafened()) dev.femboyware.util.VoiceChat.setDeafened(false);
+		dev.femboyware.FemboyWare.LOGGER.info("Phone call connected with {} (voice group {}, in it: {})", callWith, callGroup, callHasVoice());
+	}
+
+	public CallState callState() {
+		return callState;
+	}
+
+	public String callWith() {
+		return callWith;
+	}
+
+	/** When the call connected, for the timer. */
+	public long connectedAt() {
+		return connectedAt;
+	}
+
+	/** Whether there's voice on this call (you're in its voice chat group). */
+	public boolean callHasVoice() {
+		return callGroup != null && callGroup.equals(dev.femboyware.util.VoiceChat.group());
+	}
+
+	/** Why the last call ended, shown for a moment after. */
+	public String callEnded() {
+		return callEnded != null && System.currentTimeMillis() - endedAt < 3000 ? callEnded : null;
+	}
+
+	/** Calls another femboyware user. Returns why it couldn't, or null if it's ringing. */
+	public String call(String who) {
+		if (link == null) return "Turn on Online Messages to call people";
+		if (callState != CallState.NONE) return "You're already on a call";
+		if (!link.isOnline(who)) return who + " isn't online right now";
+		callWith = who;
+		callState = CallState.DIALING;
+		callSince = System.currentTimeMillis();
+		callPassword = Long.toString(random.nextLong() & Long.MAX_VALUE, 36);
+		callGroup = null;
+		groupBefore = dev.femboyware.util.VoiceChat.group();
+		saveVoice();
+		// Voice chat: a private group for the two of you; once we're in it, the invite goes out
+		if (dev.femboyware.util.VoiceChat.connected()) {
+			dev.femboyware.util.VoiceChat.createGroup("Call " + Long.toString(random.nextLong() & 0xFFFFFFL, 36), callPassword);
+		} else invite();
+		return null;
+	}
+
+	private void invite() {
+		String group = callGroup == null ? "-" : callGroup.toString();
+		if (link == null || !link.sendDirect(callWith, CALL_MARK + "invite " + group + " " + callPassword)) {
+			endCall(callWith + " isn't online right now");
+			return;
+		}
+		callState = CallState.RINGING_OUT;
+		callSince = System.currentTimeMillis();
+	}
+
+	/** Picks up the call that's ringing. */
+	public void answer() {
+		if (callState != CallState.RINGING_IN) return;
+		saveVoice();
+		if (callGroup != null && dev.femboyware.util.VoiceChat.connected()) dev.femboyware.util.VoiceChat.joinGroup(callGroup, callPassword);
+		signal("accept");
+		callState = CallState.CONNECTED;
+		connectVoice();
+	}
+
+	public void decline() {
+		if (callState != CallState.RINGING_IN) return;
+		signal("decline");
+		endCall("Declined");
+	}
+
+	/** The red button: cancels, or ends the call for both of you. */
+	public void hangUp() {
+		if (callState == CallState.NONE) return;
+		signal("end");
+		endCall("Call ended");
+	}
+
+	private void signal(String what) {
+		if (link != null && callWith != null) link.sendDirect(callWith, CALL_MARK + what);
+	}
+
+	private void endCall(String why) {
+		// Out of the call's voice chat group: the one we made or joined for it, even if it showed up late
+		java.util.UUID now = dev.femboyware.util.VoiceChat.group();
+		if (now != null && (now.equals(callGroup) || callGroup == null && callState == CallState.RINGING_OUT && !now.equals(groupBefore))) dev.femboyware.util.VoiceChat.leaveGroup();
+		// Mute and deafen back how they were before the call
+		if (mutedBefore != null) {
+			dev.femboyware.util.VoiceChat.setMuted(mutedBefore);
+			dev.femboyware.util.VoiceChat.setDeafened(deafenedBefore);
+		}
+		mutedBefore = null;
+		deafenedBefore = null;
+		dev.femboyware.FemboyWare.LOGGER.info("Phone call with {} ended: {}", callWith, why);
+		callState = CallState.NONE;
+		callGroup = null;
+		callEnded = why;
+		endedAt = System.currentTimeMillis();
+	}
+
+	private void callSignal(String from, String text) {
+		String[] parts = text.trim().split(" ");
+		switch (parts[0]) {
+			case "invite" -> {
+				if (callState != CallState.NONE) {
+					if (link != null) link.sendDirect(from, CALL_MARK + "busy");
+					return;
+				}
+				callWith = from;
+				callState = CallState.RINGING_IN;
+				callSince = System.currentTimeMillis();
+				callGroup = parts.length > 1 && !parts[1].equals("-") ? parseUuid(parts[1]) : null;
+				callPassword = parts.length > 2 ? parts[2] : "";
+				lastRing = 0;
+				lastRingTick = -1;
+				dev.femboyware.util.ChatUtil.info("Phone: " + from + " is calling (.phone answer or .phone decline)");
+				// The phone comes up with the call on it, unless you're in another menu
+				if (Mc.screen() == null && mc.player != null) {
+					PhoneScreen screen = new PhoneScreen(this);
+					screen.showCall();
+					Mc.setScreen(screen);
+				}
+			}
+			case "accept" -> {
+				if (callState == CallState.RINGING_OUT && from.equalsIgnoreCase(callWith)) {
+					callState = CallState.CONNECTED;
+					connectVoice();
+				}
+			}
+			case "decline" -> {
+				if (from.equalsIgnoreCase(callWith) && callState != CallState.NONE) endCall("Declined");
+			}
+			case "busy" -> {
+				if (from.equalsIgnoreCase(callWith) && callState != CallState.NONE) endCall(from + " is on another call");
+			}
+			case "end" -> {
+				if (from.equalsIgnoreCase(callWith) && callState != CallState.NONE) endCall(callState == CallState.RINGING_IN ? "Missed call" : "Call ended");
+			}
+			default -> {
+			}
+		}
+	}
+
+	private static java.util.UUID parseUuid(String text) {
+		try {
+			return java.util.UUID.fromString(text);
+		} catch (IllegalArgumentException e) {
+			return null;
+		}
+	}
+
+	/**
+	 * The ringtone: a bright marimba-like riff on note block plings and bells, twice, then a pause,
+	 * over and over. Each note is {tick it plays on, semitone (0 is F#3)}; it loops every
+	 * {@link #RING_LOOP} ticks. Played as a UI sound, so it's just as loud wherever you are.
+	 */
+	private static final int[][] RINGTONE = {{0, 16}, {2, 23}, {4, 20}, {6, 23}, {8, 16}, {10, 23}, {12, 20}, {14, 23},
+		{18, 16}, {20, 23}, {22, 20}, {24, 23}, {26, 16}, {28, 23}, {30, 20}, {32, 23}};
+	private static final int RING_LOOP = 54;
+
+	private void ringtone(long now) {
+		// lastRing is when this ring started; the tick into the loop picks which notes play now
+		if (lastRing == 0) lastRing = now;
+		int tick = (int) ((now - lastRing) / 50);
+		if (tick == lastRingTick) return;
+		// After a stall, carry on from now rather than playing every missed note at once
+		if (tick - lastRingTick > 4) lastRingTick = tick - 1;
+		for (int t = lastRingTick + 1; t <= tick; t++) {
+			int at = Math.floorMod(t, RING_LOOP);
+			for (int[] note : RINGTONE) {
+				if (note[0] != at) continue;
+				float pitch = (float) Math.pow(2, (note[1] - 12) / 12.0);
+				mc.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(net.minecraft.sounds.SoundEvents.NOTE_BLOCK_PLING.value(), pitch, 0.9f));
+				mc.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(net.minecraft.sounds.SoundEvents.NOTE_BLOCK_BELL.value(), pitch * 0.5f, 0.35f));
+			}
+		}
+		lastRingTick = tick;
+	}
+
+	private int lastRingTick = -1;
+
+	private void tickCall() {
+		long now = System.currentTimeMillis();
+		switch (callState) {
+			case DIALING -> {
+				// Waiting for voice chat to put us in the new group, then the invite goes
+				java.util.UUID group = dev.femboyware.util.VoiceChat.group();
+				if (group != null && !group.equals(groupBefore)) {
+					callGroup = group;
+					invite();
+				} else if (now - callSince > 5000) invite();
+			}
+			case RINGING_OUT -> {
+				if (now - callSince > 30_000) {
+					signal("end");
+					endCall("No answer");
+				}
+			}
+			case RINGING_IN -> {
+				if (mc.player != null) ringtone(now);
+				if (now - callSince > 30_000) endCall("Missed call from " + callWith);
+			}
+			case CONNECTED -> {
+				if (link == null || !link.isOnline(callWith) && now - connectedAt > 10_000) endCall(callWith + " went offline");
+			}
+			default -> {
+			}
+		}
+	}
+
+	// ---------------------------------------------------------------- X: posts shared with everyone on femboyware
+
+	private static final String X_MARK = "\u2063x ";
+
+	public static final class XPost {
+		public final String author, text;
+		public final long time;
+		public int likes;
+		public boolean liked;
+
+		XPost(String author, String text, long time, int likes, boolean liked) {
+			this.author = author;
+			this.text = text;
+			this.time = time;
+			this.likes = likes;
+			this.liked = liked;
+		}
+	}
+
+	private final java.util.ArrayDeque<XPost> xPosts = new java.util.ArrayDeque<>();
+
+	public java.util.Collection<XPost> xPosts() {
+		return xPosts;
+	}
+
+	/** Your own posts pick up likes as they go round. Called each tick. */
+	private void tickX() {
+		for (XPost post : xPosts) {
+			if (post.author.equals(selfName()) && random.nextInt(30) == 0) post.likes += 1 + random.nextInt(post.likes / 6 + 1);
+		}
+	}
+
+	/** Ticks until the camera's shot is taken (the phone's away and the HUD hidden by then); -1 none. */
+	private int photoIn = -1;
+	private boolean photoHidHud;
+
+	/** The camera app's shutter: a real screenshot of the world, without the phone or HUD in it. */
+	public void takePhoto() {
+		photoHidHud = !dev.femboyware.util.Mc.hudHidden();
+		if (photoHidHud) dev.femboyware.util.Mc.setHudHidden(true);
+		photoIn = 2;
+	}
+
+	private void tickPhoto() {
+		if (photoIn < 0 || --photoIn > 0) return;
+		photoIn = -1;
+		net.minecraft.client.Screenshot.grab(mc.gameDirectory, dev.femboyware.util.Mc.mainRenderTarget(), saved -> mc.execute(() -> {
+			if (photoHidHud) dev.femboyware.util.Mc.setHudHidden(false);
+			photoHidHud = false;
+			dev.femboyware.util.ChatUtil.chat("Photo saved to your screenshots");
+		}));
+		LarpSounds.play(LarpSounds.SHUTTER, 1f, 0.9f);
+	}
+
+	public String selfName() {
+		return mc.getUser() == null ? "you" : mc.getUser().getName();
+	}
+
+	/** Posts to X: shows in your feed and every femboyware user online's. */
+	public String postX(String typed) {
+		String text = dev.femboyware.manager.PhoneLink.clean(typed);
+		if (text.isEmpty()) return "Write something first";
+		xPosts.addFirst(new XPost(selfName(), text, System.currentTimeMillis(), 0, false));
+		while (xPosts.size() > 100) xPosts.removeLast();
+		if (link != null) link.sendAll(X_MARK + text);
+		return null;
+	}
+
+	// ---------------------------------------------------------------- Coinbase holdings
+
+	/** What you hold on Coinbase, ticker=amount pairs; saved so buys and sells stick. */
+	private final StringSetting coinbaseSaved = add(new StringSetting("Coinbase", "", "BTC=41.72;ETH=612.4;SOL=9400;DOGE=2100000;USDC=1250000")).visibleWhen(() -> false);
+
+	public double coinbaseAmount(String ticker) {
+		for (String pair : coinbaseSaved.get().split(";")) {
+			String[] kv = pair.split("=");
+			if (kv.length == 2 && kv[0].equals(ticker)) {
+				try {
+					return Double.parseDouble(kv[1]);
+				} catch (NumberFormatException e) {
+					return 0;
+				}
+			}
+		}
+		return 0;
+	}
+
+	public void setCoinbaseAmount(String ticker, double amount) {
+		java.util.LinkedHashMap<String, String> map = new java.util.LinkedHashMap<>();
+		for (String pair : coinbaseSaved.get().split(";")) {
+			String[] kv = pair.split("=");
+			if (kv.length == 2) map.put(kv[0], kv[1]);
+		}
+		map.put(ticker, String.valueOf(Math.max(0, amount)));
+		StringBuilder out = new StringBuilder();
+		map.forEach((k, v) -> out.append(out.isEmpty() ? "" : ";").append(k).append('=').append(v));
+		coinbaseSaved.set(out.toString());
+		dev.femboyware.FemboyWare.getConfig().save();
+	}
+
+	/** Takes {@code amount} out of the bank (for a Coinbase buy); false if there isn't enough. */
+	public boolean spend(String label, double amount) {
+		if (amount > bankBalance()) return false;
+		bankSaved.set(String.valueOf(bankBalance() - amount));
+		bankActivity.addFirst(new Transaction(label, -amount, System.currentTimeMillis()));
+		dev.femboyware.FemboyWare.getConfig().save();
+		return true;
+	}
+
+	/** Puts {@code amount} in the bank quietly (a Coinbase sale), without a wire notification. */
+	public void credit(String label, double amount) {
+		bankSaved.set(String.valueOf(bankBalance() + amount));
+		bankActivity.addFirst(new Transaction(label, amount, System.currentTimeMillis()));
+		dev.femboyware.FemboyWare.getConfig().save();
+	}
+
+	/**
+	 * Marks a direct message as a wire rather than a text: an invisible separator no one types, then
+	 * the amount. It only ever moves made-up money between phones.
+	 */
+	private static final String WIRE_MARK = "\u2063wire ";
+	private static final double MAX_WIRE = 1e12;
+
+	/**
+	 * Wires {@code amount} from your bank to another femboyware user online now. Returns why it
+	 * couldn't go, or null if it went.
+	 */
+	public String sendWire(String to, double amount) {
+		if (FbiRaidModule.assetsFrozen()) return "Account frozen by the DOJ";
+		if (link == null) return "Turn on Online Messages to send wires";
+		if (!(amount > 0) || amount > MAX_WIRE) return "Enter an amount, like 25k or 1.5m";
+		amount = Math.round(amount * 100) / 100.0;
+		if (amount > bankBalance()) return "Insufficient funds";
+		if (!link.sendDirect(to, WIRE_MARK + amount)) return link.connected() ? to + " isn't online right now" : "Not connected to femboyware.xyz";
+		long now = System.currentTimeMillis();
+		bankSaved.set(String.valueOf(bankBalance() - amount));
+		dev.femboyware.FemboyWare.getConfig().save();
+		bankActivity.addFirst(new Transaction("Wire to " + to, -amount, now));
+		realThreads.add(to);
+		threads.computeIfAbsent(to, key -> new ArrayList<>()).add(new Message(to, "Wire sent: " + LedgerModule.usd(amount), true, now));
+		if (sound.get() && dev.femboyware.module.hud.NotificationsModule.on()) LarpSounds.play(LarpSounds.LEDGER_NOTIFY, 0.8f, 1.2f);
+		return null;
+	}
+
+	/** A wire from another femboyware user lands: in the bank, with a notification, and noted in your thread with them. */
+	private void wireFrom(String from, String amountText) {
+		double amount;
+		try {
+			amount = Double.parseDouble(amountText.trim());
+		} catch (NumberFormatException e) {
+			return;
+		}
+		if (!(amount > 0) || amount > MAX_WIRE) return;
+		wire(from, amount);
+		threads.computeIfAbsent(from, key -> new ArrayList<>()).add(new Message(from, "Wire sent: " + LedgerModule.usd(amount), false, System.currentTimeMillis()));
 	}
 
 	/** Whether the phone can text real people right now. */
@@ -647,8 +1153,11 @@ public class PhoneModule extends Module {
 
 	/** Whether a thread is with a real person (or Everyone) rather than a made-up contact. */
 	public boolean isReal(String contact) {
-		return contact.equals(EVERYONE) || realThreads.contains(contact) || (link != null && link.isOnline(contact));
+		return contact.equals(EVERYONE) || contact.startsWith(TG_THREAD) || realThreads.contains(contact) || (link != null && link.isOnline(contact));
 	}
+
+	/** Marks a direct message as a Telegram one, so it lands in their Telegram chat instead of iMessage. */
+	private static final String TELEGRAM_MARK = "⁣tg ";
 
 	/**
 	 * Sends what you typed in a thread: to everyone, to a real person, or just into a made-up
@@ -659,8 +1168,10 @@ public class PhoneModule extends Module {
 		if (text.isEmpty()) return null;
 		if (isReal(contact)) {
 			if (link == null) return "Online Messages is off";
-			boolean sent = contact.equals(EVERYONE) ? link.sendAll(text) : link.sendDirect(contact, text);
-			if (!sent) return link.connected() ? contact + " isn't online right now" : "Not connected to femboyware.xyz";
+			String name = shownName(contact);
+			boolean sent = contact.equals(EVERYONE) ? link.sendAll(text)
+				: contact.startsWith(TG_THREAD) ? link.sendDirect(name, TELEGRAM_MARK + text) : link.sendDirect(contact, text);
+			if (!sent) return link.connected() ? name + " isn't online right now" : "Not connected to femboyware.xyz";
 			realThreads.add(contact);
 		}
 		threads.computeIfAbsent(contact, key -> new ArrayList<>()).add(new Message(contact, text, true, System.currentTimeMillis()));
@@ -668,24 +1179,249 @@ public class PhoneModule extends Module {
 	}
 
 	public void receive(String contact, String text) {
+		if (contact.equals(ZACH)) {
+			zachMessages++;
+			// The lawyer always hears about it a few seconds later
+			if (pending.stream().noneMatch(p -> LAWYER.equals(p.contact()))) later(3 + random.nextDouble() * 3, LAWYER, "do NOT talk to that ZachXBT guy");
+		}
 		Message message = new Message(contact, text, false, System.currentTimeMillis());
 		threads.computeIfAbsent(contact, key -> new ArrayList<>()).add(message);
 		toasts.add(message);
 		while (toasts.size() > 3) toasts.removeFirst();
-		if (sound.get()) {
+		if (sound.get() && dev.femboyware.module.hud.NotificationsModule.on()) {
 			LarpSounds.play(LarpSounds.PHONE_TEXT, 0.85f);
 		}
 	}
 
 	/** You reply in a thread; sometimes they answer back a moment later. */
 	public void reply(String contact) {
-		threads.computeIfAbsent(contact, key -> new ArrayList<>()).add(new Message(contact, pick(REPLIES), true, System.currentTimeMillis()));
+		threads.computeIfAbsent(contact, key -> new ArrayList<>()).add(new Message(contact, pick(contact.equals("ZachXBT") ? ZACH_REPLIES : REPLIES), true, System.currentTimeMillis()));
+	}
+
+	// ---------------------------------------------------------------- ZachXBT exposes you
+
+	private static final String ZACH = "ZachXBT", LAWYER = "Lawyer", CALLER = "Caller";
+	private static final String[] CALLER_LINES = {"YO I JUST MADE IT {n} BANDS", "LETS GOOO {n} BANDS", "WE UP {n} BANDS TODAY", "{n} BANDS JUST HIT", "BRO {n} BANDS SENDING NOW"};
+
+	/** The caller brags in capitals, and the money lands in the Ledger a moment later. */
+	public void callerWin() {
+		int bands = 20 + random.nextInt(180);
+		receive(CALLER, pick(CALLER_LINES).replace("{n}", String.valueOf(bands)));
+		pending.add(new Pending(System.currentTimeMillis() + 2000 + random.nextInt(2000), CALLER, null, () -> {
+			LedgerModule ledger = dev.femboyware.FemboyWare.getModules().get(LedgerModule.class);
+			Coin coin = random.nextBoolean() ? Coin.USDT : random.nextBoolean() ? Coin.BTC : Coin.ETH;
+			ledger.deposit(coin, bands * 1000.0 / ledger.price(coin));
+		}));
+	}
+	/** The banner contact for an X notification (never a thread). */
+	public static final String X_ALERT = "\u2063x";
+
+	/** A message (or, with no contact, the exposé itself) due at a set time. */
+	private record Pending(long at, String contact, String text, Runnable action) {
+		Pending(long at, String contact, String text) {
+			this(at, contact, text, null);
+		}
+	}
+
+	private final List<Pending> pending = new ArrayList<>();
+	private int zachMessages;
+	private List<String> expose;
+	private long exposedAt;
+	private long[] exposeBase;
+
+	private void later(double seconds, String contact, String text) {
+		pending.add(new Pending(System.currentTimeMillis() + (long) (seconds * 1000), contact, text));
+	}
+
+	private void tickPending() {
+		if (pending.isEmpty()) return;
+		long now = System.currentTimeMillis();
+		for (Pending p : new ArrayList<>(pending)) {
+			if (now < p.at()) continue;
+			pending.remove(p);
+			if (p.action() != null) p.action().run();
+			else if (p.contact() == null) expose();
+			else receive(p.contact(), p.text());
+		}
+	}
+
+	/** ZachXBT's last warning, then the thread goes up {@code seconds} later. */
+	public void threatenExpose(double seconds) {
+		receive(ZACH, "you had your chance. posting it now.");
+		later(seconds, null, null);
+	}
+
+	/** ZachXBT posts his thread about you on X, and everyone sees it. */
+	public void expose() {
+		String name = mc.getUser() == null ? "this guy" : mc.getUser().getName();
+		int stolen = 120 + random.nextInt(220), club = 300 + random.nextInt(600);
+		expose = List.of(
+			"1/ Meet " + name + ", the 'billionaire' with the Maybach, the mansion and the watch collection. Here's how it was really paid for. A thread.",
+			"2/ On-chain analysis ties " + name + "'s wallets to $" + stolen + "M in stolen crypto, split across 6 wallets and cashed out through an OTC desk.",
+			"3/ Within 48 hours of the transfers: rental mansions, a fleet of supercars and a $" + club + "K night at the club.",
+			"4/ The watches: Royal Oaks, Daytonas, an iced Day-Date. Several were posted to their story the same night the funds moved.",
+			"5/ A friend of " + name + " sent me the receipts. Addresses below. On-chain is forever.");
+		exposedAt = System.currentTimeMillis();
+		exposeBase = new long[]{2_000 + random.nextInt(6_000), 9_000 + random.nextInt(20_000), 40_000 + random.nextInt(90_000), 1_200_000 + random.nextInt(3_000_000)};
+		zachMessages = 0;
+		toasts.add(new Message(X_ALERT, "ZachXBT posted a thread about you", false, exposedAt));
+		while (toasts.size() > 3) toasts.removeFirst();
+		if (sound.get() && dev.femboyware.module.hud.NotificationsModule.on()) LarpSounds.play(LarpSounds.PHONE_TEXT, 0.7f, 0.9f);
+		later(2, ZACH, "it's up.");
+		later(6, LAWYER, "call me. NOW.");
+		later(12, "Twin", "bro ur all over twitter rn");
+		later(19, "Mom", "baby what is this article about you");
+	}
+
+	/** ZachXBT's thread about you, or null if he hasn't posted it. */
+	public List<String> exposePosts() {
+		return expose;
+	}
+
+	public long exposedAt() {
+		return exposedAt;
+	}
+
+	/** Replies, reposts, likes and views on the thread: they climb over the first half hour. */
+	public long[] exposeStats() {
+		if (exposeBase == null) return new long[4];
+		double grown = 0.15 + 0.85 * Math.min(1, (System.currentTimeMillis() - exposedAt) / 1_800_000.0);
+		long[] out = new long[4];
+		for (int i = 0; i < 4; i++) out[i] = Math.round(exposeBase[i] * grown);
+		return out;
+	}
+
+	// ---------------------------------------------------------------- Discord
+
+	/** A line in a Discord channel. */
+	public record Chat(String user, String text, long time, boolean mine) {}
+
+	/** The servers you're in: a name, then its text channels. */
+	public static final String[][] DISCORD_SERVERS = {
+		{"LARPBASE", "general", "flex", "cars", "watches"},
+		{"ZOINBASE", "general", "wins", "callers", "otc"},
+		{"FEMBOYWARE", "general", "flex", "wins"}};
+	/** The server only real femboyware users talk in: no made-up history or bots. */
+	public static final String REAL_SERVER = "FEMBOYWARE";
+	/** Marks a message to everyone as a line in a Discord channel: then the channel key, a space, and the text. */
+	private static final String DISCORD_MARK = "⁣dc ";
+	private static final String[] DISCORD_USERS = {"lam", "dex", "ghost", "kairo", "vee", "nova", "jay", "saint"};
+	private static final Map<String, String[]> DISCORD_LINES = Map.of(
+		"LARPBASE/general", new String[]{"i just upped 50 bands on you stfu", "who tf is broke in here", "ur whole net worth is my bar tab", "stop larping u took the bus here",
+			"bro said his urus is a rental lmaooo", "im outside in the maybach where u at", "GET UPPED ON"},
+		"LARPBASE/flex", new String[]{"just dropped 200k on a chain dont talk to me", "my watch costs more than ur house", "post ur bank or stfu", "i spend ur salary on tips",
+			"another RM on the wrist lets gooo", "u wear rep APs be fr", "GET UPPED ON lmao"},
+		"LARPBASE/cars", new String[]{"just pulled up in the sf90 u walking", "bought the cullinan cash shut up", "my tires cost more than ur car", "lambo number 3 say something",
+			"u still got the honda lmaooo", "wrapped the huracan matte black what u drive"},
+		"LARPBASE/watches", new String[]{"iced out royal oak on the wrist stfu", "rainbow daytona in hand who got one", "ur rolex is a rep and we all know it",
+			"3 pateks this week dont play with me", "my AP guy only answers for me"},
+		"ZOINBASE/general", new String[]{"i just got some fresh leads", "zach is in here shut up", "who still broke in this server", "dont say names in chat dummy",
+			"server gets deleted friday get ur bag", "ur too broke to be in here", "GET UPPED ON"},
+		"ZOINBASE/wins", new String[]{"80 bands first call stfu", "150k today what u do", "just hit a whale im done for the week", "300k day dont talk to me",
+			"7 figure month LETS GOOOO", "i upped ur whole year in a day", "GET UPPED ON"},
+		"ZOINBASE/callers", new String[]{"who calling tonight", "got hung up on 6 times still up 40", "voice is gone but im up 90 bands", "caller of the month again stfu",
+			"u cant call for shit bro", "the fresh leads are hitting today", "i just got some fresh leads who wants em"},
+		"ZOINBASE/otc", new String[]{"desk open til 9 bring the bag", "cashed out 200 stfu", "split it 6 ways done", "otc guy says im his best client", "rate locked hurry up"});
+	private static final String[] DISCORD_MENTIONS = {"i just upped 50 bands on you stfu", "u broke fr", "post ur bag or stfu", "where u at im outside", "u larping again??",
+		"GET UPPED ON", "i just got some fresh leads u want in?"};
+	private static final String[] DISCORD_REPLIES = {"stfu", "u broke", "lmaooo", "we up", "say less", "post the bank then", "u wish", "GET UPPED ON"};
+	/** The banner contact for a Discord mention (never a thread). */
+	public static final String DISCORD_ALERT = "\u2063d";
+
+	private final BoolSetting discordOn = add(new BoolSetting("Discord", "Your Discord servers keep chatting while you're away; open the app to read them", true));
+	private final Map<String, List<Chat>> discord = new LinkedHashMap<>();
+	private final java.util.Set<String> discordUnread = new java.util.HashSet<>();
+	private int nextDiscordTicks = -1;
+
+	/** A channel's messages, oldest first; {@code key} is "server/channel". Made up with some history the first time. */
+	public List<Chat> discordChannel(String key) {
+		return discord.computeIfAbsent(key, k -> {
+			List<Chat> list = new ArrayList<>();
+			if (k.startsWith(REAL_SERVER + "/")) return list;
+			String[] lines = DISCORD_LINES.getOrDefault(k, new String[]{"gm"});
+			long t = System.currentTimeMillis() - 3_600_000L * (2 + random.nextInt(6));
+			for (int i = 0; i < 7; i++) {
+				list.add(new Chat(pick(DISCORD_USERS), pick(lines), t, false));
+				t += 60_000L * (2 + random.nextInt(25));
+			}
+			return list;
+		});
+	}
+
+	public boolean discordUnread(String key) {
+		return discordUnread.contains(key);
+	}
+
+	public void discordRead(String key) {
+		discordUnread.remove(key);
+	}
+
+	/**
+	 * You say something in a channel: every femboyware user online sees it in theirs too, and in the
+	 * made-up servers someone usually answers a few seconds later. Returns why it couldn't go, or null.
+	 */
+	public String discordSend(String key, String typed) {
+		String text = dev.femboyware.manager.PhoneLink.clean(typed);
+		if (text.isEmpty()) return null;
+		boolean real = key.startsWith(REAL_SERVER + "/");
+		boolean shared = link != null && link.sendAll(DISCORD_MARK + key + " " + text);
+		if (real && !shared) return link == null ? "Turn on Online Messages to talk here" : "Not connected to femboyware.xyz";
+		discordChannel(key).add(new Chat(selfName(), text, System.currentTimeMillis(), true));
+		if (!real && random.nextFloat() < 0.75f) {
+			pending.add(new Pending(System.currentTimeMillis() + 2000 + random.nextInt(4000), null, null,
+				() -> discordChannel(key).add(new Chat(pick(DISCORD_USERS), pick(DISCORD_REPLIES), System.currentTimeMillis(), false))));
+		}
+		return null;
+	}
+
+	/** Someone says something in one of your channels (now and then @'ing you); you see it when you open the channel. */
+	public void randomDiscord() {
+		String[] server = DISCORD_SERVERS[random.nextInt(DISCORD_SERVERS.length - 1)];
+		String channel = server[1 + random.nextInt(server.length - 1)], key = server[0] + "/" + channel, user = pick(DISCORD_USERS);
+		boolean mention = random.nextFloat() < 0.12f;
+		String text = mention ? "@" + selfName() + " " + pick(DISCORD_MENTIONS) : pick(DISCORD_LINES.get(key));
+		discordChannel(key).add(new Chat(user, text, System.currentTimeMillis(), false));
+		discordUnread.add(key);
+		if (mention) discordBanner(user, key, text);
+	}
+
+	private static boolean knownChannel(String key) {
+		for (String[] server : DISCORD_SERVERS) {
+			for (int c = 1; c < server.length; c++) if (key.equals(server[0] + "/" + server[c])) return true;
+		}
+		return false;
+	}
+
+	/** Another femboyware user said something in a channel: "server/channel text". */
+	private void discordFrom(String from, String body) {
+		int space = body.indexOf(' ');
+		if (space <= 0) return;
+		String key = body.substring(0, space), text = body.substring(space + 1).trim();
+		if (text.isEmpty() || !knownChannel(key)) return;
+		List<Chat> channel = discordChannel(key);
+		channel.add(new Chat(from, text, System.currentTimeMillis(), false));
+		while (channel.size() > 200) channel.removeFirst();
+		discordUnread.add(key);
+		if (text.toLowerCase(java.util.Locale.ROOT).contains("@" + selfName().toLowerCase(java.util.Locale.ROOT))) discordBanner(from, key, text);
+	}
+
+	/** The banner for being @'d: who, where, and what they said. */
+	private void discordBanner(String user, String key, String text) {
+		String where = key.substring(key.indexOf('/') + 1);
+		toasts.add(new Message(DISCORD_ALERT, user + " in #" + where + "\n" + text, false, System.currentTimeMillis()));
+		while (toasts.size() > 3) toasts.removeFirst();
+		if (sound.get() && dev.femboyware.module.hud.NotificationsModule.on()) LarpSounds.play(LarpSounds.PHONE_TEXT, 0.85f);
 	}
 
 	// ---------------------------------------------------------------- banners
 
 	@Override
 	public void onRender2D(GuiGraphics context, float tickDelta) {
+		if (!dev.femboyware.module.hud.NotificationsModule.on()) {
+			toasts.clear();
+			wireToasts.clear();
+			return;
+		}
 		if ((toasts.isEmpty() && wireToasts.isEmpty()) || Mc.hudHidden() || Mc.screen() instanceof PhoneScreen) return;
 		long now = System.currentTimeMillis();
 		toasts.removeIf(m -> now - m.time() > life());
@@ -726,13 +1462,35 @@ public class PhoneModule extends Module {
 	/** A text message banner, like the ones that slide down on a phone. */
 	private void drawBanner(GuiGraphics context, int x, int y, Message m, float alpha) {
 		int a = Math.round(alpha * 255);
+		if (m.contact().equals(DISCORD_ALERT)) {
+			// Discord: its dark grey, the logo, who mentioned you where
+			String[] parts = m.text().split("\n", 2);
+			Glass.rounded(context, x, y, x + TOAST_WIDTH, y + TOAST_HEIGHT, 10, fade(0xF2313338, a));
+			PhoneScreen.appIcon(context, PhoneScreen.App.DISCORD, x + 7, y + 7, 14);
+			context.drawString(mc.font, "DISCORD", x + 26, y + 9, fade(0xFF949BA4, a), false);
+			context.drawString(mc.font, "now", x + TOAST_WIDTH - 8 - mc.font.width("now"), y + 9, fade(0xFF949BA4, a), false);
+			context.drawString(mc.font, mc.font.plainSubstrByWidth(parts[0], TOAST_WIDTH - 16), x + 8, y + 19, fade(0xFFFFFFFF, a), false);
+			context.drawString(mc.font, mc.font.plainSubstrByWidth(parts.length > 1 ? parts[1] : "", TOAST_WIDTH - 16), x + 8, y + 29, fade(0xFFDBDEE1, a), false);
+			return;
+		}
+		if (m.contact().equals(X_ALERT)) {
+			// X: black, the logo, and who posted
+			Glass.rounded(context, x, y, x + TOAST_WIDTH, y + TOAST_HEIGHT, 10, fade(0xF5000000, a));
+			PhoneScreen.appIcon(context, PhoneScreen.App.X, x + 7, y + 7, 14);
+			context.drawString(mc.font, "X", x + 26, y + 9, fade(0xFF71767B, a), false);
+			context.drawString(mc.font, "now", x + TOAST_WIDTH - 8 - mc.font.width("now"), y + 9, fade(0xFF71767B, a), false);
+			context.drawString(mc.font, "ZachXBT", x + 8, y + 19, fade(0xFFFFFFFF, a), false);
+			context.drawString(mc.font, mc.font.plainSubstrByWidth(expose != null ? expose.getFirst() : m.text(), TOAST_WIDTH - 16), x + 8, y + 29, fade(0xFFE7E9EA, a), false);
+			return;
+		}
 		Glass.rounded(context, x, y, x + TOAST_WIDTH, y + TOAST_HEIGHT, 10, fade(0xEC2C2C30, a));
-		boolean shop = m.contact().equals(SHOPIFY);
-		PhoneScreen.appIcon(context, shop ? PhoneScreen.App.SHOPIFY : PhoneScreen.App.MESSAGES, x + 7, y + 7, 14);
+		boolean shop = m.contact().equals(SHOPIFY), tg = isTelegram(m.contact());
+		if (tg) Glass.rounded(context, x, y, x + TOAST_WIDTH, y + TOAST_HEIGHT, 10, fade(0xF0182533, a));
+		PhoneScreen.appIcon(context, shop ? PhoneScreen.App.SHOPIFY : tg ? PhoneScreen.App.TELEGRAM : PhoneScreen.App.MESSAGES, x + 7, y + 7, 14);
 		var font = mc.font;
-		context.drawString(font, shop ? "SHOPIFY" : "MESSAGES", x + 26, y + 9, fade(0xFF9A9AA2, a), false);
+		context.drawString(font, shop ? "SHOPIFY" : tg ? "TELEGRAM" : "MESSAGES", x + 26, y + 9, fade(tg ? 0xFF6AB2F2 : 0xFF9A9AA2, a), false);
 		context.drawString(font, "now", x + TOAST_WIDTH - 8 - font.width("now"), y + 9, fade(0xFF9A9AA2, a), false);
-		context.drawString(font, m.contact(), x + 8, y + 19, fade(0xFFFFFFFF, a), false);
+		context.drawString(font, shownName(m.contact()), x + 8, y + 19, fade(0xFFFFFFFF, a), false);
 		context.drawString(font, font.plainSubstrByWidth(m.text(), TOAST_WIDTH - 16), x + 8, y + 29, fade(0xFFE4E4E8, a), false);
 	}
 
@@ -870,6 +1628,33 @@ public class PhoneModule extends Module {
 				dev.femboyware.FemboyWare.getConfig().save();
 				ChatUtil.info("Put your phone away");
 			}
+			case "send", "pay" -> {
+				double amount = args.length >= 4 ? LedgerModule.parseMoney(args[3]) : -1;
+				if (args.length < 4 || amount <= 0) {
+					ChatUtil.info("Usage: " + CommandManager.PREFIX + "phone send <player> <amount>, like 250k or 1.5m");
+					return;
+				}
+				String problem = sendWire(args[2], amount);
+				ChatUtil.info(problem != null ? problem : "Wired " + LedgerModule.usd(amount) + " to " + args[2]);
+			}
+			case "expose", "zach", "zachxbt" -> threatenExpose(3);
+			case "caller", "bands" -> callerWin();
+			case "discord" -> randomDiscord();
+			case "tg", "telegram" -> {
+				if (args.length >= 4) receive(args[2], String.join(" ", java.util.Arrays.copyOfRange(args, 3, args.length)));
+				else randomTelegram();
+			}
+			case "call" -> {
+				if (args.length < 3) {
+					dev.femboyware.util.ChatUtil.info("Usage: .phone call <name>  (another femboyware user online)");
+					return;
+				}
+				String problem = call(args[2]);
+				dev.femboyware.util.ChatUtil.info(problem != null ? problem : "Calling " + args[2] + "...");
+			}
+			case "answer", "pickup", "accept" -> answer();
+			case "decline", "reject" -> decline();
+			case "hangup", "end", "hang" -> hangUp();
 			case "dm", "text" -> {
 				if (args.length >= 4) receive(args[2], String.join(" ", java.util.Arrays.copyOfRange(args, 3, args.length)));
 				else randomText();

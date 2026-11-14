@@ -13,6 +13,9 @@ dependencies {
     loomx.applyMojangMappings()
     modImplementation("net.fabricmc:fabric-loader:${property("deps.fabric_loader")}")
     modImplementation("net.fabricmc.fabric-api:fabric-api:${property("deps.fabric_api")}")
+    // TV: pure Java H.264/AAC decoding for MP4 videos, bundled in the jar
+    implementation("org.jcodec:jcodec:0.2.5")
+    include("org.jcodec:jcodec:0.2.5")
 }
 
 loom {

@@ -137,7 +137,7 @@ import java.util.Set;
  * then plays the held back updates, so you're exactly as the server has you.
  */
 public class ServerLarpModule extends Module {
-	private static final int FAKE_CONTAINER_ID = 121;
+	static final int FAKE_CONTAINER_ID = 121;
 	private static final int FIRST_ROCKET_ID = -2_000_000;
 	private static final Gson GSON = new Gson();
 	private static final Path SAVE_FILE = FabricLoader.getInstance().getGameDir().resolve("femboyware").resolve("larp_save.json");
@@ -263,6 +263,11 @@ public class ServerLarpModule extends Module {
 		return total;
 	}
 
+	/** What one of a stack is worth at your .larp worth prices (with a shulker's contents); 0 if unpriced. */
+	double worthEach(ItemStack stack) {
+		return stack.isEmpty() ? 0 : worth(stack) / stack.getCount();
+	}
+
 	/** ~$ 5M: a grey tilde, a green dollar sign, a space and the short amount in white. */
 	private static Component worthLine(double worth) {
 		return Component.literal("~").withStyle(ChatFormatting.GRAY)
@@ -285,7 +290,7 @@ public class ServerLarpModule extends Module {
 	}
 
 	/** Reads 150, 1.5k, 5m, 2b, 1t or 5,000,000. */
-	private static double parseMoney(String text) {
+	static double parseMoney(String text) {
 		String clean = text.replace(",", "").replace("$", "").trim().toLowerCase(java.util.Locale.ROOT);
 		double scale = 1;
 		if (!clean.isEmpty()) {
@@ -572,6 +577,7 @@ public class ServerLarpModule extends Module {
 	@Override
 	public void onTick() {
 		if (larping && (mc.level != startLevel || mc.player == null)) setEnabled(false);
+		if (larping) FakeEconomy.tick();
 		rockets.removeIf(Entity::isRemoved);
 		crystals.removeIf(Entity::isRemoved);
 		if (larping && mc.player != null) {
@@ -1166,6 +1172,30 @@ public class ServerLarpModule extends Module {
 	@Override
 	public void onBlockUpdate(BlockPos pos, BlockState state) {
 		if (larping) redstone.changed(pos, state);
+	}
+
+	/** The filled slots (0 to 8) of a dispenser you've filled while larping, lowest first. */
+	public List<Integer> filledDispenserSlots(BlockPos pos) {
+		SimpleContainer container = containers.get(pos);
+		List<Integer> filled = new ArrayList<>();
+		if (container == null) return filled;
+		for (int i = 0; i < container.getContainerSize(); i++) if (!container.getItem(i).isEmpty()) filled.add(i);
+		return filled;
+	}
+
+	/** What's in one slot of a dispenser you've filled while larping, without taking it. */
+	public ItemStack dispenserItem(BlockPos pos, int slot) {
+		SimpleContainer container = containers.get(pos);
+		return container == null || slot < 0 || slot >= container.getContainerSize() ? ItemStack.EMPTY : container.getItem(slot);
+	}
+
+	/** One item out of one slot of a dispenser you've filled while larping; empty if there's nothing there. */
+	public ItemStack takeFromDispenserSlot(BlockPos pos, int slot) {
+		SimpleContainer container = containers.get(pos);
+		if (container == null || slot < 0 || slot >= container.getContainerSize()) return ItemStack.EMPTY;
+		ItemStack one = container.getItem(slot).split(1);
+		container.setChanged();
+		return one;
 	}
 
 	/** One item out of a random filled slot of a dispenser you've filled while larping, as vanilla picks; empty if it has none. */

@@ -69,17 +69,33 @@ public class EmoteWheelScreen extends Screen {
 		return (Emote.values().length + SLOTS - 1) / SLOTS;
 	}
 
-	/** The emote pages, then one more for rides. */
-	private static int pages() {
-		return emotePages() + 1;
+	/** How many emotes are on the last emote page. */
+	private static int leftover() {
+		return Emote.values().length - (emotePages() - 1) * SLOTS;
 	}
 
+	/** Whether the rides fit in the last emote page's empty slots, after its emotes. */
+	private static boolean ridesShareLastPage() {
+		return leftover() + Ride.values().length <= SLOTS;
+	}
+
+	/** The emote pages, the rides in the last one's spare slots (or on one more page if they don't fit). */
+	private static int pages() {
+		return emotePages() + (ridesShareLastPage() ? 0 : 1);
+	}
+
+	/** Whether this page has the rides on it. */
 	private boolean ridesPage() {
-		return page == emotePages();
+		return page == pages() - 1;
+	}
+
+	/** Whether this page is only rides. */
+	private boolean ridesOnlyPage() {
+		return ridesPage() && !ridesShareLastPage();
 	}
 
 	private Emote emoteIn(int slot) {
-		if (ridesPage()) return null;
+		if (ridesOnlyPage()) return null;
 		Emote[] emotes = Emote.values();
 		int index = page * SLOTS + slot;
 		return slot >= 0 && slot < SLOTS && index < emotes.length ? emotes[index] : null;
@@ -87,7 +103,7 @@ public class EmoteWheelScreen extends Screen {
 
 	/** What the rides page can bring round. */
 	private enum Ride {
-		MAYBACH("Maybach"), JESKO("Jesko"), JET("Private Jet"), CLEAR("Send Cars Away");
+		MAYBACH("Maybach"), JESKO("Jesko"), JET("Private Jet"), CLEAR("Send Cars Away"), FBI_RAID("FBI Raid");
 
 		final String label;
 
@@ -98,7 +114,8 @@ public class EmoteWheelScreen extends Screen {
 
 	private Ride rideIn(int slot) {
 		Ride[] rides = Ride.values();
-		return ridesPage() && slot >= 0 && slot < rides.length ? rides[slot] : null;
+		int k = slot - (ridesShareLastPage() ? leftover() : 0);
+		return ridesPage() && slot >= 0 && slot < SLOTS && k >= 0 && k < rides.length ? rides[k] : null;
 	}
 
 	private static dev.femboyware.module.larp.JetModule jet() {
@@ -116,6 +133,7 @@ public class EmoteWheelScreen extends Screen {
 			case JESKO -> cars.command(new String[]{"car", "spawn", "jesko"});
 			case JET -> jet().command(new String[]{"jet", jet().parked() ? "fly" : "spawn"});
 			case CLEAR -> cars.command(new String[]{"car", "clear"});
+			case FBI_RAID -> dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.larp.FbiRaidModule.class).command(new String[]{"fbi", "raid"});
 		}
 	}
 
@@ -160,10 +178,10 @@ public class EmoteWheelScreen extends Screen {
 			stopHot ? ColorUtil.withAlpha(Theme.accent(), 0xA0) : Theme.panel(), true);
 		String title;
 		if (hovered == CENTER && forFakes) title = module.fakesEmoting() ? "Stop fakes" : "Fake players";
-		else if (hovered == CENTER) title = module.playing() != null ? "Stop" : ridesPage() ? "Rides" : "Emotes";
+		else if (hovered == CENTER) title = module.playing() != null ? "Stop" : ridesOnlyPage() ? "Rides" : ridesPage() ? "Emotes & Rides" : "Emotes";
 		else if (emoteIn(hovered) != null) title = emoteIn(hovered).label;
 		else if (rideIn(hovered) != null) title = label(rideIn(hovered));
-		else title = ridesPage() ? "Rides" : "Emotes";
+		else title = ridesOnlyPage() ? "Rides" : ridesPage() ? "Emotes & Rides" : "Emotes";
 		drawCentered(context, font, title, cx, cy - 4, Theme.text());
 
 		{
@@ -177,9 +195,10 @@ public class EmoteWheelScreen extends Screen {
 				Glass.rounded(context, dx - 2, arrowY + 2, dx + 2, arrowY + 6, 2, i == page ? Theme.accent() | 0xFF000000 : 0x80FFFFFF);
 			}
 		}
-		String help = ridesPage() ? "Pull up in something" : forFakes ? "Your fake players do it, not you" : "Scroll for more emotes and rides";
+		String help = ridesOnlyPage() ? "Pull up in something" : forFakes ? "Your fake players do it, not you"
+			: ridesPage() ? "Emote, or pull up in something" : "Scroll for more emotes and rides";
 		drawCentered(context, font, help, cx, cy + radius + SLOT_SIZE / 2 + 28, forFakes ? Theme.text() : Theme.muted());
-		if (!ridesPage() && module.hasFakes() && !forFakes) {
+		if (!ridesOnlyPage() && module.hasFakes() && !forFakes) {
 			drawCentered(context, font, "Hold Shift to make your fake players emote", cx, cy + radius + SLOT_SIZE / 2 + 40, Theme.muted());
 		}
 	}
@@ -272,6 +291,58 @@ public class EmoteWheelScreen extends Screen {
 					context.blit(RenderPipelines.GUI_TEXTURED, EmotesModule.BTC, x + coin[0] - coin[2] / 2, y + coin[1] - coin[2] / 2, 0, 0, coin[2], coin[2], 64, 64, 64, 64);
 				}
 			}
+			case MONEY_COUNTER -> {
+				// The machine, with a bill flying out of it and a counted brick beside it
+				context.fill(x - 11, y - 3, x + 7, y + 9, 0xFF2E3036);
+				context.fill(x - 8, y - 7, x + 4, y - 3, 0xFF4A4D55);
+				context.fill(x - 6, y - 9, x + 2, y - 6, 0xFFA9B898);
+				context.fill(x - 8, y, x - 1, y + 3, 0xFF59F08A);
+				context.fill(x + 8, y + 3, x + 14, y + 9, 0xFFA9B898);
+				context.fill(x + 10, y + 3, x + 12, y + 9, 0xFFC9A14A);
+				context.pose().pushMatrix();
+				context.pose().translate(x + 9, y - 6);
+				context.pose().rotate(-0.5f);
+				context.blit(RenderPipelines.GUI_TEXTURED, EmotesModule.BILL, -6, -3, 0, 0, 12, 5, 64, 28, 64, 28);
+				context.pose().popMatrix();
+			}
+			case BITCOIN_FLIP -> {
+				// A coin up in the air over a thumb, with its arc
+				for (int i = 0; i < 5; i++) context.fill(x - 6 + i * 2, y + 6 - (int) (Math.sin(i / 4.0 * Math.PI) * 8), x - 5 + i * 2, y + 7 - (int) (Math.sin(i / 4.0 * Math.PI) * 8), 0x99FFFFFF);
+				context.blit(RenderPipelines.GUI_TEXTURED, EmotesModule.BTC, x - 1, y - 14, 0, 0, 14, 14, 64, 64, 64, 64);
+				context.fill(x - 12, y + 7, x - 3, y + 12, 0xFFC68E6A);
+			}
+			case SUPPORT_DESK -> {
+				// A monitor with the blue dashboard, and a keyboard
+				context.fill(x - 12, y - 12, x + 12, y + 4, 0xFF0E0F12);
+				context.fill(x - 10, y - 10, x + 10, y + 2, 0xFFF5F7FA);
+				context.fill(x - 10, y - 10, x + 10, y - 7, 0xFF0052FF);
+				context.fill(x - 8, y - 4, x + 2, y - 3, 0xFFC9CED6);
+				context.fill(x - 4, y - 1, x + 8, y, 0xFFD6E2FF);
+				context.fill(x - 1, y + 4, x + 1, y + 7, 0xFF3A3D44);
+				context.fill(x - 11, y + 8, x + 11, y + 12, 0xFF2A2B30);
+			}
+			case MAYBACH_LAPTOP -> {
+				maybach(context, x, y + 4);
+				// The laptop up on the bonnet, its screen lit
+				context.fill(x - 5, y - 16, x + 7, y - 7, 0xFF969AA2);
+				context.fill(x - 4, y - 15, x + 6, y - 8, 0xFF0052FF);
+				context.fill(x - 7, y - 7, x + 9, y - 5, 0xFF969AA2);
+			}
+			case LEDGER_PLUG -> {
+				// A laptop with a Ledger plugged into its side, and a coin popping out
+				context.fill(x - 13, y - 6, x + 5, y + 5, 0xFF969AA2);
+				context.fill(x - 12, y - 5, x + 4, y + 4, 0xFF0052FF);
+				context.fill(x - 15, y + 5, x + 7, y + 8, 0xFF969AA2);
+				context.fill(x + 7, y + 4, x + 15, y + 7, 0xFF1A1A1E);
+				context.fill(x + 12, y + 4, x + 15, y + 7, 0xFFB9BBC2);
+				context.blit(RenderPipelines.GUI_TEXTURED, EmotesModule.BTC, x - 1, y - 16, 0, 0, 10, 10, 64, 64, 64, 64);
+			}
+			case HODL -> {
+				// The big coin held up, both hands under it
+				context.blit(RenderPipelines.GUI_TEXTURED, EmotesModule.BTC, x - 10, y - 13, 0, 0, 20, 20, 64, 64, 64, 64);
+				context.fill(x - 12, y + 3, x - 7, y + 12, 0xFFC68E6A);
+				context.fill(x + 7, y + 3, x + 12, y + 12, 0xFFC68E6A);
+			}
 		}
 	}
 
@@ -329,6 +400,16 @@ public class EmoteWheelScreen extends Screen {
 					context.fill(x + i - 1, y + i - 1, x + i + 1, y + i + 1, c);
 					context.fill(x + i - 1, y - i - 1, x + i + 1, y - i + 1, c);
 				}
+			}
+			case FBI_RAID -> {
+				// A navy jacket back with FBI across it, and the red and blue lights
+				context.fill(x - 12, y - 8, x + 12, y + 11, 0xFF141A2E);
+				context.fill(x - 14, y - 6, x - 12, y + 6, 0xFF141A2E);
+				context.fill(x + 12, y - 6, x + 14, y + 6, 0xFF141A2E);
+				var font = net.minecraft.client.Minecraft.getInstance().font;
+				context.drawString(font, "FBI", x - font.width("FBI") / 2, y - 2, 0xFFF2D04A, false);
+				context.fill(x - 12, y - 14, x - 2, y - 10, 0xFFE53935);
+				context.fill(x + 2, y - 14, x + 12, y - 10, 0xFF1E5BFF);
 			}
 		}
 	}

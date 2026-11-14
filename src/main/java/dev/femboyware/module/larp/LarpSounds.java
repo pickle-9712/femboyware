@@ -20,6 +20,13 @@ public final class LarpSounds {
 	public static final SoundEvent HELI_ROTOR = event("heli_rotor");
 	public static final SoundEvent CAR_ENGINE = event("car_engine");
 	public static final SoundEvent CAR_START = event("car_start");
+	public static final SoundEvent FBI_SIREN = event("fbi_siren");
+	public static final SoundEvent FBI_BREACH = event("fbi_breach");
+	public static final SoundEvent FBI_FLASHBANG = event("fbi_flashbang");
+	public static final SoundEvent FBI_CUFFS = event("fbi_cuffs");
+	public static final SoundEvent FBI_DOOR = event("fbi_door");
+	public static final SoundEvent MONEY_COUNTER = event("money_counter");
+	public static final SoundEvent TYPING = event("typing");
 
 	private LarpSounds() {
 	}

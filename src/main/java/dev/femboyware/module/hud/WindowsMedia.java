@@ -27,24 +27,22 @@ import java.io.ByteArrayOutputStream;
  * below follow each interface's method order; slots 0-5 are IUnknown and IInspectable. Every call
  * here must be made on the one thread that called {@link #open()}.
  */
-final class WindowsMedia {
+final class WindowsMedia implements MediaPlayer {
 	/** One snapshot of the current track. Times are in seconds; {@code updated} is epoch millis. */
-	record Track(String title, String artist, boolean playing, double position, double length, long updated) {}
+	record Track(String title, String artist, String album, boolean playing, double position, double length, long updated) {
+		Track(String title, String artist, boolean playing, double position, double length, long updated) {
+			this(title, artist, "", playing, position, length, updated);
+		}
+	}
 
 	/** Album art, decoded and scaled down, as ARGB pixels. */
 	record Art(int width, int height, int[] pixels) {}
-
-	// Session control slots, for {@link #control}
-	static final int TOGGLE_PLAY_PAUSE = 20;
-	static final int SKIP_NEXT = 16;
-	static final int SKIP_PREVIOUS = 17;
 
 	private static final String MANAGER_CLASS = "Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager";
 	private static final Guid.IID MANAGER_STATICS = new Guid.IID("{2050C4EE-11A0-57DE-AED7-C97C70338245}");
 	private static final Guid.IID ASYNC_INFO = new Guid.IID("{00000036-0000-0000-C000-000000000046}");
 	private static final Guid.IID RANDOM_ACCESS_STREAM = new Guid.IID("{905A0FE1-BC53-11DF-8C49-001E4FC686DA}");
 	private static final Guid.IID STREAM = new Guid.IID("{0000000C-0000-0000-C000-000000000046}");
-	private static final int ART_SIZE = 96;
 	private static final int MAX_ART_BYTES = 8 << 20;
 	/** 100ns ticks between 1601, where WinRT dates start, and 1970. */
 	private static final long EPOCH_TICKS = 116444736000000000L;
@@ -53,13 +51,27 @@ final class WindowsMedia {
 	private static NativeLibrary shcore;
 
 	private Pointer manager;
+	/** Only a session from an app whose id has this in it (like "spotify"), or null for the current one. */
+	private final String app;
+	private final int artSize;
+
+	WindowsMedia(String app, int artSize) {
+		this.app = app == null ? null : app.toLowerCase();
+		this.artSize = artSize;
+	}
+
+	@Override
+	public int pollMillis() {
+		return 250;
+	}
 
 	static boolean supported() {
 		return System.getProperty("os.name", "").toLowerCase().startsWith("windows");
 	}
 
 	/** Joins WinRT on this thread and gets the session manager. False if Windows won't give it to us. */
-	boolean open() {
+	@Override
+	public boolean open() {
 		if (combase == null) {
 			combase = NativeLibrary.getInstance("combase");
 			shcore = NativeLibrary.getInstance("shcore");
@@ -81,13 +93,15 @@ final class WindowsMedia {
 		return manager != null;
 	}
 
-	void close() {
+	@Override
+	public void close() {
 		release(manager);
 		manager = null;
 	}
 
 	/** The current track, or null when nothing is playing. */
-	Track track() {
+	@Override
+	public Track track() {
 		Pointer session = session();
 		if (session == null) return null;
 		Pointer props = null, timeline = null, playback = null;
@@ -96,7 +110,7 @@ final class WindowsMedia {
 			timeline = get(session, 8); // GetTimelineProperties
 			playback = get(session, 9); // GetPlaybackInfo
 			if (props == null) return null;
-			String title = hstring(props, 6), artist = hstring(props, 9);
+			String title = hstring(props, 6), artist = hstring(props, 9), album = hstring(props, 10);
 			IntByReference status = new IntByReference();
 			// 4 = Playing
 			boolean playing = playback != null && call(playback, 7, status) >= 0 && status.getValue() == 4;
@@ -108,7 +122,7 @@ final class WindowsMedia {
 				long changed = ticks(timeline, 11); // LastUpdatedTime
 				if (changed > EPOCH_TICKS) updated = (changed - EPOCH_TICKS) / 10_000;
 			}
-			return new Track(title, artist, playing, position, length, updated);
+			return new Track(title, artist, album, playing, position, length, updated);
 		} finally {
 			release(props);
 			release(timeline);
@@ -118,7 +132,8 @@ final class WindowsMedia {
 	}
 
 	/** The current track's album art, or null if it has none. */
-	Art art() {
+	@Override
+	public Art art() {
 		Pointer session = session();
 		if (session == null) return null;
 		Pointer props = null, thumbnail = null, content = null, randomAccess = null, stream = null;
@@ -135,7 +150,7 @@ final class WindowsMedia {
 			PointerByReference out = new PointerByReference();
 			if (shcore.getFunction("CreateStreamOverRandomAccessStream").invokeInt(new Object[]{randomAccess, STREAM, out}) < 0) return null;
 			stream = out.getValue();
-			return decode(readAll(stream));
+			return decode(readAll(stream), artSize);
 		} catch (Exception e) {
 			return null;
 		} finally {
@@ -149,15 +164,44 @@ final class WindowsMedia {
 	}
 
 	/** Runs one of the session's Try...Async controls, without waiting for it. */
-	void control(int slot) {
+	@Override
+	public void control(int slot) {
 		Pointer session = session();
 		if (session == null) return;
 		release(get(session, slot));
 		release(session);
 	}
 
+	@Override
+	public void seek(double seconds) {
+		Pointer session = session();
+		if (session == null) return;
+		PointerByReference out = new PointerByReference();
+		// TryChangePlaybackPositionAsync, in 100ns ticks
+		if (call(session, 24, Math.max(0, Math.round(seconds * 1e7)), out) >= 0) release(out.getValue());
+		release(session);
+	}
+
 	private Pointer session() {
-		return manager == null ? null : get(manager, 6); // GetCurrentSession
+		if (manager == null) return null;
+		if (app == null) return get(manager, 6); // GetCurrentSession
+		// The app's own session, wherever it is in the list
+		Pointer sessions = get(manager, 7); // GetSessions
+		if (sessions == null) return null;
+		try {
+			IntByReference size = new IntByReference();
+			if (call(sessions, 7, size) < 0) return null; // get_Size
+			for (int i = 0; i < size.getValue(); i++) {
+				PointerByReference out = new PointerByReference();
+				if (call(sessions, 6, i, out) < 0 || out.getValue() == null) continue; // GetAt
+				Pointer session = out.getValue();
+				if (hstring(session, 6).toLowerCase().contains(app)) return session; // SourceAppUserModelId
+				release(session);
+			}
+			return null;
+		} finally {
+			release(sessions);
+		}
 	}
 
 	private static byte[] readAll(Pointer stream) {
@@ -173,12 +217,12 @@ final class WindowsMedia {
 	}
 
 	/** Decodes the art (usually a JPEG or PNG) and scales it down smoothly for the HUD. */
-	private static Art decode(byte[] data) throws Exception {
+	static Art decode(byte[] data, int maxSize) throws Exception {
 		BufferedImage image = ImageIO.read(new ByteArrayInputStream(data));
 		if (image == null) return null;
 		// Crop to a centred square, as some apps send letterboxed video frames
 		int side = Math.min(image.getWidth(), image.getHeight());
-		int size = Math.min(ART_SIZE, side);
+		int size = Math.min(maxSize, side);
 		BufferedImage scaled = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
 		Graphics2D graphics = scaled.createGraphics();
 		graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);

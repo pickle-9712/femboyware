@@ -95,11 +95,11 @@ public class ClientSyncModule extends Module {
 	private record Snap(UUID uuid, long ts, long time, String dim, boolean gone, String emote, int emoteTicks, double[] showCar, String song,
 						double[] body, String pose, int flags, int swings, String main, String off, String seatIn, double[] seat,
 						double[] jet, int[] jetLook, double[] heli, int[] heliLook, List<double[]> cars, int[] carLook,
-						double[] hangar, int[] hangarLook, List<double[]> valets, List<SharedFake> fakes, JsonObject looks, double[] yacht, int[] yachtLook, double[] mansion, int[] mansionLook, List<SharedSchem> schems, long interval) {
+						double[] hangar, int[] hangarLook, List<double[]> valets, List<SharedFake> fakes, JsonObject looks, double[] yacht, int[] yachtLook, double[] mansion, int[] mansionLook, List<SharedSchem> schems, JsonObject tv, JsonObject raid, long interval) {
 		/** The same update, at {@code time} on our clock. */
 		Snap at(long time) {
 			return new Snap(uuid, ts, time, dim, gone, emote, emoteTicks, showCar, song, body, pose, flags, swings, main, off, seatIn, seat,
-				jet, jetLook, heli, heliLook, cars, carLook, hangar, hangarLook, valets, fakes, looks, yacht, yachtLook, mansion, mansionLook, schems, interval);
+				jet, jetLook, heli, heliLook, cars, carLook, hangar, hangarLook, valets, fakes, looks, yacht, yachtLook, mansion, mansionLook, schems, tv, raid, interval);
 		}
 	}
 
@@ -165,6 +165,11 @@ public class ClientSyncModule extends Module {
 		});
 	}
 
+	/** The connection to everyone else here, or null (off, singleplayer, or not sharing). */
+	public PeerLink link() {
+		return isEnabled() && share.get() ? link : null;
+	}
+
 	@Override
 	public String getInfo() {
 		if (link == null) return null;
@@ -179,7 +184,9 @@ public class ClientSyncModule extends Module {
 		}
 		link = null;
 		sharing = false;
-		// Other people's schematics go with them
+		// Other people's schematics, TVs and raids go with them
+		FemboyWare.getModules().get(dev.femboyware.module.larp.TvModule.class).clearPeers();
+		FemboyWare.getModules().get(dev.femboyware.module.larp.FbiRaidModule.class).clearPeers();
 		ServerLarpModule larp = FemboyWare.getModules().get(ServerLarpModule.class);
 		for (String key : larp.peerSchematics()) larp.removePeerSchematic(key);
 		wantedSchems = Set.of();
@@ -403,6 +410,21 @@ public class ClientSyncModule extends Module {
 			s.add("sc", list);
 			any = true;
 		}
+		// An FBI raid on your mansion, so everyone here watches it happen
+		JsonObject raidState = FemboyWare.getModules().get(dev.femboyware.module.larp.FbiRaidModule.class).shareState();
+		if (raidState != null) {
+			s.add("fb", raidState);
+			any = true;
+		}
+		// Your TV: where it is, what's on and where it's up to, and the file once for the others to fetch
+		var tvModule = FemboyWare.getModules().get(dev.femboyware.module.larp.TvModule.class);
+		JsonObject tvState = tvModule.shareState();
+		if (tvState != null) {
+			s.add("tv", tvState);
+			String[] file = tvModule.shareFile();
+			if (file != null) upload(file[0], java.nio.file.Path.of(file[1]), file[2]);
+			any = true;
+		}
 		// What you're wearing: sent along with anything else, and on its own every so often
 		JsonObject worn = wornState();
 		if (worn != null) {
@@ -584,7 +606,7 @@ public class ClientSyncModule extends Module {
 		long ts = s.get("ts").getAsLong();
 		if (s.has("x")) {
 			incoming.add(new Snap(uuid, ts, System.nanoTime(), null, true, null, 0, null, null, null, null, 0, 0, null, null, null, null,
-				null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0));
+				null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0));
 			return;
 		}
 		String emote = null, song = null;
@@ -667,7 +689,9 @@ public class ClientSyncModule extends Module {
 			body, pose, flags, swingCount, main, off, seatIn, seat,
 			doubles(s.get("j"), 10), ints(s.get("jc"), 3), doubles(s.get("hl"), 13), ints(s.get("hc"), 2), cars, ints(s.get("cc"), 7),
 			doubles(s.get("g"), 4), ints(s.get("gc"), 2), valets, fakes, s.has("w") && s.get("w").isJsonObject() ? s.getAsJsonObject("w") : null,
-			doubles(s.get("yt"), 4), ints(s.get("yc"), 4), doubles(s.get("mn"), 4), ints(s.get("mc"), 3), schems, interval * 1_000_000L));
+			doubles(s.get("yt"), 4), ints(s.get("yc"), 4), doubles(s.get("mn"), 4), ints(s.get("mc"), 3), schems,
+			s.has("tv") && s.get("tv").isJsonObject() ? s.getAsJsonObject("tv") : null,
+			s.has("fb") && s.get("fb").isJsonObject() ? s.getAsJsonObject("fb") : null, interval * 1_000_000L));
 	}
 
 	/** A list of at least {@code size} finite numbers, or null. */
@@ -791,6 +815,92 @@ public class ClientSyncModule extends Module {
 		emotes.putAll(nextEmotes);
 		tickRide();
 		tickSchematics(now);
+		tickTvs();
+		tickRaids();
+	}
+
+	/** Other people's FBI raids here, played from where each one's up to. */
+	private void tickRaids() {
+		Map<UUID, JsonObject> raids = new HashMap<>();
+		Map<UUID, Double> since = new HashMap<>();
+		long nanos = System.nanoTime();
+		if (showOthers.get()) {
+			for (Peer peer : peers.values()) {
+				Snap last = peer.snaps.peekLast();
+				if (last == null || last.raid == null || !here(last)) continue;
+				raids.put(peer.uuid, last.raid);
+				since.put(peer.uuid, (nanos - last.time) / 1e9);
+			}
+		}
+		FemboyWare.getModules().get(dev.femboyware.module.larp.FbiRaidModule.class).syncPeers(raids, since);
+	}
+
+	// ---------------------------------------------------------------- TVs
+
+	/** Shared TV files being fetched, and ones that failed until when. */
+	private final Set<String> loadingMedia = ConcurrentHashMap.newKeySet();
+	private final Map<String, Long> retryMedia = new ConcurrentHashMap<>();
+
+	private static java.nio.file.Path mediaFile(String sha, String name) {
+		return net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().resolve("femboyware").resolve("shared-tv")
+			.resolve(sha + "." + dev.femboyware.module.larp.TvModule.extensionFor(name));
+	}
+
+	/**
+	 * Other people's TVs here: shown wherever they put theirs, playing their file (fetched once from
+	 * the relay, then kept) at the moment they're at, worked out from their latest update.
+	 */
+	private void tickTvs() {
+		var tvModule = FemboyWare.getModules().get(dev.femboyware.module.larp.TvModule.class);
+		Map<UUID, dev.femboyware.module.larp.TvModule.PeerTv> tvs = new HashMap<>();
+		long nanos = System.nanoTime();
+		if (showOthers.get()) {
+			for (Peer peer : peers.values()) {
+				Snap last = peer.snaps.peekLast();
+				if (last == null || last.tv == null || !here(last)) continue;
+				var tv = dev.femboyware.module.larp.TvModule.parse(last.tv, (nanos - last.time) / 1e9);
+				if (tv == null) continue;
+				java.nio.file.Path file = null;
+				if (tv.sha() != null) {
+					java.nio.file.Path cached = mediaFile(tv.sha(), tv.name());
+					if (java.nio.file.Files.isRegularFile(cached) && !loadingMedia.contains(tv.sha())) file = cached;
+					else fetchMedia(tv.sha(), tv.name(), peer.uuid);
+				}
+				tvs.put(peer.uuid, new dev.femboyware.module.larp.TvModule.PeerTv(tv.p(), tv.sha(), tv.name(), tv.position(), tv.playing(), tv.loop(), tv.duration(), file,
+					tv.live(), tv.liveSeq()));
+			}
+		}
+		tvModule.syncPeers(tvs);
+	}
+
+	/** Downloads what's on someone's TV off the main thread, checking it's what they said it was. */
+	private void fetchMedia(String sha, String name, UUID who) {
+		PeerLink l = link;
+		Long retry = retryMedia.get(sha);
+		if (l == null || retry != null && retry > System.currentTimeMillis() || !loadingMedia.add(sha)) return;
+		Thread thread = new Thread(() -> {
+			try {
+				byte[] data = l.downloadFile(sha);
+				if (data == null) {
+					// Not up yet: they're probably still uploading it
+					retryMedia.put(sha, System.currentTimeMillis() + 4_000);
+					return;
+				}
+				if (!sha.equals(sha256(data))) throw new java.io.IOException("file didn't match");
+				java.nio.file.Path file = mediaFile(sha, name);
+				java.nio.file.Files.createDirectories(file.getParent());
+				java.nio.file.Path temp = file.resolveSibling(file.getFileName() + ".part");
+				java.nio.file.Files.write(temp, data);
+				java.nio.file.Files.move(temp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+			} catch (Exception | OutOfMemoryError e) {
+				retryMedia.put(sha, System.currentTimeMillis() + 30_000);
+				FemboyWare.LOGGER.debug("Couldn't fetch a shared TV file", e);
+			} finally {
+				loadingMedia.remove(sha);
+			}
+		}, "femboyware tv download");
+		thread.setDaemon(true);
+		thread.start();
 	}
 
 	// ---------------------------------------------------------------- schematics
@@ -804,22 +914,27 @@ public class ClientSyncModule extends Module {
 
 	/** Puts your schematic on the relay, once, so the others can fetch it. */
 	private void upload(ServerLarpModule.SharedSchematic schematic) {
+		if (schematic.file() != null) upload(schematic.sha256(), schematic.file(), schematic.name());
+	}
+
+	/** Puts a file of yours (a schematic or what's on your TV) on the relay, once, so the others can fetch it. */
+	private void upload(String sha256, java.nio.file.Path file, String name) {
 		PeerLink l = link;
-		if (l == null || schematic.file() == null) return;
-		String key = l.server() + "|" + schematic.sha256();
+		if (l == null || file == null) return;
+		String key = l.server() + "|" + sha256;
 		Long retry = retrySchems.get(key);
 		if (uploaded.contains(key) || retry != null && retry > System.currentTimeMillis() || !uploading.add(key)) return;
 		Thread thread = new Thread(() -> {
 			try {
-				l.uploadFile(schematic.sha256(), java.nio.file.Files.readAllBytes(schematic.file()));
+				l.uploadFile(sha256, java.nio.file.Files.readAllBytes(file));
 				uploaded.add(key);
 			} catch (java.io.IOException | RuntimeException | OutOfMemoryError e) {
 				retrySchems.put(key, System.currentTimeMillis() + 60_000);
-				mc.execute(() -> dev.femboyware.util.ChatUtil.info("Couldn't share " + schematic.name() + " with Client Sync: " + e.getMessage()));
+				mc.execute(() -> dev.femboyware.util.ChatUtil.info("Couldn't share " + name + " with Client Sync: " + e.getMessage()));
 			} finally {
 				uploading.remove(key);
 			}
-		}, "femboyware schematic upload");
+		}, "femboyware upload");
 		thread.setDaemon(true);
 		thread.start();
 	}
@@ -1541,10 +1656,12 @@ public class ClientSyncModule extends Module {
 		// A tick behind their players, which are drawn between where they were last tick and this one
 		long now = frame - DELAY - TICK;
 		Vec3 cam = event.camera().pos;
+		var tvModule = FemboyWare.getModules().get(dev.femboyware.module.larp.TvModule.class);
 		for (Peer peer : peers.values()) {
 			Moment m = at(peer, now);
 			if (m == null || !here(m.a)) continue;
 			Snap a = m.a, b = m.b;
+			tvModule.drawingFor(peer.uuid);
 			if (a.jet != null) {
 				double[] jet = lerp(a.jet, b.jet, m.f, 3, 4, 5);
 				if (near(cam, jet)) FemboyWare.getModules().get(JetModule.class).drawShared(event, jet, a.jetLook);
@@ -1570,6 +1687,9 @@ public class ClientSyncModule extends Module {
 			if (a.yacht != null && near(cam, a.yacht)) FemboyWare.getModules().get(dev.femboyware.module.larp.YachtModule.class).drawShared(event, a.yacht, a.yachtLook);
 			if (a.mansion != null && near(cam, a.mansion)) FemboyWare.getModules().get(dev.femboyware.module.larp.MansionModule.class).drawShared(event, a.mansion, a.mansionLook);
 		}
+		tvModule.drawingFor(null);
+		tvModule.drawPeers(event);
+		FemboyWare.getModules().get(dev.femboyware.module.larp.FbiRaidModule.class).drawPeers(event);
 	}
 
 	/** Their cash, coins, wine and champagne, after the solid things, while your own Emotes is off. */

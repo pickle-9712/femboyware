@@ -56,6 +56,8 @@ public class ForceDispenserModule extends Module {
 	 */
 	public void fire(BlockPos pos, BlockState state) {
 		if (mc.level == null) return;
+		// The casino takes what it fires out of the dispenser itself
+		if (FemboyWare.getModules().get(CasinoModule.class).play(pos, state, this)) return;
 		Item forced = isEnabled() ? picked() : null;
 		ServerLarpModule larp = FemboyWare.getModules().get(ServerLarpModule.class);
 		if (forced != null) {
@@ -80,7 +82,7 @@ public class ForceDispenserModule extends Module {
 	}
 
 	/** Sends {@code stack} out of the dispenser's face: fireworks fly, arrows shoot, anything else drops out. */
-	private void shoot(BlockPos pos, BlockState state, ItemStack stack, int n) {
+	void shoot(BlockPos pos, BlockState state, ItemStack stack, int n) {
 		Item what = stack.getItem();
 		Direction facing = state.getValue(DispenserBlock.FACING);
 		Vec3 dir = new Vec3(facing.getStepX(), facing.getStepY(), facing.getStepZ());

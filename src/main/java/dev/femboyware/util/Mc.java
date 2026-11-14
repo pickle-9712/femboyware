@@ -76,6 +76,15 @@ public final class Mc {
 		//?}
 	}
 
+	/** A short hint over the hotbar instead of in chat. */
+	public static void actionBar(String text) {
+		//? if >=26.1 {
+		/*mc().gui.hud.setOverlayMessage(net.minecraft.network.chat.Component.literal(text), false);
+		*///?} else {
+		mc().gui.setOverlayMessage(net.minecraft.network.chat.Component.literal(text), false);
+		//?}
+	}
+
 	public static Camera camera() {
 		//? if >=26.1 {
 		/*return mc().gameRenderer.mainCamera();
@@ -97,6 +106,16 @@ public final class Mc {
 		/*return net.minecraft.client.gui.Hud.getMobEffectSprite(effect);
 		*///?} else {
 		return net.minecraft.client.gui.Gui.getMobEffectSprite(effect);
+		//?}
+	}
+
+	/** Rebuilds every chunk's geometry, for changes to how blocks are drawn. */
+	public static void reloadChunks() {
+		if (mc().level == null) return;
+		//? if >=26.1 {
+		/*mc().levelRenderer.invalidateCompiledGeometry(mc().level, mc().options, camera(), mc().getBlockColors());
+		*///?} else {
+		mc().levelRenderer.allChanged();
 		//?}
 	}
 

@@ -61,14 +61,40 @@ public class HangarModule extends Module {
 				yaw = facing + 180;
 				if (!isEnabled()) setEnabled(true);
 				fill();
-				ChatUtil.info("Your hangar's built, with everything parked inside");
 			}
 			case "remove", "clear" -> {
 				clearAll();
-				ChatUtil.info("Hangar's gone, and everything in it");
 			}
 			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "hangar <spawn|remove>");
 		}
+	}
+
+	/** For LarpSave: where it stands (x, y, z, yaw), or null. */
+	public double[] savePlace() {
+		return at == null ? null : new double[]{at.x, at.y, at.z, yaw};
+	}
+
+	/** For LarpSave: puts it back where it was saved (or takes it away), quietly. */
+	public void restorePlace(double[] p) {
+		if (p == null || p.length < 4) {
+			at = null;
+			parkedCars.clear();
+			return;
+		}
+		at = new Vec3(p[0], p[1], p[2]);
+		yaw = (float) p[3];
+		parkedCars.clear();
+		if (!isEnabled()) setEnabled(true);
+	}
+
+	/** For LarpSave: whether the hangar parked this car (so it goes when the hangar does). */
+	public boolean parked(Object car) {
+		return parkedCars.contains(car);
+	}
+
+	/** For LarpSave: a car put back that the hangar had parked. */
+	public void adopt(Object car) {
+		parkedCars.add(car);
 	}
 
 	/** Takes the hangar away with everything it parked: the jet, the helicopter and its two cars. */

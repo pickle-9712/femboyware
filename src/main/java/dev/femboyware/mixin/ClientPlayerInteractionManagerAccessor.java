@@ -17,6 +17,9 @@ public interface ClientPlayerInteractionManagerAccessor {
 	@Accessor("destroyProgress")
 	void femboyware$setBreakingProgress(float progress);
 
+	@Accessor("destroyDelay")
+	void femboyware$setDestroyDelay(int ticks);
+
 	@Accessor("destroyBlockPos")
 	BlockPos femboyware$getBreakingPos();
 }

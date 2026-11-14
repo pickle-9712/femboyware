@@ -161,7 +161,7 @@ public class LyricsModule extends HudElement {
 	@Override
 	public void onRender3D(Render3DEvent event) {
 		Lyrics.extraSources = extraSources.get();
-		if (Mc.hudHidden()) return;
+		if (Mc.hudHidden() || dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.larp.FbiRaidModule.class).hidesHud()) return;
 		WindowsMedia.Track track = showing() ? MediaSource.track() : null;
 		if (track == null) return;
 		Lyrics.Song song = Lyrics.get(track);

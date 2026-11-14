@@ -31,9 +31,11 @@ import net.minecraft.world.entity.Entity;
 //?}
 public class InGameHudMixin {
 	//? if >=26.1 {
-	/*private static final String TAB = "extractTabList", CROSSHAIR = "extractCrosshair", EFFECTS = "extractEffects", TITLE = "extractTitle", TEXTURE_OVERLAY = "extractTextureOverlay", VIGNETTE = "extractVignette", PORTAL = "extractPortalOverlay", CONFUSION = "extractConfusionOverlay", BOSS = "extractBossOverlay",
+	/*private static final String HOTBAR = "extractHotbarAndDecorations", NAME = "extractSelectedItemName";
+	private static final String TAB = "extractTabList", CROSSHAIR = "extractCrosshair", EFFECTS = "extractEffects", TITLE = "extractTitle", TEXTURE_OVERLAY = "extractTextureOverlay", VIGNETTE = "extractVignette", PORTAL = "extractPortalOverlay", CONFUSION = "extractConfusionOverlay", BOSS = "extractBossOverlay",
 		SCOREBOARD = "extractScoreboardSidebar(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V";
 	*///?} else {
+	private static final String HOTBAR = "renderHotbarAndDecorations", NAME = "renderSelectedItemName";
 	private static final String TAB = "renderTabList", CROSSHAIR = "renderCrosshair", EFFECTS = "renderEffects", TITLE = "renderTitle", TEXTURE_OVERLAY = "renderTextureOverlay", VIGNETTE = "renderVignette", PORTAL = "renderPortalOverlay", CONFUSION = "renderConfusionOverlay", BOSS = "renderBossOverlay",
 		SCOREBOARD = "renderScoreboardSidebar(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/DeltaTracker;)V";
 	//?}
@@ -47,9 +49,19 @@ public class InGameHudMixin {
 	/** Crosshair: our own in place of Minecraft's. */
 	@Inject(method = CROSSHAIR, at = @At("HEAD"), cancellable = true)
 	private void femboyware$crosshair(GuiGraphics context, DeltaTracker tickCounter, CallbackInfo ci) {
+		if (FemboyWare.getModules().get(dev.femboyware.module.larp.FbiRaidModule.class).hidesHud()) {
+			ci.cancel();
+			return;
+		}
 		if (!FemboyWare.isEnabled(CrosshairModule.class)) return;
 		ci.cancel();
 		FemboyWare.getModules().get(CrosshairModule.class).render(context);
+	}
+
+	/** The raid's a film from the first shot to the end: no hotbar, hearts or item names over it. */
+	@Inject(method = {HOTBAR, NAME, EFFECTS, SCOREBOARD}, at = @At("HEAD"), cancellable = true)
+	private void femboyware$raidFilm(CallbackInfo ci) {
+		if (FemboyWare.getModules() != null && FemboyWare.getModules().get(dev.femboyware.module.larp.FbiRaidModule.class).hidesHud()) ci.cancel();
 	}
 
 	/** Potion Effects: its own list in place of the vanilla icons in the corner. */
@@ -93,25 +105,29 @@ public class InGameHudMixin {
 	}
 
 	//? if >=26.1 {
-	/*private static final String ENTRY_NAME = "Lnet/minecraft/client/gui/Hud$1DisplayEntry;name()Lnet/minecraft/network/chat/Component;";
-	private static final String ENTRY_SCORE = "Lnet/minecraft/client/gui/Hud$1DisplayEntry;score()Lnet/minecraft/network/chat/Component;";
+	/*private static final String ENTRY_NAME = "Lnet/minecraft/client/gui/Hud$1DisplayEntry;name:Lnet/minecraft/network/chat/Component;";
+	private static final String ENTRY_SCORE = "Lnet/minecraft/client/gui/Hud$1DisplayEntry;score:Lnet/minecraft/network/chat/Component;";
 	*///?} else {
-	private static final String ENTRY_NAME = "Lnet/minecraft/client/gui/Gui$1DisplayEntry;name()Lnet/minecraft/network/chat/Component;";
-	private static final String ENTRY_SCORE = "Lnet/minecraft/client/gui/Gui$1DisplayEntry;score()Lnet/minecraft/network/chat/Component;";
+	private static final String ENTRY_NAME = "Lnet/minecraft/client/gui/Gui$1DisplayEntry;name:Lnet/minecraft/network/chat/Component;";
+	private static final String ENTRY_SCORE = "Lnet/minecraft/client/gui/Gui$1DisplayEntry;score:Lnet/minecraft/network/chat/Component;";
 	//?}
 
-	/** Scoreboard Edit: the sidebar title, lines and scores are rewritten as they're read for sizing and drawing. */
+	/**
+	 * Scoreboard Edit: the sidebar title, lines and scores are rewritten as they're read for sizing and
+	 * drawing. The lines and scores are read straight off the entry's fields (not its accessors) in every
+	 * version, so those hooks are on the field reads.
+	 */
 	@ModifyExpressionValue(method = "displayScoreboardSidebar", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/scores/Objective;getDisplayName()Lnet/minecraft/network/chat/Component;"), require = 0)
 	private net.minecraft.network.chat.Component femboyware$sidebarTitle(net.minecraft.network.chat.Component title) {
 		return FemboyWare.getModules() == null ? title : FemboyWare.getModules().get(dev.femboyware.module.render.ScoreboardEditModule.class).title(title);
 	}
 
-	@ModifyExpressionValue(method = "displayScoreboardSidebar", at = @At(value = "INVOKE", target = ENTRY_NAME), require = 0)
+	@ModifyExpressionValue(method = "displayScoreboardSidebar", at = @At(value = "FIELD", target = ENTRY_NAME, opcode = org.objectweb.asm.Opcodes.GETFIELD), require = 0)
 	private net.minecraft.network.chat.Component femboyware$sidebarLine(net.minecraft.network.chat.Component line) {
 		return FemboyWare.getModules() == null ? line : FemboyWare.getModules().get(dev.femboyware.module.render.ScoreboardEditModule.class).line(line);
 	}
 
-	@ModifyExpressionValue(method = "displayScoreboardSidebar", at = @At(value = "INVOKE", target = ENTRY_SCORE), require = 0)
+	@ModifyExpressionValue(method = "displayScoreboardSidebar", at = @At(value = "FIELD", target = ENTRY_SCORE, opcode = org.objectweb.asm.Opcodes.GETFIELD), require = 0)
 	private net.minecraft.network.chat.Component femboyware$sidebarScore(net.minecraft.network.chat.Component score) {
 		return FemboyWare.getModules() == null ? score : FemboyWare.getModules().get(dev.femboyware.module.render.ScoreboardEditModule.class).line(score);
 	}

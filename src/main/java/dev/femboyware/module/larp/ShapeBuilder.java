@@ -31,6 +31,12 @@ final class ShapeBuilder {
 		this.light = LarpLight.relative(ox, oy, oz);
 	}
 
+	/** Lit by its own lamps at night: never darker than {@code least}. */
+	ShapeBuilder lit(float least) {
+		light = Math.max(light, least);
+		return this;
+	}
+
 	/** Evenly lit, for interiors: faces only darken a touch with their angle, and the lamps are on at night. */
 	ShapeBuilder soft() {
 		soft = true;

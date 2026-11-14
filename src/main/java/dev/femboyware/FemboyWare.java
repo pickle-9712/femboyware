@@ -57,13 +57,17 @@ public class FemboyWare implements ClientModInitializer {
 			modules.onRender3D(new Render3DEvent(context.poseStack(), buffers, context.levelState().cameraRenderState));
 			buffers.endBatch();
 		});
-		LevelRenderEvents.END_MAIN.register(context -> modules.get(PinkSkyModule.class).gradeWorld());
+		LevelRenderEvents.END_MAIN.register(context -> {
+			modules.get(PinkSkyModule.class).gradeWorld();
+			modules.get(dev.femboyware.module.render.MotionBlurModule.class).apply();
+		});
 		*///?} else {
 		WorldRenderEvents.END_MAIN.register(context -> {
 			// Grade the world pink first, so ESP and labels drawn after keep their own colours
 			WorldBuffers buffers = new WorldBuffers(context.consumers());
 			buffers.endBatch();
 			modules.get(PinkSkyModule.class).gradeWorld();
+			modules.get(dev.femboyware.module.render.MotionBlurModule.class).apply();
 			modules.onRender3D(new Render3DEvent(context.matrices(), buffers, context.worldState().cameraRenderState));
 			buffers.endBatch();
 		});

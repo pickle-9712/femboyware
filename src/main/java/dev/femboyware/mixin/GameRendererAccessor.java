@@ -9,4 +9,7 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 public interface GameRendererAccessor {
 	@Accessor("resourcePool")
 	CrossFrameResourcePool femboyware$getPool();
+
+	@Accessor("fogRenderer")
+	net.minecraft.client.renderer.fog.FogRenderer femboyware$getFog();
 }

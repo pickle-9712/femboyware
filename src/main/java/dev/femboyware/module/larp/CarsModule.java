@@ -79,7 +79,8 @@ public class CarsModule extends Module {
 
 	private final List<Car> cars = new ArrayList<>();
 	/** Tinted glass you can see through, from outside and in. */
-	private static final int SUV_GLASS = 0x9A13171D, JESKO_GLASS = 0x8013171D;
+	/** Semi-tinted: you can make out who's inside, but not much more. */
+	private static final int SUV_GLASS = 0xC20C0F13, JESKO_GLASS = 0xAA0C0F13;
 	private static final int GLASS = 0xFF13171D, TIRE = 0xFF141416, BLACK = 0xFF0A0A0B, HEADLIGHT = 0xFFF4F6FF, TAILLIGHT = 0xFFC2121F;
 
 	/**
@@ -243,16 +244,13 @@ public class CarsModule extends Module {
 				} else car = new Car(which, at, yaw + 90, now);
 				cars.add(car);
 				if (!isEnabled()) setEnabled(true);
-				ChatUtil.info("Parked a " + which.name().toLowerCase(Locale.ROOT) + ". Only you can see it");
 			}
 			case "remove", "undo" -> {
 				if (!cars.isEmpty()) cars.removeLast();
-				ChatUtil.info(cars.size() + " cars left");
 			}
 			case "clear" -> {
 				cars.clear();
 				removeValets();
-				ChatUtil.info("Cleared your cars");
 			}
 			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "car <spawn [suv|jesko]|remove|clear>");
 		}
@@ -398,6 +396,28 @@ public class CarsModule extends Module {
 		return car;
 	}
 
+	/** For LarpSave: each car as model, x, y, z, yaw, and 1 if the hangar parked it. */
+	public List<double[]> saveCars(HangarModule hangar) {
+		List<double[]> out = new ArrayList<>();
+		for (Car car : cars) out.add(new double[]{car.model.ordinal(), car.pos.x, car.pos.y, car.pos.z, car.yaw, hangar.parked(car) ? 1 : 0});
+		return out;
+	}
+
+	/** For LarpSave: puts your cars back where they were saved, already parked. Not while you're driving one. */
+	public void restoreCars(List<double[]> saved, HangarModule hangar) {
+		if (riding != null) return;
+		cars.clear();
+		long parkedLongAgo = System.nanoTime() - 60_000_000_000L;
+		for (double[] c : saved) {
+			if (c == null || c.length < 5) continue;
+			Model[] models = Model.values();
+			Car car = new Car(models[Math.floorMod((int) c[0], models.length)], new Vec3(c[1], c[2], c[3]), (float) c[4], parkedLongAgo);
+			cars.add(car);
+			if (c.length > 5 && c[5] == 1) hangar.adopt(car);
+		}
+		if (!cars.isEmpty() && !isEnabled()) setEnabled(true);
+	}
+
 	/** Takes away a car {@link #parkAt} parked. */
 	public void remove(Object car) {
 		cars.remove(car);
@@ -524,7 +544,7 @@ public class CarsModule extends Module {
 			loopAngle = Math.atan2(from.z, from.x);
 			dev.femboyware.util.Mc.addChat(net.minecraft.network.chat.Component.literal("<Chauffeur> Good evening. Sit back and enjoy the ride. Sneak whenever you'd like to step out."));
 		} else {
-			ChatUtil.info("You're in the Jesko: W and S to drive and brake, A and D to steer, sneak to get out");
+			dev.femboyware.util.Mc.actionBar("W/S drive and brake, A/D steer, sneak to get out");
 		}
 	}
 
@@ -549,7 +569,7 @@ public class CarsModule extends Module {
 		Vec3 out = car.pos.add(right.scale(side));
 		mc.player.snapTo(out.x, out.y, out.z, mc.player.getYRot(), mc.player.getXRot());
 		mc.player.setOldPosAndRot();
-		if (message != null) ChatUtil.info(message);
+		if (message != null) dev.femboyware.util.Mc.actionBar(message);
 	}
 
 	/** The top of the ground under a point, looking a little up and down from {@code fromY}; NaN if there's none in reach. */
@@ -880,6 +900,8 @@ public class CarsModule extends Module {
 		final float cos, sin, ox, oy, oz;
 		/** The body's lift and nose-up pitch from the hydraulics; wheels don't get them. */
 		float lift, pitch;
+		/** The whole car tipped nose up (radians), wheels and all: driving up a slope. */
+		float tilt;
 		boolean body = true;
 		/** How much taller than built the body is drawn; wheels and their arch trims aren't stretched. */
 		float stretch = 1;
@@ -905,6 +927,11 @@ public class CarsModule extends Module {
 		void vertex(float x, float y, float z, int color) {
 			if (body) {
 				y = y * stretch + lift + z * pitch;
+			}
+			if (tilt != 0) {
+				float c0 = (float) Math.cos(tilt), s0 = (float) Math.sin(tilt), ty = y * c0 + z * s0;
+				z = z * c0 - y * s0;
+				y = ty;
 			}
 			// Facing yaw: forward is (-sin, cos); right is (-cos, -sin)
 			float wx = ox - x * cos - z * sin, wz = oz - x * sin + z * cos;
@@ -1259,6 +1286,12 @@ public class CarsModule extends Module {
 			shown.add(new Car(which, at, (float) s[4], born, at, arrive));
 		}
 		Look was = look;
+		float[] tiltsWere = tilts;
+		tilts = new float[shown.size()];
+		for (int i = 0, k = 0; i < shared.size(); i++) {
+			if (shared.get(i).length < 7) continue;
+			tilts[k++] = shared.get(i).length > 7 ? (float) shared.get(i)[7] : 0;
+		}
 		if (l.length >= 7) {
 			look = new Look(l[0], l[1], l[2], l[3], l[4], (l[6] & 1) != 0, l[5] / 1000f, (l[6] & 2) != 0, (l[6] & 4) != 0, (l[6] & 8) != 0);
 		}
@@ -1266,6 +1299,7 @@ public class CarsModule extends Module {
 			draw(event, shown, now);
 		} finally {
 			look = was;
+			tilts = tiltsWere;
 		}
 	}
 
@@ -1283,16 +1317,21 @@ public class CarsModule extends Module {
 		return riding != null && drawn.model == riding.model && drawn.born == riding.born;
 	}
 
+	/** For shared cars being drawn: each one's nose-up tilt, by its place in the list; null otherwise. */
+	private float[] tilts;
+
 	private void draw(Render3DEvent event, List<Car> shown, long now) {
 		Vec3 cam = event.camera().pos;
 		Look look = look();
 		VertexConsumer solid = FxRender.solidQuads(event);
 		List<Builder> glasses = new ArrayList<>();
 		List<Builder> builders = new ArrayList<>();
-		for (Car car : shown) {
+		for (int ci = 0; ci < shown.size(); ci++) {
+			Car car = shown.get(ci);
 			float t = (now - car.born) / 1e9f;
 			Builder b = new Builder(solid, event.matrices().last(), car, cam);
 			Builder glass = new Builder(null, event.matrices().last(), car, cam);
+			if (tilts != null && ci < tilts.length) b.tilt = glass.tilt = tilts[ci];
 			// Hydraulics are the Maybach's thing; the Jesko sits low and still. Not while someone's riding in it
 			if (look.hydraulics && car.model == Model.SUV && !sameSpot(car, riding)) {
 				b.lift = glass.lift = look.bounce * Math.abs((float) Math.sin(t * 2.6f));

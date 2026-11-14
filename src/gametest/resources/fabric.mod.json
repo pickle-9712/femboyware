@@ -5,7 +5,7 @@
 	"name": "Femboyware Tests",
 	"environment": "client",
 	"entrypoints": {
-		"fabric-client-gametest": []
+		"fabric-client-gametest": ["dev.femboyware.test.RaidTest"]
 	},
 	"depends": {
 		"femboyware": "*"

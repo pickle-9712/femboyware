@@ -57,7 +57,7 @@ public class TungSahurModule extends Module {
 	/** The log's radius and where its straight part ends; the domed top adds a little more. */
 	private static final float RADIUS = 0.33f;
 	private static final float BODY_TOP = 2.3f;
-	private static final float DOME = 0.16f;
+	private static final float DOME = 0.25f;
 	/** Shoulder height the bat arm swings from. */
 	private static final float SHOULDER = 1.72f;
 	private static final float SHOULDER_X = 0.32f;
@@ -383,18 +383,32 @@ public class TungSahurModule extends Module {
 		matrices.popPose();
 	}
 
-	/** The log: a bevelled base, straight sides and a domed top, turned on a lathe. */
+	/**
+	 * The log, round all over: a rounded bottom, a slight barrel belly, straight where the face is,
+	 * and a full dome on top, turned on a lathe.
+	 */
 	private static void drawBody(VertexConsumer quads, PoseStack.Pose entry) {
 		List<float[]> profile = new ArrayList<>();
-		profile.add(new float[]{0.56f, 0});
-		profile.add(new float[]{0.57f, 0.25f});
-		profile.add(new float[]{0.61f, 0.315f});
-		for (int i = 0; i <= 16; i++) profile.add(new float[]{0.66f + (BODY_TOP - 0.66f) * i / 16, RADIUS});
-		for (int i = 1; i <= 8; i++) {
-			double angle = Math.PI / 2 * i / 8;
+		// The rounded bottom, closed off in the middle
+		float bottom = 0.4f, bottomRise = 0.3f;
+		for (int i = 0; i <= 10; i++) {
+			double angle = Math.PI / 2 * i / 10;
+			profile.add(new float[]{(float) (bottom + bottomRise * (1 - Math.cos(angle))), (float) (RADIUS * Math.sin(angle))});
+		}
+		// Up the sides, swelling a little through the belly and back in before the face
+		float sideStart = bottom + bottomRise;
+		for (int i = 1; i <= 28; i++) {
+			float y = sideStart + (BODY_TOP - sideStart) * i / 28;
+			double t = Mth.clamp((y - sideStart) / (1.6 - sideStart), 0, 1);
+			double belly = Math.pow(Math.sin(Math.PI * t), 2) * 0.075;
+			profile.add(new float[]{y, (float) (RADIUS * (1 + belly))});
+		}
+		// The domed top
+		for (int i = 1; i <= 12; i++) {
+			double angle = Math.PI / 2 * i / 12;
 			profile.add(new float[]{(float) (BODY_TOP + DOME * Math.sin(angle)), (float) (RADIUS * Math.cos(angle))});
 		}
-		int segments = 36;
+		int segments = 48;
 		for (int ring = 0; ring < profile.size() - 1; ring++) {
 			float[] lower = profile.get(ring);
 			float[] upper = profile.get(ring + 1);

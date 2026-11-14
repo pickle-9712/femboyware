@@ -57,9 +57,6 @@ import dev.femboyware.module.effects.SkyLanternsModule;
 import dev.femboyware.module.effects.SkySwirlsModule;
 import dev.femboyware.module.effects.StarfieldModule;
 import dev.femboyware.module.effects.SwingTrailModule;
-import dev.femboyware.module.effects.TargetMarkerModule;
-import dev.femboyware.module.effects.TargetRingModule;
-import dev.femboyware.module.effects.TargetSwirlModule;
 import dev.femboyware.module.effects.TotemPopsModule;
 import dev.femboyware.module.effects.WingsModule;
 import dev.femboyware.module.hud.ArmorModule;
@@ -329,7 +326,10 @@ public class ModuleManager {
 		register(new dev.femboyware.module.larp.HelicopterModule());
 		register(new dev.femboyware.module.larp.HangarModule());
 		register(new dev.femboyware.module.larp.YachtModule());
+		register(new dev.femboyware.module.larp.TvModule());
+		register(new dev.femboyware.module.larp.FbiRaidModule());
 		register(new dev.femboyware.module.larp.MansionModule());
+		register(new dev.femboyware.module.larp.CoinbaseAgentModule());
 		register(new CrosshairModule());
 		register(new BlockOutlineModule());
 		register(new NewChunksModule());
@@ -350,6 +350,13 @@ public class ModuleManager {
 		register(new ParticlesModule());
 		register(new PopChamsModule());
 		register(new RainbowArmorModule());
+		register(new dev.femboyware.module.render.SwordModelsModule());
+		register(new dev.femboyware.module.render.WalkStyleModule());
+		register(new dev.femboyware.module.render.PetsModule());
+		register(new dev.femboyware.module.render.GuiAnimationModule());
+		register(new dev.femboyware.module.render.SelfVisualsModule());
+		register(new dev.femboyware.module.render.SkinChangerModule());
+		register(new dev.femboyware.module.render.PlayerModelModule());
 		register(new SpinbotModule());
 		register(new SwingAnimationsModule());
 		register(new ThrowPetardModule());
@@ -374,9 +381,10 @@ public class ModuleManager {
 		register(new StorageEspModule());
 		register(new TracersModule());
 		// Customize: Targets
-		register(new TargetSwirlModule());
-		register(new TargetRingModule());
-		register(new TargetMarkerModule());
+		register(new dev.femboyware.module.effects.TargetParticlesModule());
+		register(new dev.femboyware.module.larp.FakeSpawnerModule());
+		register(new dev.femboyware.module.larp.FakePayModule());
+		register(new dev.femboyware.module.larp.CasinoModule());
 		register(new KillEffectsModule());
 		register(new LightningLinkModule());
 		register(new ComboCounterModule());
@@ -389,10 +397,54 @@ public class ModuleManager {
 		register(new MagicCircleModule());
 		register(new JumpCirclesModule());
 		register(new RibbonTrailModule());
+		register(new dev.femboyware.module.effects.ClickPulseModule());
+		register(new dev.femboyware.module.effects.FlameHandsModule());
+		register(new dev.femboyware.module.effects.PearlParticlesModule());
+		register(new dev.femboyware.module.effects.SnowGroundModule());
+		register(new dev.femboyware.module.effects.WetGroundModule());
+		register(new dev.femboyware.module.effects.FogModule());
+		register(new dev.femboyware.module.effects.WorldColorModule());
+		register(new dev.femboyware.module.effects.PlayerTrailModule());
+		register(new dev.femboyware.module.effects.CelestialWeatherModule());
+		register(new dev.femboyware.module.effects.SkyShaderModule());
+		register(new dev.femboyware.module.effects.RealisticWaterModule());
+		register(new dev.femboyware.module.effects.CustomSkyModule());
+		register(new dev.femboyware.module.render.NoBlockRotationModule());
+		register(new dev.femboyware.module.render.ThreeDUiModule());
+		register(new dev.femboyware.module.render.MotionBlurModule());
+		register(new dev.femboyware.module.hud.StaffListModule());
+		register(new dev.femboyware.module.larp.LarpAsModule());
+		register(new dev.femboyware.module.utility.FakeFpsModule());
+		register(new dev.femboyware.module.movement.NoJumpDelayModule());
+		register(new dev.femboyware.module.utility.NoBreakDelayModule());
+		register(new dev.femboyware.module.movement.AirStuckModule());
+		register(new dev.femboyware.module.utility.AutoDisconnectModule());
+		register(new dev.femboyware.module.utility.HomeMacroModule());
+		register(new dev.femboyware.module.utility.ChestStealerModule());
+		register(new dev.femboyware.module.utility.InvCleanerModule());
+		register(new dev.femboyware.module.movement.AutoMlgModule());
+		register(new dev.femboyware.module.utility.AutoDrainModule());
+		register(new dev.femboyware.module.utility.AutoFarmModule());
+		register(new dev.femboyware.module.movement.AutoElytraSwapModule());
+		register(new dev.femboyware.module.movement.AutoPearlCatchModule());
+		register(new dev.femboyware.module.movement.GrimSpeedModule());
+		register(new dev.femboyware.module.utility.AutoTunnelModule());
+		register(new dev.femboyware.module.utility.AutoSellModule());
+		register(new dev.femboyware.module.utility.IgnoreEntityModule());
+		register(new dev.femboyware.module.render.BaseFinderModule());
+		register(new dev.femboyware.module.render.LightDebugModule());
+		register(new dev.femboyware.module.render.MotionScannerModule());
+		register(new dev.femboyware.module.render.SusChunkFinderModule());
+		register(new dev.femboyware.module.render.AnchorHunterModule());
+		register(new dev.femboyware.module.utility.OrderDropperModule());
+		register(new dev.femboyware.module.utility.AutoAreaMinerModule());
+		register(new dev.femboyware.module.utility.AutoBuilderModule());
+		register(new dev.femboyware.module.movement.AutoElytraPilotModule());
 		register(new NekoModule());
 		register(new FairyCompanionModule());
 		register(new AuraParticlesModule());
 		register(new SwingTrailModule());
+		register(new dev.femboyware.module.effects.AstralTrailsModule());
 		// Customize: Sky
 		register(new PinkSkyModule());
 		register(new SkySwirlsModule());
@@ -511,6 +563,8 @@ public class ModuleManager {
 	public void onTick() {
 		// The phone and Ledger items open on right-click whether or not their modules are on
 		dev.femboyware.module.larp.LarpItems.tick();
+		// Your mansion, cars and the rest, kept for each world across logging out and restarts
+		dev.femboyware.module.larp.LarpSave.tick();
 		dispatch(Module::onTick);
 	}
 
@@ -573,6 +627,12 @@ public class ModuleManager {
 	public void onRender2D(GuiGraphics context, float tickDelta) {
 		UiScale.beginClient();
 		try {
+			var raid = get(dev.femboyware.module.larp.FbiRaidModule.class);
+			// The raid's end card, and its film shots: nothing else drawn over them but the letterbox
+			if (raid.seizedScreenShowing() || raid.hidesHud()) {
+				raid.onRender2D(context, tickDelta);
+				return;
+			}
 			dispatch(module -> module.onRender2D(context, tickDelta));
 		} finally {
 			UiScale.endClient();
@@ -585,6 +645,11 @@ public class ModuleManager {
 	}
 
 	public boolean onPacketSend(PacketEvent event) {
+		// The fake balance's commands (/fakebal, /bal, and /sell and /shop while larping), whatever's on
+		if (!Module.nullCheck() && dev.femboyware.module.utility.FakeEconomy.intercept(event.getPacket())) {
+			event.cancel();
+			return true;
+		}
 		dispatch(module -> module.onPacketSend(event));
 		return event.isCancelled();
 	}

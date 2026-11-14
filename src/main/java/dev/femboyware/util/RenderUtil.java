@@ -23,8 +23,10 @@ import org.joml.Vector3f;
 
 public final class RenderUtil {
 	/** Copies of vanilla's translucent lines and debug quads that skip the depth test, so they draw over terrain. */
-	private static final RenderPipeline LINES_THROUGH_WALLS_PIPELINE = RenderPipelines.register(Pipelines.depth(RenderPipeline.builder(RenderPipelines.LINES_SNIPPET)
-		.withLocation(Identifier.fromNamespaceAndPath("femboyware", "pipeline/lines_through_walls")), false, false)
+	// The lines snippet has no colour target on 26.x (vanilla adds a translucent one per pipeline);
+	// without one the pass's attachment count doesn't match and the frame crashes
+	private static final RenderPipeline LINES_THROUGH_WALLS_PIPELINE = RenderPipelines.register(Pipelines.blend(Pipelines.depth(RenderPipeline.builder(RenderPipelines.LINES_SNIPPET)
+		.withLocation(Identifier.fromNamespaceAndPath("femboyware", "pipeline/lines_through_walls")), false, false), com.mojang.blaze3d.pipeline.BlendFunction.TRANSLUCENT)
 		.build());
 	private static final RenderPipeline QUADS_THROUGH_WALLS_PIPELINE = RenderPipelines.register(Pipelines.depth(RenderPipeline.builder(RenderPipelines.DEBUG_FILLED_SNIPPET)
 		.withLocation(Identifier.fromNamespaceAndPath("femboyware", "pipeline/quads_through_walls"))

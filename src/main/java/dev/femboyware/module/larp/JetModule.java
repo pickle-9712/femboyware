@@ -118,6 +118,21 @@ public class JetModule extends Module {
 		if (!isEnabled()) setEnabled(true);
 	}
 
+	/** For LarpSave: where it's parked (x, y, z, yaw), or null when it isn't (or you're aboard). */
+	public double[] savePlace() {
+		return parked == null || boarded ? null : new double[]{parked.x, parked.y, parked.z, parkedYaw};
+	}
+
+	/** For LarpSave: parks it back where it was saved (or takes it away). */
+	public void restorePlace(double[] p) {
+		if (boarded) return;
+		if (p == null || p.length < 4) {
+			if (parked != null) clear();
+			return;
+		}
+		parkAt(new Vec3(p[0], p[1], p[2]), (float) p[3]);
+	}
+
 	/** Takes the jet away (and the captain), quietly, for the hangar. */
 	public void clear() {
 		if (boarded) disembark(null);
@@ -147,7 +162,8 @@ public class JetModule extends Module {
 				doorChanged = 0;
 				swingDoor(true);
 				if (!isEnabled()) setEnabled(true);
-				ChatUtil.info("Your jet's parked. " + (larping() ? "Walk up the stairs, then right-click the jet to take off" : "Turn on Server Larp to board and fly it"));
+				dev.femboyware.util.Mc.addChat(net.minecraft.network.chat.Component.literal("<Captain> Good evening. The jet's fueled and waiting on the apron, stairs down."));
+				if (!larping()) dev.femboyware.util.Mc.actionBar("Turn on Server Larp to board and fly it");
 			}
 			case "fly", "board" -> board();
 			case "land", "stop" -> {
@@ -157,7 +173,6 @@ public class JetModule extends Module {
 				if (boarded) disembark(null);
 				parked = null;
 				removePilot();
-				ChatUtil.info("Jet's gone back to the hangar");
 			}
 			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "jet <spawn|fly|land|remove>");
 		}
@@ -222,7 +237,7 @@ public class JetModule extends Module {
 			to = parked.add(spot.x, spot.y, spot.z);
 		}
 		if (to != null) mc.player.snapTo(to.x, to.y, to.z, mc.player.getYRot(), mc.player.getXRot());
-		if (message != null) ChatUtil.info(message);
+		if (message != null) dev.femboyware.util.Mc.actionBar(message);
 	}
 
 	/** Starts the door swinging open or shut, from wherever it is now. */
@@ -382,7 +397,10 @@ public class JetModule extends Module {
 		if (parked == null || mc.player == null) return;
 		if (!boarded) {
 			boolean aboard = inCabin(toJet(mc.player.position()));
-			if (aboard && !wasAboard && larping()) ChatUtil.info("Welcome aboard. Right-click when you're ready to take off");
+			if (aboard && !wasAboard && larping()) {
+				dev.femboyware.util.Mc.addChat(net.minecraft.network.chat.Component.literal("<Captain> Welcome aboard. Just say the word when you're ready to go."));
+				dev.femboyware.util.Mc.actionBar("Right-click to take off");
+			}
 			wasAboard = aboard;
 			// Right-click the jet to take off: stood inside it, or aiming at it from close by
 			if (larping() && dev.femboyware.util.Mc.screen() == null && (aboard || aimingAtJet())) {
@@ -405,7 +423,7 @@ public class JetModule extends Module {
 			dev.femboyware.util.Mc.addChat(net.minecraft.network.chat.Component.literal("<Captain> Welcome home. It was a pleasure flying you."));
 			return;
 		}
-		if (ticks == BOARDING_TICKS) ChatUtil.info("Cleared for takeoff");
+		if (ticks == BOARDING_TICKS) dev.femboyware.util.Mc.addChat(net.minecraft.network.chat.Component.literal("<Captain> We've been cleared for takeoff. Sit back and enjoy the flight."));
 		Pose pose = poseAtSeconds(seconds);
 
 		// The jet turning turns you with it
@@ -876,6 +894,9 @@ public class JetModule extends Module {
 				for (int side = -1; side <= 1; side += 2) light(event, glow, rot, ox, oy, oz, side * 0.95f, 3.85f, z, 0.16f, 0x80FFE2B0);
 			}
 		}
+		// The cabin TV on the back wall, last since it's its own layer
+		if (inside || near) dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.larp.TvModule.class).drawBuiltIn(event, rot, ox, oy, oz,
+			new Vector3f(0, 2.81f, -5.415f), new Vector3f(1, 0, 0), 1.54f, 0.92f);
 	}
 
 	private static void light(Render3DEvent event, VertexConsumer glow, Quaternionf rot, float ox, float oy, float oz, float x, float y, float z, float size, int color) {
@@ -1221,7 +1242,7 @@ public class JetModule extends Module {
 			b.patch(new Station(9.97f, WALL, CENTER), new Station(9.83f, WALL, CENTER), -1.5, -1.38, -0.03f, 0xFFC9A14A);
 		}
 
-		// A solid wood wall across the back, with a big TV on it showing the markets
+		// A solid wood wall across the back, with a big TV on it (it plays your TV: see drawPose)
 		float[][] wall = new float[32][];
 		for (int i = 0; i < 32; i++) {
 			double a = Math.PI * 2 * i / 32;
@@ -1230,14 +1251,7 @@ public class JetModule extends Module {
 		b.plate(wall, 0, 0, 1, 0.08f, wood);
 		for (float x : new float[]{-0.95f, 0.95f}) b.box(x - 0.015f, FLOOR, -5.455f, x + 0.015f, 3.7f, -5.445f, 0xFFC9A14A);
 		b.box(-0.82f, 2.3f, -5.46f, 0.82f, 3.32f, -5.42f, 0xFF0C0D10);
-		b.box(-0.77f, 2.35f, -5.42f, 0.77f, 3.27f, -5.415f, 0xFF0F1A2C);
-		// A green chart climbing across the screen
-		float[] chart = {0.1f, 0.18f, 0.12f, 0.3f, 0.26f, 0.42f, 0.38f, 0.55f, 0.5f, 0.7f, 0.66f, 0.82f};
-		for (int i = 0; i < chart.length - 1; i++) {
-			float x1 = -0.68f + i * 0.125f, y1 = 2.42f + chart[i] * 0.75f, y2 = 2.42f + chart[i + 1] * 0.75f;
-			b.box(x1, Math.min(y1, y2) - 0.012f, -5.414f, x1 + 0.125f, Math.max(y1, y2) + 0.012f, -5.412f, 0xFF35D07F);
-		}
-		b.box(-0.7f, 3.12f, -5.414f, -0.3f, 3.2f, -5.412f, 0xFFE8ECF2);
+		b.box(-0.77f, 2.35f, -5.42f, 0.77f, 3.27f, -5.415f, 0xFF050507);
 	}
 
 	/** A wood ledge along one side under the windows, its top glossier, from z1 to z2. */

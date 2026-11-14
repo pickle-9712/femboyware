@@ -97,7 +97,8 @@ public abstract class CameraMixin {
 	/** Free Cam renders your body, which vanilla only does in third person. */
 	@ModifyReturnValue(method = "isDetached", at = @At("RETURN"))
 	private boolean femboyware$freeCamThirdPerson(boolean thirdPerson) {
-		return thirdPerson || FemboyWare.isEnabled(FreeCamModule.class) || FemboyWare.isEnabled(CinematicCameraModule.class);
+		return thirdPerson || FemboyWare.isEnabled(FreeCamModule.class) || FemboyWare.isEnabled(CinematicCameraModule.class)
+			|| FemboyWare.getModules() != null && FemboyWare.getModules().get(dev.femboyware.module.larp.FbiRaidModule.class).filming();
 	}
 
 	/** Cinematic Camera: puts the camera where the shot wants it. */
@@ -107,6 +108,15 @@ public abstract class CameraMixin {
 		FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class).placeFrame();
 		// You in your car's seat, exactly where it is this frame
 		FemboyWare.getModules().get(dev.femboyware.module.larp.CarsModule.class).placeFrame();
+		// The FBI raid's riders in their seats, exactly where the SUVs are this frame
+		FemboyWare.getModules().get(dev.femboyware.module.larp.FbiRaidModule.class).placeFrame();
+		// Being walked out by the FBI: the raid's camera takes over
+		CinematicCameraModule.View raid = FemboyWare.getModules().get(dev.femboyware.module.larp.FbiRaidModule.class).view(tickProgress);
+		if (raid != null) {
+			setRotation(raid.yaw(), raid.pitch());
+			setPosition(raid.pos());
+			return;
+		}
 		CinematicCameraModule.View jet = FemboyWare.getModules().get(dev.femboyware.module.larp.JetModule.class).view(tickProgress);
 		org.joml.Quaternionf turn = FemboyWare.getModules().get(dev.femboyware.module.larp.JetModule.class).cameraRotation();
 		CinematicCameraModule.View heli = FemboyWare.getModules().get(dev.femboyware.module.larp.HelicopterModule.class).view(tickProgress);

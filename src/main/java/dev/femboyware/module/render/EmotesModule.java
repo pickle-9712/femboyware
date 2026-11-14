@@ -1,5 +1,6 @@
 package dev.femboyware.module.render;
 
+import com.mojang.math.Axis;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.FemboyWare;
@@ -56,7 +57,13 @@ public class EmotesModule extends Module {
 		PHONE_FLEX("Phone Flex"),
 		LEDGER_FLEX("Ledger Flex"),
 		MAYBACH_BOUNCE("Maybach Bounce"),
-		CHAMPAGNE("Champagne Spray");
+		CHAMPAGNE("Champagne Spray"),
+		MONEY_COUNTER("Money Counter"),
+		BITCOIN_FLIP("Bitcoin Flip"),
+		HODL("HODL"),
+		SUPPORT_DESK("Support Desk"),
+		MAYBACH_LAPTOP("Maybach Laptop"),
+		LEDGER_PLUG("Ledger Plug");
 
 		public final String label;
 
@@ -139,7 +146,12 @@ public class EmotesModule extends Module {
 
 	/** For Client Sync: where your Maybach is parked for the bounce (null if not bouncing). */
 	public Vec3 showCarAt() {
-		return playing == Emote.MAYBACH_BOUNCE ? showCarAt : null;
+		return onMaybach(playing) || playing == Emote.MONEY_COUNTER || playing == Emote.SUPPORT_DESK ? showCarAt : null;
+	}
+
+	/** Whether this emote has you sat up on the Maybach's bonnet. */
+	public static boolean onMaybach(Emote emote) {
+		return emote == Emote.MAYBACH_BOUNCE || emote == Emote.MAYBACH_LAPTOP;
 	}
 
 	public float showCarYaw() {
@@ -199,17 +211,28 @@ public class EmotesModule extends Module {
 
 	public void play(Emote emote) {
 		if (mc.player == null) return;
+		if (emote == Emote.LEDGER_PLUG && dev.femboyware.module.larp.FbiRaidModule.assetsFrozen()) {
+			dev.femboyware.util.ChatUtil.info("Your Ledger was seized by the FBI");
+			return;
+		}
 		boolean wasPlaying = playing != null;
 		playing = emote;
 		startTick = mc.player.tickCount;
 		// Switching straight from one emote to another keeps the song going
 		if (!wasPlaying && music.get()) playSong();
 		lastBeat = -1;
-		if (emote == Emote.MAYBACH_BOUNCE) {
+		if (onMaybach(emote)) {
 			// Right under you, pointing the way you face, so you're sat on its bonnet facing out the front
 			float yaw = mc.player.getYRot();
 			double rad = Math.toRadians(yaw);
 			showCarAt = mc.player.position().add(-Math.sin(rad) * -HOOD_SEAT, 0, Math.cos(rad) * -HOOD_SEAT);
+			showCarYaw = yaw;
+		}
+		if (emote == Emote.MONEY_COUNTER || emote == Emote.SUPPORT_DESK) {
+			// The counting table (or the desk) just in front of you, facing you
+			float yaw = mc.player.getYRot();
+			double rad = Math.toRadians(yaw);
+			showCarAt = mc.player.position().add(-Math.sin(rad) * COUNTER_REACH, 0, Math.cos(rad) * COUNTER_REACH);
 			showCarYaw = yaw;
 		}
 		if (camera.is(Camera.CINEMATIC)) {
@@ -236,6 +259,17 @@ public class EmotesModule extends Module {
 			int ticks = mc.player.tickCount - startTick;
 			if (ticks == SHAKE_TICKS) dev.femboyware.module.larp.LarpSounds.play(dev.femboyware.module.larp.LarpSounds.CHAMPAGNE_POP, 1f);
 			if (ticks > SHAKE_TICKS && (ticks - SHAKE_TICKS) % 28 == 2) dev.femboyware.module.larp.LarpSounds.play(dev.femboyware.module.larp.LarpSounds.CHAMPAGNE_SPRAY, 0.6f);
+		}
+		if ((playing == Emote.SUPPORT_DESK || playing == Emote.MAYBACH_LAPTOP) && (mc.player.tickCount - startTick) % 48 == 4) {
+			dev.femboyware.module.larp.LarpSounds.play(dev.femboyware.module.larp.LarpSounds.TYPING, 0.45f);
+		}
+		if (playing == Emote.LEDGER_PLUG) {
+			int ticks = mc.player.tickCount - startTick;
+			if (ticks == PLUG_IN) dev.femboyware.module.larp.LarpSounds.play(dev.femboyware.module.larp.LarpSounds.LEDGER_BEEP, 1f);
+			if (ticks == PLUG_DONE) dev.femboyware.module.larp.LarpSounds.play(dev.femboyware.module.larp.LarpSounds.LEDGER_SUCCESS, 1f);
+		}
+		if (playing == Emote.MONEY_COUNTER && (mc.player.tickCount - startTick) % 50 == 0) {
+			dev.femboyware.module.larp.LarpSounds.play(dev.femboyware.module.larp.LarpSounds.MONEY_COUNTER, 0.5f);
 		}
 		if (stopOnMove.get() && moving()) {
 			stop();
@@ -300,7 +334,7 @@ public class EmotesModule extends Module {
 	public void playFakes(Emote emote) {
 		if (mc.player == null) return;
 		if (!isEnabled()) setEnabled(true);
-		fakeMix = emote == Emote.MAYBACH_BOUNCE;
+		fakeMix = onMaybach(emote);
 		fakeEmote = fakeMix ? null : emote;
 		fakeStart = mc.player.tickCount;
 		fakeOwed.clear();
@@ -321,7 +355,7 @@ public class EmotesModule extends Module {
 	public Object[] fakeDoing(int entityId) {
 		if (!isEnabled() || mc.player == null) return null;
 		if (playing != null && fakesCopy.get()) {
-			Emote e = playing == Emote.MAYBACH_BOUNCE ? CREW_MOVES[Math.floorMod(entityId, CREW_MOVES.length)] : playing;
+			Emote e = onMaybach(playing) ? CREW_MOVES[Math.floorMod(entityId, CREW_MOVES.length)] : playing;
 			return new Object[]{e, mc.player.tickCount - startTick};
 		}
 		if (fakesEmoting()) return new Object[]{fakeEmoteFor(entityId), mc.player.tickCount - fakeStart};
@@ -368,7 +402,7 @@ public class EmotesModule extends Module {
 		}
 		if (fakes) {
 			playFakes(found);
-			dev.femboyware.util.ChatUtil.info(found == Emote.MAYBACH_BOUNCE ? "The Maybach's just for you, so your fake players are each flexing their own way" : "Your fake players are doing " + found.label);
+			dev.femboyware.util.ChatUtil.info(onMaybach(found) ? "The Maybach's just for you, so your fake players are each flexing their own way" : "Your fake players are doing " + found.label);
 		} else {
 			if (!isEnabled()) setEnabled(true);
 			play(found);
@@ -404,7 +438,7 @@ public class EmotesModule extends Module {
 		Shared peer = mc.player == null || state.id == mc.player.getId() ? null : sync().emoteOf(state.id);
 		if (peer != null) return peer.emote;
 		if (mc.player != null && state.id != mc.player.getId() && !(playing != null && fakesCopy.get()) && fakesEmoting()) return fakeEmoteFor(state.id);
-		if (playing == Emote.MAYBACH_BOUNCE && mc.player != null && state.id != mc.player.getId()) return CREW_MOVES[Math.floorMod(state.id, CREW_MOVES.length)];
+		if (onMaybach(playing) && mc.player != null && state.id != mc.player.getId()) return CREW_MOVES[Math.floorMod(state.id, CREW_MOVES.length)];
 		return playing;
 	}
 
@@ -424,7 +458,115 @@ public class EmotesModule extends Module {
 			case PHONE_FLEX, LEDGER_FLEX -> poseHoldUp(model, t);
 			case MAYBACH_BOUNCE -> poseMaybachBounce(model, t);
 			case CHAMPAGNE -> poseChampagne(model, t);
+			case MONEY_COUNTER -> poseMoneyCounter(model, t);
+			case BITCOIN_FLIP -> poseBitcoinFlip(model, t);
+			case HODL -> poseHodl(model, t);
+			case SUPPORT_DESK -> poseSupportDesk(model, t);
+			case MAYBACH_LAPTOP -> poseMaybachLaptop(model, t);
+			case LEDGER_PLUG -> poseLedgerPlug(model, t);
 		}
+	}
+
+	/** When the Ledger goes into the laptop, and when it's through and the coins start popping out. */
+	private static final int PLUG_IN = 22, PLUG_DONE = 32;
+
+	/**
+	 * The laptop held open on the left forearm, the Ledger in the right hand: it comes across and
+	 * plugs into the laptop's side, then you nod along while the coins come out.
+	 */
+	private static void poseLedgerPlug(PlayerModel model, float t) {
+		float in = ease(t / 6f);
+		float reach = ease((t - 8) / (PLUG_IN - 8f));
+		blend(model.leftArm, in, -1.2f, 0.45f, 0);
+		blend(model.rightArm, in, -1.3f + 0.05f * reach, -0.05f - 0.5f * reach, 0);
+		float nod = t > PLUG_DONE ? 0.08f * Mth.sin((t - PLUG_DONE) * 0.6f) : 0;
+		model.head.xRot = Mth.lerp(in, model.head.xRot, 0.45f + nod);
+		model.head.yRot = Mth.lerp(in, model.head.yRot, 0.1f);
+	}
+
+	/** Stood at the desk typing: hands on the keyboard pecking away, eyes flicking between the two screens. */
+	private static void poseSupportDesk(PlayerModel model, float t) {
+		float in = ease(t / 5f);
+		blend(model.rightArm, in, -0.78f + typing(t, 0), -0.32f, 0.04f);
+		blend(model.leftArm, in, -0.78f + typing(t, 1), 0.32f, -0.04f);
+		// Mostly the left screen, a look across to the queue now and then
+		float look = Mth.clamp(Mth.sin(t * 0.06f) * 3, -1, 1);
+		model.head.xRot = Mth.lerp(in, model.head.xRot, 0.05f);
+		model.head.yRot = Mth.lerp(in, model.head.yRot, 0.28f * look);
+	}
+
+	/**
+	 * One hand's typing at {@code t} ticks: a short press down onto a key every few ticks, the hands
+	 * taking turns, in bursts of a few seconds with a pause between to read the screen. The arm's
+	 * pitch offset, in radians: 0 resting on the keys, a touch lifted between presses.
+	 */
+	private static float typing(float t, int hand) {
+		float cycle = (t + hand * 3) % 80;
+		// Typing for three seconds, then a second to read; eased in and out so the hands settle and lift
+		float burst = cycle < 60 ? Mth.clamp(cycle / 6, 0, 1) * Mth.clamp((60 - cycle) / 6, 0, 1) : 0;
+		// Presses at about two and a half a second a hand, the left half a beat behind the right
+		float phase = (t * 0.125f + hand * 0.5f) % 1;
+		float press = phase < 0.3f ? Mth.sin((float) Math.PI * phase / 0.3f) : 0;
+		return burst * (-0.025f + 0.04f * press);
+	}
+
+	/** Sat on the Maybach's bonnet with the laptop on your lap, typing, riding the bounce. */
+	private static void poseMaybachLaptop(PlayerModel model, float t) {
+		float in = ease(t / 6f);
+		blend(model.rightLeg, in, -1.25f, 0.1f, 0.03f);
+		blend(model.leftLeg, in, -1.25f, -0.1f, -0.03f);
+		blend(model.rightArm, in, -0.85f + typing(t, 0), -0.3f, 0.04f);
+		blend(model.leftArm, in, -0.85f + typing(t, 1), 0.3f, -0.04f);
+		model.head.xRot = Mth.lerp(in, model.head.xRot, 0.45f + 0.04f * Mth.sin(t * 0.3f));
+		float hips = seatHeight(t / 20f) + 0.12f - 0.75f;
+		lift(model, in * hips * 16 / 0.9375f);
+	}
+
+	// ---------------------------------------------------------------- money counter, bitcoin flip, HODL
+
+	/** How far in front of you the counting table stands. */
+	private static final float COUNTER_REACH = 0.62f;
+	/** Ticks per coin flip. */
+	private static final int FLIP_TICKS = 24;
+
+	/** Head down over the machine, the right hand feeding bills into the hopper and the left squaring up the stack. */
+	private static void poseMoneyCounter(PlayerModel model, float t) {
+		float raise = ease(t / 5f);
+		float feed = Mth.sin(t * 0.6f);
+		blend(model.rightArm, raise, -0.95f + feed * 0.12f, -0.2f, 0.05f);
+		blend(model.leftArm, raise, -0.8f - feed * 0.05f, 0.35f, -0.05f);
+		model.head.xRot = Mth.lerp(raise, model.head.xRot, 0.55f);
+		model.head.yRot = Mth.lerp(raise, model.head.yRot, 0.08f * Mth.sin(t * 0.15f));
+	}
+
+	/** Right fist out in front, thumbing a coin up; it dips as it flicks, and the head follows the coin. */
+	private static void poseBitcoinFlip(PlayerModel model, float t) {
+		float raise = ease(t / 5f);
+		float p = (t % FLIP_TICKS) / FLIP_TICKS;
+		float flick = p < 0.1f ? Mth.sin(p / 0.1f * Mth.PI) : 0;
+		blend(model.rightArm, raise, -1.25f - flick * 0.25f, -0.15f, 0);
+		blend(model.leftArm, raise, -0.35f, 0.1f, 0.05f);
+		model.head.xRot = Mth.lerp(raise, model.head.xRot, -0.35f * Mth.sin(p * Mth.PI) + 0.1f);
+	}
+
+	/** How high over the fist the flipped coin is, in blocks, and how far round it has spun, at {@code t}. */
+	private static float[] flip(float t) {
+		float p = (t % FLIP_TICKS) / FLIP_TICKS;
+		return new float[]{4 * 0.9f * p * (1 - p), p * Mth.TWO_PI * 2.5f};
+	}
+
+	/** Both hands up holding a big coin over your head, bouncing it to the beat. */
+	private static void poseHodl(PlayerModel model, float t) {
+		float raise = ease(t / 6f);
+		float bob = Mth.sin(t * 0.5f) * 0.06f;
+		blend(model.rightArm, raise, -2.95f + bob, 0, 0.32f);
+		blend(model.leftArm, raise, -2.95f + bob, 0, -0.32f);
+		model.head.xRot = Mth.lerp(raise, model.head.xRot, -0.35f);
+	}
+
+	/** How high the HODL coin is lifted at {@code t}, in model pixels. */
+	private static float hodlLift(float t) {
+		return ease(t / 6f) * (1 + Mth.sin(t * 0.5f) * 0.6f);
 	}
 
 	// ---------------------------------------------------------------- band spread
@@ -533,7 +675,7 @@ public class EmotesModule extends Module {
 
 	/** For CameraMixin: how far up to move your camera, sat on the Maybach's bonnet (0 otherwise). */
 	public float cameraLift(float tickProgress) {
-		if (!isEnabled() || playing != Emote.MAYBACH_BOUNCE || mc.player == null) return 0;
+		if (!isEnabled() || !onMaybach(playing) || mc.player == null) return 0;
 		float t = mc.player.tickCount - startTick + tickProgress;
 		return ease(t / 6f) * (seatHeight(t / 20f) + 0.12f - 0.75f);
 	}
@@ -663,8 +805,8 @@ public class EmotesModule extends Module {
 	private final List<Sparkle> sparkles = new ArrayList<>();
 	private static final Identifier GLOW = Identifier.fromNamespaceAndPath("femboyware", "textures/fx/glow.png");
 
-	/** Wine: a golden white, the splashes a little lighter. */
-	private static final int WINE = 0xE6E9B23A, WINE_LIGHT = 0xF0F7D57A;
+	/** Wine: white like the champagne spray, the splashes pure white. */
+	private static final int WINE = 0xF0FFF4D6, WINE_LIGHT = 0xFFFFFFFF;
 	/** Splashes and drips from the pour, in world space, falling under gravity. */
 	private final List<Droplet> wineDrops = new ArrayList<>();
 	private final java.util.Random wineRandom = new java.util.Random();
@@ -810,13 +952,27 @@ public class EmotesModule extends Module {
 		if (mc.player == null || mc.level == null) return;
 		float tickDelta = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
 		boolean own = isEnabled() && playing != null;
-		if (own && playing == Emote.MAYBACH_BOUNCE && showCarAt != null) {
+		if (own && onMaybach(playing) && showCarAt != null) {
 			float seconds = (mc.player.tickCount - startTick + tickDelta) / 20f;
 			FemboyWare.getModules().get(dev.femboyware.module.larp.CarsModule.class).drawShowCar(event, showCarAt, showCarYaw, seconds);
 		}
+		if (own && playing == Emote.MONEY_COUNTER && showCarAt != null) {
+			dev.femboyware.module.larp.Cash.drawCounterScene(event, showCarAt, showCarYaw, (mc.player.tickCount - startTick + tickDelta) / 20f);
+		}
+		if (own && playing == Emote.SUPPORT_DESK && showCarAt != null) {
+			dev.femboyware.module.larp.SupportDesk.draw(event, showCarAt, showCarYaw, (mc.player.tickCount - startTick + tickDelta) / 20f);
+		}
 		java.util.Map<Integer, Shared> peers = sync().sharedEmotes();
 		for (Shared peer : peers.values()) {
-			if (peer.emote != Emote.MAYBACH_BOUNCE || peer.showCar == null) continue;
+			if (peer.emote == Emote.MONEY_COUNTER && peer.showCar != null) {
+				dev.femboyware.module.larp.Cash.drawCounterScene(event, peer.showCar, peer.showCarYaw, (mc.player.tickCount - peer.startTick + tickDelta) / 20f);
+				continue;
+			}
+			if (peer.emote == Emote.SUPPORT_DESK && peer.showCar != null) {
+				dev.femboyware.module.larp.SupportDesk.draw(event, peer.showCar, peer.showCarYaw, (mc.player.tickCount - peer.startTick + tickDelta) / 20f);
+				continue;
+			}
+			if (!onMaybach(peer.emote) || peer.showCar == null) continue;
 			float seconds = (mc.player.tickCount - peer.startTick + tickDelta) / 20f;
 			FemboyWare.getModules().get(dev.femboyware.module.larp.CarsModule.class).drawShowCar(event, peer.showCar, peer.showCarYaw, seconds);
 		}
@@ -900,6 +1056,22 @@ public class EmotesModule extends Module {
 						for (int i = 0; i < 3; i++) {
 							Vec3 velocity = new Vec3((Math.random() - 0.5) * 1.6, 2.2 + Math.random() * 1.2, (Math.random() - 0.5) * 1.6);
 							rain.throwFrom(CashRain.Kind.BILL, hand, velocity, ground.y);
+						}
+					}
+				}
+			}
+			case LEDGER_PLUG -> {
+				int beat = ticks / 7;
+				boolean popped = beat != lastBeat && ticks >= PLUG_DONE;
+				lastBeat = beat;
+				if (popped) {
+					for (Player player : emoters) {
+						Vec3 feet = player.getPosition(tickDelta);
+						Vec3 forward = forward(player, tickDelta);
+						Vec3 screen = feet.add(forward.scale(0.55)).add(right(player, tickDelta).scale(-0.12)).add(0, 1.45, 0);
+						for (int i = 0; i < 3; i++) {
+							Vec3 velocity = forward.scale(0.3).add((Math.random() - 0.5) * 1.0, 2.0 + Math.random() * 1.0, (Math.random() - 0.5) * 1.0);
+							rain.throwFrom(CashRain.Kind.COIN, screen, velocity, feet.y);
 						}
 					}
 				}
@@ -1024,6 +1196,47 @@ public class EmotesModule extends Module {
 					queue.submitCustomGeometry(matrices, cutout(DEVICE_BODY), (pose, c) -> drawHeldDevice(pose, c, phone, false));
 					matrices.popPose();
 				}
+				case MONEY_COUNTER -> fan(matrices, queue, getParentModel().rightArm, -1, 3, 0.35f, light);
+				case MAYBACH_LAPTOP -> {
+					matrices.pushPose();
+					// On the thighs: in the right leg's space, across to the middle between the legs, on top of the leg
+					getParentModel().rightLeg.translateAndRotate(matrices);
+					matrices.translate(0.119f, 0.1f, -0.125f);
+					laptop(matrices, queue, light, 0.46f);
+					matrices.popPose();
+				}
+				case LEDGER_PLUG -> {
+					// The laptop open on the left forearm, reaching across in front of you
+					matrices.pushPose();
+					getParentModel().leftArm.translateAndRotate(matrices);
+					matrices.translate(-0.2f, 0.28f, -0.125f);
+					laptop(matrices, queue, light, 0.36f);
+					matrices.popPose();
+					// The Ledger in the right hand
+					matrices.pushPose();
+					getParentModel().rightArm.translateAndRotate(matrices);
+					queue.submitCustomGeometry(matrices, cutout(LEDGER_SCREEN), (pose, c) -> drawHeldDevice(pose, c, false, true));
+					queue.submitCustomGeometry(matrices, cutout(DEVICE_BODY), (pose, c) -> drawHeldDevice(pose, c, false, false));
+					matrices.popPose();
+				}
+				case BITCOIN_FLIP -> {
+					float[] f = flip(t);
+					matrices.pushPose();
+					getParentModel().rightArm.translateAndRotate(matrices);
+					// Arm held out in front: -z is up, so the coin rises off the fist, stood on its edge facing forward and spinning
+					matrices.translate(-0.0625f, 0.66f, -0.2f - f[0]);
+					matrices.mulPose(Axis.ZP.rotation(f[1]));
+					matrices.mulPose(Axis.XP.rotation(Mth.HALF_PI));
+					queue.submitCustomGeometry(matrices, cutout(BTC), (pose, c) -> drawCoin(pose, c, 0.14f, light));
+					matrices.popPose();
+				}
+				case HODL -> {
+					// Model space: the hands meet over the head, the coin stood up between them, facing forward
+					matrices.pushPose();
+					matrices.translate(0, (-13.5f - hodlLift(t)) / 16f, 0);
+					queue.submitCustomGeometry(matrices, cutout(BTC), (pose, c) -> drawCoin(pose, c, 0.34f, light));
+					matrices.popPose();
+				}
 				case FLEX -> {
 					matrices.pushPose();
 					getParentModel().leftArm.translateAndRotate(matrices);
@@ -1034,6 +1247,17 @@ public class EmotesModule extends Module {
 				default -> {
 				}
 			}
+		}
+
+		/** A laptop with its base {@code length} long from here along +y, lying on -z, and the lid open at the far end. */
+		private void laptop(PoseStack matrices, SubmitNodeCollector queue, int light, float length) {
+			queue.submitCustomGeometry(matrices, cutout(LAPTOP_BODY), (pose, c) -> laptopBox(pose, c, light, -0.19f, 0, -0.025f, 0.19f, length, 0));
+			matrices.pushPose();
+			matrices.translate(0, length, -0.025f);
+			matrices.mulPose(Axis.XP.rotation(0.25f));
+			queue.submitCustomGeometry(matrices, cutout(LAPTOP_BODY), (pose, c) -> laptopBox(pose, c, light, -0.19f, 0, -0.3f, 0.19f, 0.016f, 0));
+			queue.submitCustomGeometry(matrices, cutout(LAPTOP_SCREEN), (pose, c) -> laptopScreen(pose, c));
+			matrices.popPose();
 		}
 
 		/** A point in a limb's space, moved into camera-relative world space. */
@@ -1089,6 +1313,34 @@ public class EmotesModule extends Module {
 		face(c, pose, light, new Vector3f(x1, y2, z1), new Vector3f(x2, y2, z1), new Vector3f(x2, y2, z2), new Vector3f(x1, y2, z2), new Vector3f(0, 1, 0));
 		face(c, pose, light, new Vector3f(x1, y1, z2), new Vector3f(x1, y1, z1), new Vector3f(x1, y2, z1), new Vector3f(x1, y2, z2), new Vector3f(-1, 0, 0));
 		face(c, pose, light, new Vector3f(x2, y1, z1), new Vector3f(x2, y1, z2), new Vector3f(x2, y2, z2), new Vector3f(x2, y2, z1), new Vector3f(1, 0, 0));
+	}
+
+	private static final Identifier LAPTOP_BODY = Identifier.fromNamespaceAndPath("femboyware", "textures/larp/laptop_body.png");
+	private static final Identifier LAPTOP_SCREEN = Identifier.fromNamespaceAndPath("femboyware", "textures/larp/laptop_screen.png");
+
+	/** A box with the texture on each face. */
+	private static void laptopBox(PoseStack.Pose pose, VertexConsumer c, int light, float x1, float y1, float z1, float x2, float y2, float z2) {
+		face(c, pose, light, new Vector3f(x1, y1, z1), new Vector3f(x2, y1, z1), new Vector3f(x2, y2, z1), new Vector3f(x1, y2, z1), new Vector3f(0, 0, -1));
+		face(c, pose, light, new Vector3f(x1, y2, z2), new Vector3f(x2, y2, z2), new Vector3f(x2, y1, z2), new Vector3f(x1, y1, z2), new Vector3f(0, 0, 1));
+		face(c, pose, light, new Vector3f(x1, y1, z2), new Vector3f(x2, y1, z2), new Vector3f(x2, y1, z1), new Vector3f(x1, y1, z1), new Vector3f(0, -1, 0));
+		face(c, pose, light, new Vector3f(x1, y2, z1), new Vector3f(x2, y2, z1), new Vector3f(x2, y2, z2), new Vector3f(x1, y2, z2), new Vector3f(0, 1, 0));
+		face(c, pose, light, new Vector3f(x1, y1, z2), new Vector3f(x1, y1, z1), new Vector3f(x1, y2, z1), new Vector3f(x1, y2, z2), new Vector3f(-1, 0, 0));
+		face(c, pose, light, new Vector3f(x2, y1, z1), new Vector3f(x2, y1, z2), new Vector3f(x2, y2, z2), new Vector3f(x2, y2, z1), new Vector3f(1, 0, 0));
+	}
+
+	/** The lid's screen, facing you (toward -y in the lid's space), glowing at full brightness, drawn both ways round. */
+	private static void laptopScreen(PoseStack.Pose pose, VertexConsumer c) {
+		int light = 0xF000F0;
+		float x1 = -0.175f, x2 = 0.175f, top = -0.287f, bottom = -0.012f, y = -0.002f;
+		face(c, pose, light, new Vector3f(x2, y, top), new Vector3f(x1, y, top), new Vector3f(x1, y, bottom), new Vector3f(x2, y, bottom), new Vector3f(0, -1, 0));
+		face(c, pose, light, new Vector3f(x1, y, top), new Vector3f(x2, y, top), new Vector3f(x2, y, bottom), new Vector3f(x1, y, bottom), new Vector3f(0, -1, 0));
+	}
+
+	/** A coin of radius {@code r} standing in the xy plane, the texture on both faces with a gold rim between. */
+	private static void drawCoin(PoseStack.Pose pose, VertexConsumer c, float r, int light) {
+		float d = r * 0.09f;
+		face(c, pose, light, new Vector3f(-r, -r, -d), new Vector3f(r, -r, -d), new Vector3f(r, r, -d), new Vector3f(-r, r, -d), new Vector3f(0, 0, -1));
+		face(c, pose, light, new Vector3f(r, -r, d), new Vector3f(-r, -r, d), new Vector3f(-r, r, d), new Vector3f(r, r, d), new Vector3f(0, 0, 1));
 	}
 
 	/** A quad with the texture's top-left at {@code a}, its top edge running from a to b. */

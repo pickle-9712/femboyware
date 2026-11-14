@@ -97,11 +97,10 @@ public class YachtModule extends Module {
 				at = new Vec3(at.x, surfaced(), at.z);
 				if (!isEnabled()) setEnabled(true);
 				if (bringHelicopter.get()) FemboyWare.getModules().get(HelicopterModule.class).parkAt(world(0, PAD_TOP, PAD_Z), yaw);
-				ChatUtil.info("Your yacht's moored on your left. Walk up the boarding stairs" + (bringHelicopter.get() ? "; the helicopter's on the helipad" : ""));
+				dev.femboyware.util.Mc.addChat(net.minecraft.network.chat.Component.literal("<Captain> The yacht's moored and ready for you. Come aboard whenever you like."));
 			}
 			case "remove", "clear" -> {
 				clearYacht();
-				ChatUtil.info("Yacht's gone back out to sea");
 			}
 			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "yacht <spawn|remove>");
 		}
@@ -134,6 +133,22 @@ public class YachtModule extends Module {
 			best = Math.max(best, pos.getY() + height);
 		}
 		return best;
+	}
+
+	/** For LarpSave: where it stands (x, y, z, yaw), or null. */
+	public double[] savePlace() {
+		return at == null ? null : new double[]{at.x, at.y, at.z, yaw};
+	}
+
+	/** For LarpSave: puts it back where it was saved (or takes it away), quietly. */
+	public void restorePlace(double[] p) {
+		if (p == null || p.length < 4) {
+			at = null;
+			return;
+		}
+		at = new Vec3(p[0], p[1], p[2]);
+		yaw = (float) p[3];
+		if (!isEnabled()) setEnabled(true);
 	}
 
 	private void clearYacht() {
@@ -349,6 +364,9 @@ public class YachtModule extends Module {
 		light(event, glow, turn, ox, oy, oz, 0, BRIDGE_TOP + 3.1f, 6, 0.4f, 0xF0FFFFFF);
 		// Warm lights along the salon ceiling
 		for (float z = SALON_BACK + 2; z < SALON_FRONT - 1; z += 3) light(event, glow, turn, ox, oy, oz, 0, UPPER - 0.35f, z, 0.25f, 0x90FFE2B0);
+		// The salon TV, last since it's its own layer
+		dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.larp.TvModule.class).drawBuiltIn(event, turn, ox, oy, oz,
+			new Vector3f(0, MAIN + 1.31f, -7.615f), new Vector3f(1, 0, 0), 2.34f, 1.28f);
 	}
 
 	private static void light(Render3DEvent event, VertexConsumer glow, Quaternionf rot, float ox, float oy, float oz, float x, float y, float z, float size, int color) {
@@ -525,6 +543,11 @@ public class YachtModule extends Module {
 			in.box(x - 0.2f, MAIN + 0.025f, 2.3f, x + 0.2f, MAIN + 0.6f, 2.7f, 0xFF3B2A1E);
 		}
 		in.box(-1, MAIN + 0.025f, -3.5f, 1, MAIN + 0.4f, -0.5f, 0xFF3B2A1E);
+		// The TV on a low cabinet at the back of the salon
+		in.box(-1.35f, MAIN + 0.025f, -8.0f, 1.35f, MAIN + 0.5f, -7.45f, 0xFF3B2A1E);
+		in.box(-0.12f, MAIN + 0.5f, -7.78f, 0.12f, MAIN + 0.66f, -7.68f, 0xFF141418);
+		in.box(-1.22f, MAIN + 0.62f, -7.7f, 1.22f, MAIN + 2.0f, -7.62f, 0xFF141418);
+		in.box(-1.17f, MAIN + 0.67f, -7.62f, 1.17f, MAIN + 1.95f, -7.615f, 0xFF050507);
 		in.box(-0.9f, MAIN + 0.4f, -3.4f, 0.9f, MAIN + 0.42f, -0.6f, 0xFFD6C7A8);
 		in.box(-3.8f, MAIN + 0.025f, SALON_FRONT - 1.2f, 3.8f, MAIN + 1.1f, SALON_FRONT - 0.22f, 0xFF2A2C31);
 		in.box(-3.9f, MAIN + 1.1f, SALON_FRONT - 1.3f, 3.9f, MAIN + 1.18f, SALON_FRONT - 0.22f, 0xFFD6C7A8);

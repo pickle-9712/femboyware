@@ -50,6 +50,8 @@ public final class FxRender {
 	private static final RenderType LIGHT_LAYER = colorLayer("fx_light", LIGHT);
 	private static final RenderType LIGHT_XRAY_LAYER = colorLayer("fx_light_xray", LIGHT_XRAY);
 	private static final RenderType SOLID_QUADS_LAYER = colorLayer("fx_solid_quads", SOLID_QUADS);
+	/** The same again as its own batch, for detailed things drawn alongside a big prop so neither gets too big. */
+	private static final RenderType SOLID_DETAIL_LAYER = colorLayer("fx_solid_detail", SOLID_QUADS);
 	private static final Map<String, RenderType> TEXTURE_LAYERS = new HashMap<>();
 
 	private static final int FULL_ALPHA = 0xFF000000;
@@ -105,6 +107,11 @@ public final class FxRender {
 	/** Flat colour quads that hide what's behind them, for solid shapes. */
 	public static VertexConsumer solidQuads(Render3DEvent event) {
 		return event.consumers().getBuffer(SOLID_QUADS_LAYER);
+	}
+
+	/** Solid shapes in a batch of their own (see {@link #SOLID_DETAIL_LAYER}). */
+	public static VertexConsumer solidDetail(Render3DEvent event) {
+		return event.consumers().getBuffer(SOLID_DETAIL_LAYER);
 	}
 
 	public static VertexConsumer lines(Render3DEvent event) {

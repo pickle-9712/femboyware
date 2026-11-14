@@ -56,4 +56,19 @@ public class MinecraftClientMixin {
 		//?}
 	}
 
+	/**
+	 * Your profile with its skin: the launch fetch is often rate limited (HTTP 429) and leaves the
+	 * menus showing the default skin; FreshProfile retries in the background and this hands out the
+	 * fetched copy (same account, now with textures) once it's in.
+	 */
+	@Inject(method = "getGameProfile", at = @At("RETURN"), cancellable = true)
+	private void femboyware$freshProfile(org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable<com.mojang.authlib.GameProfile> cir) {
+		cir.setReturnValue(dev.femboyware.util.FreshProfile.of(cir.getReturnValue()));
+	}
+
+	/** Fake FPS: every FPS counter reads this. */
+	@com.llamalad7.mixinextras.injector.ModifyReturnValue(method = "getFps", at = @At("RETURN"))
+	private int femboyware$fakeFps(int fps) {
+		return dev.femboyware.FemboyWare.getModules() == null ? fps : dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.utility.FakeFpsModule.class).adjust(fps);
+	}
 }

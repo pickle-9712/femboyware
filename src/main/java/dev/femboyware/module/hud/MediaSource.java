@@ -14,7 +14,7 @@ import net.minecraft.util.Mth;
 
 /**
  * What's playing on the PC, shared by every HUD element that shows it. One background thread reads
- * {@link WindowsMedia} a few times a second while any of them is on. It only works on Windows, and in
+ * {@link WindowsMedia} a few times a second while any of them is on (or Spotify, on a Mac), and in
  * Bodyguard's low power mode it stops reading, so guards spend nothing on it.
  */
 final class MediaSource {
@@ -39,7 +39,7 @@ final class MediaSource {
 
 	static void acquire(Object user) {
 		USERS.add(user);
-		if (reader != null || !WindowsMedia.supported()) return;
+		if (reader != null || !(WindowsMedia.supported() || MacSpotify.supported())) return;
 		Thread thread = new Thread(MediaSource::read, "femboyware media");
 		thread.setDaemon(true);
 		reader = thread;
@@ -128,10 +128,11 @@ final class MediaSource {
 
 	private static void read() {
 		Thread self = Thread.currentThread();
-		WindowsMedia media = new WindowsMedia();
+		MediaPlayer media = MediaPlayer.forThisPc();
+		if (media == null) return;
 		try {
 			if (!media.open()) {
-				FemboyWare.LOGGER.warn("Couldn't reach Windows' media controls");
+				FemboyWare.LOGGER.warn("Couldn't reach the PC's media controls");
 				return;
 			}
 			String lastKey = null;
@@ -168,14 +169,14 @@ final class MediaSource {
 						artTries++;
 						art = media.art();
 					}
-					nextPoll = System.currentTimeMillis() + POLL;
+					nextPoll = System.currentTimeMillis() + Math.max(POLL, media.pollMillis());
 				}
 				Thread.sleep(30);
 			}
 		} catch (InterruptedException ignored) {
 			// Turned off
 		} catch (Throwable e) {
-			FemboyWare.LOGGER.warn("Stopped reading Windows' media controls", e);
+			FemboyWare.LOGGER.warn("Stopped reading the PC's media controls", e);
 		} finally {
 			media.close();
 		}

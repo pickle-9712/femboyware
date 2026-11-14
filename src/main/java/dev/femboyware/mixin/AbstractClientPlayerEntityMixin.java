@@ -15,11 +15,16 @@ public class AbstractClientPlayerEntityMixin {
 	private PlayerSkin femboyware$fakePlayerSkin(PlayerSkin textures) {
 		if (FemboyWare.getModules() == null) return textures;
 		AbstractClientPlayer self = (AbstractClientPlayer) (Object) this;
+		textures = FemboyWare.getModules().get(dev.femboyware.module.larp.CoinbaseAgentModule.class).skinFor(self, textures);
 		textures = FemboyWare.getModules().get(dev.femboyware.module.larp.PaparazziModule.class).skinFor(self, textures);
+		textures = FemboyWare.getModules().get(dev.femboyware.module.larp.FbiRaidModule.class).skinFor(self, textures);
 		textures = FemboyWare.getModules().get(dev.femboyware.module.larp.CarsModule.class).skinFor(self, textures);
 		textures = FemboyWare.getModules().get(dev.femboyware.module.larp.JetModule.class).skinFor(self, textures);
 		textures = FemboyWare.getModules().get(dev.femboyware.module.larp.HelicopterModule.class).skinFor(self, textures);
 		textures = FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class).skinFor(self, textures);
+		textures = FemboyWare.getModules().get(dev.femboyware.module.render.SkinChangerModule.class).skinFor(self, textures);
+		textures = FemboyWare.getModules().get(dev.femboyware.module.larp.LarpAsModule.class).skinFor(self, textures);
+		textures = dev.femboyware.module.effects.PlayerTrailModule.skinFor(self, textures);
 		return FemboyWare.getModules().get(FakePlayerModule.class).skinFor(self, textures);
 	}
 }

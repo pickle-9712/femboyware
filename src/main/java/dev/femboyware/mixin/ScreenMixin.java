@@ -22,9 +22,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(Screen.class)
 public class ScreenMixin {
 	//? if >=26.1 {
-	/*private static final String PANORAMA = "extractPanorama", MENU_BACKGROUND = "extractMenuBackground(Lnet/minecraft/client/gui/GuiGraphicsExtractor;IIII)V";
+	/*private static final String PANORAMA = "extractPanorama", MENU_BACKGROUND = "extractMenuBackground(Lnet/minecraft/client/gui/GuiGraphicsExtractor;IIII)V", WHOLE = "extractRenderStateWithTooltipAndSubtitles";
 	*///?} else {
-	private static final String PANORAMA = "renderPanorama", MENU_BACKGROUND = "renderMenuBackground(Lnet/minecraft/client/gui/GuiGraphics;IIII)V";
+	private static final String PANORAMA = "renderPanorama", MENU_BACKGROUND = "renderMenuBackground(Lnet/minecraft/client/gui/GuiGraphics;IIII)V", WHOLE = "renderWithTooltipAndSubtitles";
 	//?}
 
 	/** Light enough to keep the pink, dark enough to read text on. */
@@ -44,6 +44,19 @@ public class ScreenMixin {
 		if (!femboyware$themed()) return;
 		context.fill(x, y, x + width, y + height, TINT);
 		ci.cancel();
+	}
+
+	/** GUI Animation: the screen's animated in as it opens. */
+	@Inject(method = WHOLE, at = @At("HEAD"))
+	private void femboyware$animateIn(GuiGraphics context, int mouseX, int mouseY, float deltaTicks, CallbackInfo ci) {
+		dev.femboyware.module.render.GuiAnimationModule.begin((Screen) (Object) this, context);
+		dev.femboyware.module.render.ThreeDUiModule.begin((Screen) (Object) this, context, mouseX, mouseY);
+	}
+
+	@Inject(method = WHOLE, at = @At("RETURN"))
+	private void femboyware$animateInEnd(GuiGraphics context, int mouseX, int mouseY, float deltaTicks, CallbackInfo ci) {
+		dev.femboyware.module.render.ThreeDUiModule.end(context);
+		dev.femboyware.module.render.GuiAnimationModule.end(context);
 	}
 
 	/** Outside a world, plus loading and message screens, which can show while a world is still being joined. */

@@ -88,7 +88,8 @@ public class HelicopterModule extends Module {
 				float yaw = mc.player.getYRot();
 				double rad = Math.toRadians(yaw);
 				parkAt(mc.player.position().add(Math.cos(rad) * -9, 0, Math.sin(rad) * -9).add(-Math.sin(rad) * 3, 0, Math.cos(rad) * 3), yaw);
-				ChatUtil.info("Your helicopter's on the pad. " + (larping() ? "Right-click it to take off" : "Turn on Server Larp to fly it"));
+				dev.femboyware.util.Mc.addChat(net.minecraft.network.chat.Component.literal("<Pilot> She's warmed up on the pad whenever you're ready."));
+				if (!larping()) dev.femboyware.util.Mc.actionBar("Turn on Server Larp to fly it");
 			}
 			case "fly", "board" -> board();
 			case "land", "stop" -> {
@@ -98,10 +99,24 @@ public class HelicopterModule extends Module {
 				if (boarded) disembark(null);
 				parked = null;
 				removePilot();
-				ChatUtil.info("Helicopter's gone back to the hangar");
 			}
 			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "heli <spawn|fly|land|remove>");
 		}
+	}
+
+	/** For LarpSave: where it's parked (x, y, z, yaw), or null when it isn't (or you're aboard). */
+	public double[] savePlace() {
+		return parked == null || boarded ? null : new double[]{parked.x, parked.y, parked.z, parkedYaw};
+	}
+
+	/** For LarpSave: parks it back where it was saved (or takes it away). */
+	public void restorePlace(double[] p) {
+		if (boarded) return;
+		if (p == null || p.length < 4) {
+			if (parked != null) clear();
+			return;
+		}
+		parkAt(new Vec3(p[0], p[1], p[2]), (float) p[3]);
 	}
 
 	/** Takes the helicopter away (and the captain), quietly, for the hangar. */
@@ -152,7 +167,7 @@ public class HelicopterModule extends Module {
 		mc.player.setDeltaMovement(Vec3.ZERO);
 		mc.player.fallDistance = 0;
 		if (boardedFrom != null) mc.player.snapTo(boardedFrom.x, boardedFrom.y, boardedFrom.z, mc.player.getYRot(), mc.player.getXRot());
-		if (message != null) ChatUtil.info(message);
+		if (message != null) dev.femboyware.util.Mc.actionBar(message);
 	}
 
 	private static double smooth(double t) {

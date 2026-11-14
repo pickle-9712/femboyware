@@ -44,6 +44,7 @@ public class ScoreboardEditModule extends Module {
 
 	/** The same edits, typed straight into the settings: each value box changes what shows after that label. Empty leaves it alone. */
 	private final StringSetting title = add(new StringSetting("Title", "The scoreboard's title, & colour codes work (like &d&lDonutSMP). Empty leaves it", ""));
+	private final StringSetting fakeBal = add(new StringSetting("Fake Balance", "Your fake balance: /bal says it and Money shows it (set with /fakebal; empty is off)", ""));
 	private final StringSetting money = add(new StringSetting("Money", "What shows after Money, like $50M. Empty leaves it", ""));
 	private final StringSetting shards = add(new StringSetting("Shards", "What shows after Shards. Empty leaves it", ""));
 	private final StringSetting kills = add(new StringSetting("Kills", "What shows after Kills. Empty leaves it", ""));
@@ -60,18 +61,36 @@ public class ScoreboardEditModule extends Module {
 	/** The rules from the settings boxes, worked out again only when one of them changes. */
 	private List<Rule> settingRules() {
 		String self = mc.player == null ? "" : mc.player.getGameProfile().name();
-		String key = String.join("\u0000", title.get(), money.get(), shards.get(), kills.get(), deaths.get(), playtime.get(), name.get(),
-			customLabel.get(), customValue.get(), customLabel2.get(), customValue2.get(), self);
+		String key = String.join("\u0000", fakeBal.get(), title.get(), money.get(), shards.get(), kills.get(), deaths.get(), playtime.get(), name.get(),
+			customLabel.get(), customValue.get(), customLabel2.get(), customValue2.get(), self, String.valueOf(moneyScores().isEmpty()));
 		if (key.equals(settingsFrom)) return settingRules;
 		settingsFrom = key;
 		List<Rule> list = new ArrayList<>();
 		if (!title.get().isBlank()) list.add(new Rule(Kind.TITLE, "", title.get()));
-		String[][] values = {{"Money", money.get()}, {"Shards", shards.get()}, {"Kills", kills.get()}, {"Deaths", deaths.get()}, {"Playtime", playtime.get()},
+		double fake = fakeBalance();
+		// With the number in the score column, the fake balance goes there (see fakeMoney), not after the label
+		String moneyShown = fake >= 0 ? (moneyScores().isEmpty() ? dev.femboyware.module.utility.FakeEconomy.money(fake) : "") : money.get();
+		String[][] values = {{"Money", moneyShown}, {"Shards", shards.get()}, {"Kills", kills.get()}, {"Deaths", deaths.get()}, {"Playtime", playtime.get()},
 			{customLabel.get(), customValue.get()}, {customLabel2.get(), customValue2.get()}};
 		for (String[] v : values) if (!v[0].isBlank() && !v[1].isBlank()) list.add(new Rule(Kind.VALUE, v[0].trim(), v[1].trim()));
 		if (!name.get().isBlank() && !self.isEmpty()) list.add(new Rule(Kind.REPLACE, self, name.get().trim()));
 		settingRules = list;
 		return list;
+	}
+
+	/** The fake balance (see FakeEconomy), or -1 when it's off. */
+	public double fakeBalance() {
+		String text = fakeBal.get().trim();
+		if (text.isEmpty()) return -1;
+		try {
+			return Double.parseDouble(text);
+		} catch (NumberFormatException e) {
+			return -1;
+		}
+	}
+
+	public void setFakeBalance(double amount) {
+		fakeBal.set(amount < 0 ? "" : String.valueOf(amount));
 	}
 
 	public ScoreboardEditModule() {
@@ -134,6 +153,9 @@ public class ScoreboardEditModule extends Module {
 	/** Called from InGameHudMixin for each sidebar line and score. */
 	public Component line(Component line) {
 		if (!isEnabled() || line == null) return line;
+		// The fake balance is live: the money line always shows it, whatever other edits say
+		Component fake = fakeMoney(line);
+		if (fake != null) return fake;
 		List<Rule> list = allRules();
 		if (list.isEmpty()) return line;
 		Component out = line;
@@ -141,7 +163,7 @@ public class ScoreboardEditModule extends Module {
 			String plain = out.getString();
 			switch (rule.kind()) {
 				case LINE -> {
-					if (contains(plain, rule.match())) return LegacyText.parse(rule.text());
+					if (contains(plain, rule.match())) return keepIcon(out, LegacyText.parse(rule.text()));
 				}
 				case VALUE -> {
 					int at = indexOf(plain, rule.match());
@@ -154,6 +176,83 @@ public class ScoreboardEditModule extends Module {
 				}
 			}
 		}
+		return out;
+	}
+
+	/** The money number: an optional $, digits, and a k/m/b/t after them. */
+	private static final java.util.regex.Pattern NUMBER = java.util.regex.Pattern.compile("(\\$\\s*)?(\\d[\\d,]*(?:\\.\\d+)?)\\s*([kKmMbBtT])?");
+
+	/**
+	 * The money line with the fake balance in place of its number, keeping its icon, colours and
+	 * everything else; null if the fake balance is off or this isn't the money line (one with
+	 * "money" in it, or a number with a $ on it).
+	 */
+	private Component fakeMoney(Component line) {
+		double fake = fakeBalance();
+		if (fake < 0) return null;
+		String plain = line.getString();
+		// The money row, or its number in the sidebar's right-hand score column
+		boolean moneyLine = plain.toLowerCase(Locale.ROOT).contains("money") || moneyScores().contains(plain);
+		java.util.regex.Matcher m = NUMBER.matcher(plain);
+		int from = -1, to = -1;
+		String suffix = null;
+		int searchFrom = Math.max(0, plain.toLowerCase(Locale.ROOT).indexOf("money"));
+		while (m.find(searchFrom)) {
+			if (m.group(1) != null || moneyLine) {
+				from = m.start(2);
+				to = m.end(3) >= 0 ? m.end(3) : m.end(2);
+				suffix = m.group(3);
+				break;
+			}
+			searchFrom = m.end();
+			if (searchFrom >= plain.length()) break;
+		}
+		if (from < 0) return null;
+		// In the line's own style: no $ (it keeps its own), and k/m/b in the case it uses
+		String value = dev.femboyware.module.utility.FakeEconomy.money(fake).replace("$", "");
+		if (suffix != null && Character.isLowerCase(suffix.charAt(0))) value = value.toLowerCase(Locale.ROOT);
+		List<Piece> pieces = pieces(line);
+		MutableComponent out = slice(pieces, 0, from);
+		out.append(Component.literal(value).setStyle(styleAt(pieces, from)));
+		out.append(slice(pieces, to, plain.length()));
+		return out;
+	}
+
+	private final java.util.Set<String> moneyScores = new java.util.HashSet<>();
+	private long moneyScoresAt = Long.MIN_VALUE;
+
+	/**
+	 * The right-hand scores of the sidebar rows labelled Money: many servers put the number there,
+	 * apart from the label, so it can't be told from the number alone. Worked out once a tick.
+	 */
+	private java.util.Set<String> moneyScores() {
+		if (mc.level == null) return moneyScores;
+		long now = mc.level.getGameTime();
+		if (now == moneyScoresAt) return moneyScores;
+		moneyScoresAt = now;
+		moneyScores.clear();
+		Scoreboard board = mc.level.getScoreboard();
+		Objective objective = board.getDisplayObjective(DisplaySlot.SIDEBAR);
+		if (objective == null) return moneyScores;
+		var format = objective.numberFormatOrDefault(net.minecraft.network.chat.numbers.StyledFormat.SIDEBAR_DEFAULT);
+		for (PlayerScoreEntry entry : board.listPlayerScores(objective)) {
+			if (entry.isHidden()) continue;
+			String name = PlayerTeam.formatNameForTeam(board.getPlayersTeam(entry.owner()), entry.ownerName()).getString();
+			if (!name.toLowerCase(Locale.ROOT).contains("money")) continue;
+			String score = entry.formatValue(format).getString();
+			if (NUMBER.matcher(score).find()) moneyScores.add(score);
+		}
+		return moneyScores;
+	}
+
+	/** A whole-line edit keeps the line's icon: whatever comes before its first letter or number. */
+	private static Component keepIcon(Component original, Component replacement) {
+		String plain = original.getString();
+		int end = 0;
+		while (end < plain.length() && !Character.isLetterOrDigit(plain.charAt(end))) end++;
+		if (end == 0 || end >= plain.length()) return replacement;
+		MutableComponent out = slice(pieces(original), 0, end);
+		out.append(replacement);
 		return out;
 	}
 

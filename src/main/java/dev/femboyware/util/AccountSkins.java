@@ -267,6 +267,15 @@ public final class AccountSkins {
 		return fromSession(id);
 	}
 
+	/** An account's profile with its skin, straight from Mojang's session server by id; null if it can't be had right now. */
+	public static GameProfile profileById(java.util.UUID id) {
+		try {
+			return fromSession(id.toString().replace("-", ""));
+		} catch (Exception e) {
+			return null;
+		}
+	}
+
 	private static GameProfile fromSession(String id) throws IOException, InterruptedException {
 		String session = fetch("https://sessionserver.mojang.com/session/minecraft/profile/" + id);
 		if (session == null) throw new IOException("No profile for " + id);

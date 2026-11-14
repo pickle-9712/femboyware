@@ -556,7 +556,8 @@ public class LedgerScreen extends Screen {
 		double changePercent = values[0] <= 0 ? 0 : changeValue / values[0] * 100;
 
 		context.drawString(font, "Total balance", left + 14, top + 12, MUTED, false);
-		scaled(context, hideBalance ? "******" : LedgerModule.usd(total), left + 14, top + 26, 2.2f, TEXT);
+		if (FbiRaidModule.assetsFrozen()) scaled(context, "FROZEN BY DOJ", left + 14, top + 26, 2.2f, RED);
+		else scaled(context, hideBalance ? "******" : LedgerModule.usd(total), left + 14, top + 26, 2.2f, TEXT);
 		int color = changeValue >= 0 ? GREEN : RED;
 		String change = String.format(Locale.US, "%s%.2f%%", changeValue >= 0 ? "+" : "", changePercent)
 			+ (hideBalance ? "" : "  (" + (changeValue >= 0 ? "+" : "-") + LedgerModule.usd(Math.abs(changeValue)) + ")");

@@ -15,10 +15,13 @@ public final class Pipelines {
 	private Pipelines() {
 	}
 
-	/** {@code test}: hidden behind nearer things (less-or-equal depth test), otherwise drawn through them. */
+	/**
+	 * {@code test}: hidden behind nearer things, otherwise drawn through them. 26.x keeps depth
+	 * reversed (near is 1, far is 0), so the test there is greater-or-equal, as vanilla's own.
+	 */
 	public static RenderPipeline.Builder depth(RenderPipeline.Builder builder, boolean test, boolean write) {
 		//? if >=26.1 {
-		/*return builder.withDepthStencilState(new DepthStencilState(test ? CompareOp.LESS_THAN_OR_EQUAL : CompareOp.ALWAYS_PASS, write));
+		/*return builder.withDepthStencilState(new DepthStencilState(test ? CompareOp.GREATER_THAN_OR_EQUAL : CompareOp.ALWAYS_PASS, write));
 		*///?} else {
 		return builder.withDepthWrite(write)
 			.withDepthTestFunction(test ? DepthTestFunction.LEQUAL_DEPTH_TEST : DepthTestFunction.NO_DEPTH_TEST);

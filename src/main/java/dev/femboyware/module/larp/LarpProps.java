@@ -25,7 +25,8 @@ public final class LarpProps {
 	public static boolean solidFor(Entity entity) {
 		if (FemboyWare.getModules() == null || entity == null) return false;
 		Minecraft mc = Minecraft.getInstance();
-		if (entity == mc.player) return FemboyWare.getModules().get(ServerLarpModule.class).isLarping();
+		// You stand on the props' floors in singleplayer, or while larping on a server
+		if (entity == mc.player) return mc.hasSingleplayerServer() || FemboyWare.getModules().get(ServerLarpModule.class).isLarping();
 		if (entity instanceof ItemEntity) return entity.getId() < 0;
 		// Valets walk on the hangar floor and the jet's stairs like anyone (they already walk round the cars)
 		if (FemboyWare.getModules().get(CarsModule.class).isValet(entity)) return true;

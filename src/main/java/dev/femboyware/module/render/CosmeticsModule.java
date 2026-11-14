@@ -484,6 +484,31 @@ public class CosmeticsModule extends Module {
 		return isEnabled() && korblox.get();
 	}
 
+	/** From the phone's avatar editor: puts the item on (turning Cosmetics on) or takes it off. */
+	public void toggleKorblox() {
+		wear(korblox);
+	}
+
+	public void toggleHeadless() {
+		wear(headless);
+	}
+
+	/** Horns: off, then each colour in turn. */
+	public void cycleHorns() {
+		if (!isEnabled()) setEnabled(true);
+		Horns[] all = Horns.values();
+		horns.set(all[(horns.get().ordinal() + 1) % all.length]);
+		dev.femboyware.FemboyWare.getConfig().save();
+	}
+
+	private void wear(BoolSetting item) {
+		if (!isEnabled()) {
+			setEnabled(true);
+			item.set(true);
+		} else item.set(!item.get());
+		dev.femboyware.FemboyWare.getConfig().save();
+	}
+
 	public boolean headlessOn() {
 		return isEnabled() && headless.get();
 	}

@@ -18,6 +18,18 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(GameRenderer.class)
 public class GameRendererMixin {
+	/** The ClickGUI's world screen: drawn into its own texture after the normal GUI. */
+	@Inject(method = "render", at = @At("TAIL"))
+	private void femboyware$worldGui(CallbackInfo ci) {
+		dev.femboyware.gui.WorldGui.renderPass();
+	}
+
+	/** FBI Raid: no hand in front of the camera while it films you being walked out. */
+	@Inject(method = "renderItemInHand", at = @At("HEAD"), cancellable = true, require = 0)
+	private void femboyware$raidHand(CallbackInfo ci) {
+		if (FemboyWare.getModules() != null && FemboyWare.getModules().get(dev.femboyware.module.larp.FbiRaidModule.class).hidesHand()) ci.cancel();
+	}
+
 	/** Bodyguard's low power: don't draw the world at all, so the screen is just the HUD on black. */
 	@Inject(method = "renderLevel", at = @At("HEAD"), cancellable = true)
 	//? if >=26.3 {

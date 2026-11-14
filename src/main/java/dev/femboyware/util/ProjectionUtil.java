@@ -20,6 +20,18 @@ public final class ProjectionUtil {
 		cameraPos = camera;
 	}
 
+	public static Matrix4f view() {
+		return view;
+	}
+
+	public static Matrix4f projection() {
+		return projection;
+	}
+
+	public static Vec3 camera() {
+		return cameraPos;
+	}
+
 	/** Scaled-pixel screen coordinates of {@code pos}, or null when it is behind the camera. */
 	public static Vec3 toScreen(Vec3 pos) {
 		Vector4f vector = new Vector4f((float) (pos.x - cameraPos.x), (float) (pos.y - cameraPos.y), (float) (pos.z - cameraPos.z), 1f);

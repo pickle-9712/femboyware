@@ -36,8 +36,10 @@ public class HeldItemRendererMixin {
 									  PoseStack matrices, SubmitNodeCollector queue, int light, CallbackInfo ci) {
 		matrices.pushPose();
 		var player = net.minecraft.client.Minecraft.getInstance().player;
-		if (!FemboyWare.isEnabled(ViewModelModule.class) || player == null) return;
+		if (player == null) return;
 		HumanoidArm arm = hand == InteractionHand.MAIN_HAND ? player.getMainArm() : player.getMainArm().getOpposite();
+		dev.femboyware.util.HeldBlades.begin(player.getId(), arm, item, true);
+		if (!FemboyWare.isEnabled(ViewModelModule.class)) return;
 		FemboyWare.getModules().get(ViewModelModule.class).apply(matrices, arm);
 	}
 
@@ -46,14 +48,16 @@ public class HeldItemRendererMixin {
 										 float partialTicks, float xRot, InteractionHand hand, float attack, ItemStack item, float inverseArmHeight,
 										 PoseStack matrices, SubmitNodeCollector queue, int light, CallbackInfo ci) {
 		matrices.popPose();
+		dev.femboyware.util.HeldBlades.end();
 	}
 	*///?} else {
 	@Inject(method = ARM_WITH_ITEM, at = @At("HEAD"))
 	private void femboyware$viewModel(AbstractClientPlayer player, float tickProgress, float pitch, InteractionHand hand, float swingProgress, ItemStack item,
 									  float equipProgress, PoseStack matrices, SubmitNodeCollector queue, int light, CallbackInfo ci) {
 		matrices.pushPose();
-		if (!FemboyWare.isEnabled(ViewModelModule.class)) return;
 		HumanoidArm arm = hand == InteractionHand.MAIN_HAND ? player.getMainArm() : player.getMainArm().getOpposite();
+		dev.femboyware.util.HeldBlades.begin(player.getId(), arm, item, true);
+		if (!FemboyWare.isEnabled(ViewModelModule.class)) return;
 		FemboyWare.getModules().get(ViewModelModule.class).apply(matrices, arm);
 	}
 
@@ -61,6 +65,7 @@ public class HeldItemRendererMixin {
 	private void femboyware$viewModelPop(AbstractClientPlayer player, float tickProgress, float pitch, InteractionHand hand, float swingProgress, ItemStack item,
 										 float equipProgress, PoseStack matrices, SubmitNodeCollector queue, int light, CallbackInfo ci) {
 		matrices.popPose();
+		dev.femboyware.util.HeldBlades.end();
 	}
 	//?}
 }
