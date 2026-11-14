@@ -43,24 +43,33 @@ public class TungSahurModule extends Module {
 	/** Where in each swing the bat lands, from 0 to 1. */
 	private static final float IMPACT = 0.55f;
 
-	private static final int WOOD = 0xFFA0602E;
-	private static final int WOOD_LIGHT = 0xFFBE7E48;
-	private static final int WOOD_DARK = 0xFF6A3A18;
-	private static final int GRAIN = 0xFF7E451E;
-	private static final int SOCKET = 0xFF45240E;
-	private static final int EYE_WHITE = 0xFFF4EBDD;
-	private static final int IRIS = 0xFF5A3418;
-	private static final int PUPIL = 0xFF140A05;
-	private static final int MOUTH = 0xFF3A1A0A;
-	private static final int BAT = 0xFFD2A066;
-	private static final int BAT_HANDLE = 0xFFB07A42;
-	/** The log's radius and where its straight part ends; the domed top adds a little more. */
-	private static final float RADIUS = 0.33f;
-	private static final float BODY_TOP = 2.3f;
-	private static final float DOME = 0.25f;
-	/** Shoulder height the bat arm swings from. */
-	private static final float SHOULDER = 1.72f;
-	private static final float SHOULDER_X = 0.32f;
+	// Brown wood, as on the Roblox model
+	private static final int WOOD = 0xFF9A6234;
+	private static final int WOOD_LIGHT = 0xFFB27A44;
+	private static final int GRAIN = 0xFF7A4A26;
+	private static final int END_GRAIN = 0xFFE2CC98;
+	private static final int END_RING = 0xFFBFA272;
+	private static final int SOCKET = 0xFF4A2C20;
+	private static final int EYE_WHITE = 0xFFD9D3CC;
+	private static final int PUPIL = 0xFF050404;
+	private static final int GLINT = 0xFFF4F4F4;
+	private static final int MOUTH = 0xFF3A1A10;
+	private static final int BAT = 0xFF8E5530;
+	private static final int BAT_DARK = 0xFF5E3820;
+
+	/** He's 2.5 tall: legs up to the log's bottom, the log, the face high on it. */
+	private static final float LOG_BOTTOM = 0.9f;
+	private static final float LOG_TOP = 2.5f;
+	private static final float RADIUS = 0.275f;
+	private static final float EYE_Y = 2.08f;
+	private static final float EYE_X = 0.135f;
+	private static final float MOUTH_Y = 1.78f;
+
+	private static final float SHOULDER = 1.5f;
+	private static final float SHOULDER_X = 0.285f;
+	/** How far the bat leans forward and out from his fist, in degrees. */
+	private static final float BAT_TILT = 22;
+	private static final float BAT_OUT = 26;
 	/** Direction the light comes from, in the model's own space: above, front and a little right. */
 	private static final Vec3 LIGHT = new Vec3(0.35, 0.75, 0.55).normalize();
 
@@ -316,10 +325,29 @@ public class TungSahurModule extends Module {
 			float impact = (float) -(90 + Math.toDegrees(Math.atan2(headY, reach)));
 
 			float pop = Mth.clamp(elapsed / 120f, 0, 1);
-			drawSahur(event, sahur.subtract(camera), yaw, swingYaw, armAngle(elapsed, impact), size * (pop < 1 ? pop * (1.15f - 0.15f * pop) : 1));
+			drawSahur(event, sahur.subtract(camera), yaw, swingYaw, armAngle(elapsed, impact + BAT_TILT), size * (pop < 1 ? pop * (1.15f - 0.15f * pop) : 1));
 
 			if (words.get()) drawWords(event, entry.getValue(), elapsed, victimPos.add(0, victim.getBbHeight() + 0.4, 0));
 		}
+	}
+
+	/**
+	 * An overhead chop from {@code rest}: the bat goes up over his head, comes down hard in front and
+	 * settles back. {@code t} runs from 0 to 1 through the swing. Degrees about the shoulder.
+	 */
+	public static float chop(float t, float rest) {
+		if (t <= 0 || t >= 1) return rest;
+		if (t < 0.35f) return Mth.lerp(ease(t / 0.35f), rest, -200f);
+		if (t < 0.6f) {
+			float k = (t - 0.35f) / 0.25f;
+			return Mth.lerp(k * k, -200f, -70f + BAT_TILT);
+		}
+		return Mth.lerp(ease((t - 0.6f) / 0.4f), -70f + BAT_TILT, rest);
+	}
+
+	/** Where his feet go so his face sits at {@code face}, turned by {@code yaw}, at this size. */
+	public static Vec3 feetForFace(Vec3 face, float yaw, float size) {
+		return face.subtract(Math.sin(yaw) * RADIUS * size, (EYE_Y - 0.08) * size, Math.cos(yaw) * RADIUS * size);
 	}
 
 	/** The bat arm's angle: wind up behind, swing down onto their head, settle. Degrees about the shoulder. */
@@ -328,14 +356,14 @@ public class TungSahurModule extends Module {
 		float swing = swingTime();
 		float phase = (elapsed % (long) swing) / swing;
 		// Slow wind-up over his head, a fast accelerating strike, then a little bounce back off the head
-		if (phase < 0.4f) return Mth.lerp(ease(phase / 0.4f), -15f, 160f);
+		if (phase < 0.4f) return Mth.lerp(ease(phase / 0.4f), -15f, -200f);
 		if (phase < IMPACT) {
 			float t = (phase - 0.4f) / (IMPACT - 0.4f);
-			return Mth.lerp(t * t, 160f, impact);
+			return Mth.lerp(t * t, -200f, impact);
 		}
 		float t = (phase - IMPACT) / (1 - IMPACT);
 		float recoil = (float) Math.sin(t * Math.PI) * 25;
-		return Mth.lerp(ease(t), impact, -15f) + recoil;
+		return Mth.lerp(ease(t), impact, -15f) - recoil;
 	}
 
 	private static float ease(float t) {
@@ -357,11 +385,11 @@ public class TungSahurModule extends Module {
 	// ---------------------------------------------------------------- model
 
 	/**
-	 * Tung Tung Tung Sahur, all smooth curved surfaces: a tall round log with a domed top, huge
-	 * staring eyes in dark sockets under heavy brows, a long nose, a wide grin, long thin arms and
-	 * legs, and a tapered bat in his right hand. Lit from one direction for a solid 3D look.
+	 * Tung Tung Tung Sahur as in the meme: a tall round golden log with a flat sawn top, a human
+	 * face high up on the front (big round eyes under dark lids, thin raised brows, a long nose and
+	 * a sly smile), short thin arms hanging close to his sides, long thin legs, big bare feet with
+	 * toes, and a bat held low in his right hand. Smooth surfaces lit from one side.
 	 */
-	/** Draws Tung Tung Tung Sahur at {@code at} (relative to the camera), for Player Model's Tung Sahur shape too. */
 	public static void drawSahur(Render3DEvent event, Vec3 at, float yaw, float swingYaw, float armAngle, float size) {
 		PoseStack matrices = event.matrices();
 		VertexConsumer quads = event.consumers().getBuffer(RenderTypes.debugQuads());
@@ -371,14 +399,15 @@ public class TungSahurModule extends Module {
 		matrices.scale(size, size, size);
 		PoseStack.Pose entry = matrices.last();
 
-		drawBody(quads, entry);
+		drawLog(quads, entry);
 		drawFace(quads, entry);
 		drawLegs(quads, entry);
-		// Left arm hangs loosely down his side
-		tube(quads, entry, new Vec3[]{new Vec3(-0.32, SHOULDER, 0), new Vec3(-0.4, 1.42, 0.02), new Vec3(-0.42, 1.1, 0.04), new Vec3(-0.41, 0.87, 0.05)},
-			new float[]{0.055f, 0.048f, 0.045f, 0.042f}, WOOD, 12);
-		ellipsoid(quads, entry, -0.32, SHOULDER, 0, 0.062, 0.062, 0.062, WOOD, 12, 8);
-		ellipsoid(quads, entry, -0.41, 0.8, 0.05, 0.05, 0.078, 0.046, WOOD_DARK, 12, 8);
+
+		// Left arm, hanging close to his side
+		Vec3 leftHand = new Vec3(-SHOULDER_X - 0.035, SHOULDER - 0.37, 0.04);
+		tube(quads, entry, new Vec3[]{new Vec3(-SHOULDER_X + 0.02, SHOULDER, 0), new Vec3(-SHOULDER_X - 0.03, SHOULDER - 0.18, 0.01), leftHand},
+			new float[]{0.042f, 0.037f, 0.033f}, WOOD, 10);
+		hand(quads, entry, leftHand, -1);
 
 		// Right arm and bat, swung from the shoulder
 		matrices.pushPose();
@@ -386,65 +415,61 @@ public class TungSahurModule extends Module {
 		matrices.mulPose(Axis.YP.rotation(swingYaw));
 		matrices.mulPose(Axis.XP.rotationDegrees(armAngle));
 		PoseStack.Pose arm = matrices.last();
-		ellipsoid(quads, arm, 0, 0, 0, 0.062, 0.062, 0.062, WOOD, 12, 8);
-		tube(quads, arm, new Vec3[]{new Vec3(0, 0, 0), new Vec3(0.03, -0.38, 0.01), new Vec3(0.04, -0.72, 0.02)},
-			new float[]{0.055f, 0.048f, 0.044f}, WOOD, 12);
-		ellipsoid(quads, arm, 0.04, -0.79, 0.02, 0.056, 0.076, 0.05, WOOD_DARK, 12, 8);
-		// The bat: a knob, a thin handle, then a barrel swelling to a rounded end
-		ellipsoid(quads, arm, 0.04, -0.71, 0.02, 0.046, 0.022, 0.046, BAT_HANDLE, 12, 6);
-		tube(quads, arm, new Vec3[]{new Vec3(0.04, -0.72, 0.02), new Vec3(0.04, -1.0, 0.02), new Vec3(0.04, -1.3, 0.02),
-			new Vec3(0.04, -1.6, 0.02), new Vec3(0.04, -1.82, 0.02)}, new float[]{0.026f, 0.03f, 0.045f, 0.06f, 0.062f}, BAT, 14);
-		ellipsoid(quads, arm, 0.04, -1.82, 0.02, 0.062, 0.035, 0.062, BAT, 14, 6);
+		Vec3 grip = new Vec3(0.035, -0.37, 0.0);
+		tube(quads, arm, new Vec3[]{new Vec3(-0.02, 0, 0), new Vec3(0.03, -0.18, 0.0), grip}, new float[]{0.042f, 0.037f, 0.033f}, WOOD, 10);
+		hand(quads, arm, grip, 1);
+		// The bat leans forward and out from the fist, its barrel down by his feet
+		matrices.translate(grip.x, grip.y, grip.z);
+		matrices.mulPose(Axis.XP.rotationDegrees(-BAT_TILT));
+		matrices.mulPose(Axis.ZP.rotationDegrees(BAT_OUT));
+		PoseStack.Pose bat = matrices.last();
+		ellipsoid(quads, bat, 0, 0.09, 0, 0.034, 0.016, 0.034, BAT_DARK, 10, 5);
+		tube(quads, bat, new Vec3[]{new Vec3(0, 0.08, 0), new Vec3(0, -0.2, 0), new Vec3(0, -0.5, 0), new Vec3(0, -0.8, 0), new Vec3(0, -1.04, 0)},
+			new float[]{0.024f, 0.028f, 0.045f, 0.066f, 0.07f}, BAT, 14);
 		matrices.popPose();
 
 		matrices.popPose();
 	}
 
-	/**
-	 * The log, round all over: a rounded bottom, a slight barrel belly, straight where the face is,
-	 * and a full dome on top, turned on a lathe.
-	 */
-	private static void drawBody(VertexConsumer quads, PoseStack.Pose entry) {
+	/** The log: straight round sides, a slightly rounded bottom edge and a flat sawn top with a soft rim. */
+	private static void drawLog(VertexConsumer quads, PoseStack.Pose entry) {
 		List<float[]> profile = new ArrayList<>();
-		// The rounded bottom, closed off in the middle
-		float bottom = 0.4f, bottomRise = 0.3f;
-		for (int i = 0; i <= 10; i++) {
-			double angle = Math.PI / 2 * i / 10;
-			profile.add(new float[]{(float) (bottom + bottomRise * (1 - Math.cos(angle))), (float) (RADIUS * Math.sin(angle))});
+		// Bottom, closed off in the middle, rounding up into the side
+		profile.add(new float[]{LOG_BOTTOM, 0});
+		for (int i = 0; i <= 6; i++) {
+			double angle = Math.PI / 2 * i / 6;
+			profile.add(new float[]{(float) (LOG_BOTTOM + 0.05 * (1 - Math.cos(angle))), (float) (RADIUS - 0.05 + 0.05 * Math.sin(angle))});
 		}
-		// Up the sides, swelling a little through the belly and back in before the face
-		float sideStart = bottom + bottomRise;
-		for (int i = 1; i <= 28; i++) {
-			float y = sideStart + (BODY_TOP - sideStart) * i / 28;
-			double t = Mth.clamp((y - sideStart) / (1.6 - sideStart), 0, 1);
-			double belly = Math.pow(Math.sin(Math.PI * t), 2) * 0.075;
-			profile.add(new float[]{y, (float) (RADIUS * (1 + belly))});
+		// Up the sides, a touch narrower at the bottom
+		for (int i = 1; i <= 30; i++) {
+			float y = LOG_BOTTOM + 0.05f + (LOG_TOP - 0.06f - LOG_BOTTOM - 0.05f) * i / 30;
+			float t = (y - LOG_BOTTOM) / (LOG_TOP - LOG_BOTTOM);
+			profile.add(new float[]{y, RADIUS * (0.95f + 0.05f * Math.min(1, t * 2.5f))});
 		}
-		// The domed top
-		for (int i = 1; i <= 12; i++) {
-			double angle = Math.PI / 2 * i / 12;
-			profile.add(new float[]{(float) (BODY_TOP + DOME * Math.sin(angle)), (float) (RADIUS * Math.cos(angle))});
+		// The sawn edge, rounded off, then flat across the top
+		for (int i = 1; i <= 6; i++) {
+			double angle = Math.PI / 2 * i / 6;
+			profile.add(new float[]{(float) (LOG_TOP - 0.06 + 0.06 * Math.sin(angle)), (float) (RADIUS - 0.06 + 0.06 * Math.cos(angle))});
 		}
+		for (int i = 1; i <= 8; i++) profile.add(new float[]{LOG_TOP, (RADIUS - 0.06f) * (1 - i / 8f)});
+
 		int segments = 48;
 		for (int ring = 0; ring < profile.size() - 1; ring++) {
-			float[] lower = profile.get(ring);
-			float[] upper = profile.get(ring + 1);
 			for (int segment = 0; segment < segments; segment++) {
 				double a0 = 2 * Math.PI * segment / segments;
 				double a1 = 2 * Math.PI * (segment + 1) / segments;
-				latheVertex(quads, entry, profile, ring, a0);
-				latheVertex(quads, entry, profile, ring, a1);
-				latheVertex(quads, entry, profile, ring + 1, a1);
-				latheVertex(quads, entry, profile, ring + 1, a0);
+				logVertex(quads, entry, profile, ring, a0);
+				logVertex(quads, entry, profile, ring, a1);
+				logVertex(quads, entry, profile, ring + 1, a1);
+				logVertex(quads, entry, profile, ring + 1, a0);
 			}
 		}
 	}
 
-	/** One point on the log, coloured by the grain, the lighter face and the end grain on top. */
-	private static void latheVertex(VertexConsumer quads, PoseStack.Pose entry, List<float[]> profile, int ring, double angle) {
+	/** One point on the log, coloured by its grain, or the pale end grain on top. */
+	private static void logVertex(VertexConsumer quads, PoseStack.Pose entry, List<float[]> profile, int ring, double angle) {
 		float y = profile.get(ring)[0];
 		float r = profile.get(ring)[1];
-		// The surface's slope from its neighbours along the profile gives the normal
 		float[] before = profile.get(Math.max(0, ring - 1));
 		float[] after = profile.get(Math.min(profile.size() - 1, ring + 1));
 		double dy = after[0] - before[0];
@@ -456,82 +481,90 @@ public class TungSahurModule extends Module {
 		Vec3 normal = new Vec3(cos * radial, up, sin * radial);
 
 		int color;
-		if (y > BODY_TOP + 0.01f) {
-			// End grain: rings round the middle of the dome
-			double rings = 0.5 + 0.5 * Math.sin(r * 70);
-			color = mix(WOOD_LIGHT, GRAIN, (float) (rings * rings * 0.35));
+		if (y >= LOG_TOP - 0.001f && r < RADIUS - 0.05f) {
+			// Growth rings on the sawn top
+			double rings = 0.5 + 0.5 * Math.sin(r * 90);
+			color = mix(END_GRAIN, END_RING, (float) (rings * rings * 0.4));
 		} else {
-			double grain = 0.5 + 0.5 * Math.sin(angle * 11 + Math.sin(y * 7) * 0.8 + Math.sin(angle * 3) * 0.6);
-			color = mix(WOOD, GRAIN, (float) (Math.pow(grain, 3) * 0.75));
-			// Finer streaks between the bigger ones
-			double fine = 0.5 + 0.5 * Math.sin(angle * 37 + Math.sin(y * 13) * 0.5);
-			color = mix(color, WOOD_DARK, (float) (Math.pow(fine, 6) * 0.3));
-			// The face area catches more light, as in the meme
+			// Long soft streaks running up the log
+			double grain = 0.5 + 0.5 * Math.sin(angle * 9 + Math.sin(y * 4) * 0.6 + Math.sin(angle * 2) * 0.8);
+			color = mix(WOOD, GRAIN, (float) (Math.pow(grain, 4) * 0.55));
+			// The face and belly catch the light
 			double front = Math.max(0, sin);
-			double band = Mth.clamp((y - 1.45) / 0.25, 0, 1) * Mth.clamp((2.3 - y) / 0.15, 0, 1);
-			color = mix(color, WOOD_LIGHT, (float) (front * front * band * 0.45));
+			color = mix(color, WOOD_LIGHT, (float) (front * front * 0.3));
 		}
 		vertex(quads, entry, (float) (cos * r), y, (float) (sin * r), lit(color, normal));
 	}
 
-	/** Eyes, brows, nose, cheeks and grin, set into the front of the log. */
+	/**
+	 * The face, kept simple so it reads from a distance: two big round eyes set in soft dark
+	 * hollows under a smooth wooden brow, huge black pupils, a long nose ending in a round bulb,
+	 * and a single sly smile line.
+	 */
 	private static void drawFace(VertexConsumer quads, PoseStack.Pose entry) {
 		for (int side = -1; side <= 1; side += 2) {
-			double cx = side * 0.152;
+			double cx = side * EYE_X;
 			double surface = surfaceZ(cx);
-			// Socket, then the big eyeball bulging out of it, iris, pupil and a glint
-			ellipsoid(quads, entry, cx, 1.99, surface - 0.035, 0.152, 0.168, 0.06, SOCKET, 20, 12);
-			ellipsoid(quads, entry, cx, 1.99, surface - 0.01, 0.128, 0.14, 0.072, EYE_WHITE, 20, 12);
-			double front = surface + 0.062;
-			ellipsoid(quads, entry, cx - side * 0.008, 1.985, front - 0.006, 0.052, 0.056, 0.016, IRIS, 16, 8);
-			ellipsoid(quads, entry, cx - side * 0.008, 1.985, front + 0.002, 0.03, 0.033, 0.012, PUPIL, 14, 8);
-			ellipsoid(quads, entry, cx - side * 0.008 - 0.026, 2.018, front + 0.012, 0.014, 0.014, 0.008, EYE_WHITE, 8, 6);
-			// Heavy brow, curving over the eye and dipping towards the nose
-			Vec3[] brow = new Vec3[7];
-			float[] browRadius = new float[7];
-			for (int i = 0; i < 7; i++) {
-				double t = i / 6.0 * 2 - 1;
-				double x = cx + t * 0.16;
-				double inner = side * t < 0 ? (-side * t) * 0.035 : 0;
-				brow[i] = new Vec3(x, 2.185 + 0.035 * (1 - t * t) - inner, surfaceZ(x) + 0.02);
-				browRadius[i] = 0.03f - (float) Math.abs(t) * 0.008f;
-			}
-			tube(quads, entry, brow, browRadius, WOOD_DARK, 10);
-			// Round cheeks beside the grin
-			ellipsoid(quads, entry, side * 0.215, 1.66, surfaceZ(0.2) - 0.012, 0.085, 0.072, 0.05, WOOD_LIGHT, 14, 10);
-			// Nostril
-			ellipsoid(quads, entry, side * 0.032, 1.674, RADIUS + 0.082, 0.02, 0.011, 0.013, SOCKET, 8, 6);
+			// The hollow the eye sits in, a little taller above it so it shades the top of the eye
+			ellipsoid(quads, entry, cx, EYE_Y + 0.014, surface - 0.03, 0.13, 0.13, 0.05, SOCKET, 24, 14);
+			// The eyeball
+			ellipsoid(quads, entry, cx, EYE_Y, surface - 0.018, 0.1, 0.094, 0.06, EYE_WHITE, 24, 14);
+			// Big black pupil looking slightly to the side, and a glint
+			double front = surface + 0.038;
+			double look = side * -0.01;
+			ellipsoid(quads, entry, cx + look, EYE_Y - 0.006, front, 0.058, 0.058, 0.014, PUPIL, 20, 10);
+			ellipsoid(quads, entry, cx + look - 0.022, EYE_Y + 0.02, front + 0.012, 0.013, 0.013, 0.005, GLINT, 8, 6);
+			// A smooth brow above, the same wood as the log
+			ellipsoid(quads, entry, cx, EYE_Y + 0.125, surface - 0.02, 0.12, 0.035, 0.04, WOOD, 18, 10);
 		}
-		// Long nose ending in a rounded bulb
-		ellipsoid(quads, entry, 0, 1.83, RADIUS + 0.025, 0.055, 0.13, 0.07, WOOD, 16, 12);
-		ellipsoid(quads, entry, 0, 1.71, RADIUS + 0.065, 0.077, 0.058, 0.062, WOOD_LIGHT, 16, 12);
+		// Long nose from between the brows down to a round bulb
+		ellipsoid(quads, entry, 0, EYE_Y - 0.03, RADIUS - 0.01, 0.04, 0.16, 0.05, WOOD_LIGHT, 14, 12);
+		ellipsoid(quads, entry, 0, EYE_Y - 0.2, RADIUS + 0.032, 0.066, 0.052, 0.058, WOOD_LIGHT, 18, 12);
 
-		// The grin: a dark curve following the log round, curling up at both ends, with a lit lower lip
-		Vec3[] smile = new Vec3[13];
-		float[] smileRadius = new float[13];
-		for (int i = 0; i < 13; i++) {
-			double x = -0.245 + 0.49 * i / 12;
-			smile[i] = new Vec3(x, 1.55 + 1.5 * x * x, surfaceZ(x) + 0.006);
-			smileRadius[i] = 0.017f;
+		// A sly smile: one dark line, curling up more on one side
+		Vec3[] smile = new Vec3[15];
+		float[] smileRadius = new float[15];
+		for (int i = 0; i < 15; i++) {
+			double x = -0.12 + 0.24 * i / 14;
+			smile[i] = new Vec3(x, MOUTH_Y + 1.8 * x * x - 0.12 * x, surfaceZ(x) + 0.004);
+			smileRadius[i] = 0.012f;
 		}
 		tube(quads, entry, smile, smileRadius, MOUTH, 8);
-		Vec3[] lip = new Vec3[9];
-		float[] lipRadius = new float[9];
-		for (int i = 0; i < 9; i++) {
-			double x = -0.15 + 0.3 * i / 8;
-			lip[i] = new Vec3(x, 1.515 + 1.2 * x * x, surfaceZ(x) + 0.004);
-			lipRadius[i] = 0.015f;
-		}
-		tube(quads, entry, lip, lipRadius, WOOD_LIGHT, 8);
 	}
 
+	/** Long thin legs with knobbly knees, on big bare feet with five toes each. */
 	private static void drawLegs(VertexConsumer quads, PoseStack.Pose entry) {
 		for (int side = -1; side <= 1; side += 2) {
 			double x = side * 0.11;
-			tube(quads, entry, new Vec3[]{new Vec3(x, 0.62, 0), new Vec3(x + side * 0.005, 0.33, 0.01), new Vec3(x, 0.07, 0.02)},
-				new float[]{0.06f, 0.05f, 0.045f}, WOOD, 12);
-			ellipsoid(quads, entry, x, 0.045, 0.06, 0.065, 0.045, 0.11, WOOD_DARK, 12, 8);
+			tube(quads, entry, new Vec3[]{new Vec3(x, LOG_BOTTOM + 0.05, 0), new Vec3(x + side * 0.004, 0.5, 0.005), new Vec3(x + side * 0.008, 0.1, 0)},
+				new float[]{0.062f, 0.054f, 0.046f}, WOOD, 12);
+			ellipsoid(quads, entry, x + side * 0.004, 0.5, 0.012, 0.06, 0.064, 0.056, WOOD, 12, 8);
+			// The big bare foot, turned out a little: round heel, a long sole widening to the toes
+			double turn = side * 0.3;
+			double fx = Math.sin(turn), fz = Math.cos(turn);
+			Vec3 heel = new Vec3(x + side * 0.012, 0.05, -0.04);
+			ellipsoid(quads, entry, heel.x, heel.y, heel.z, 0.055, 0.05, 0.06, WOOD, 12, 8);
+			Vec3 middle = heel.add(fx * 0.12, 0.004, fz * 0.12);
+			Vec3 ball = heel.add(fx * 0.24, -0.008, fz * 0.24);
+			tube(quads, entry, new Vec3[]{heel, middle, ball}, new float[]{0.052f, 0.056f, 0.06f}, WOOD, 12);
+			// Flatten the sole onto the ground
+			ellipsoid(quads, entry, middle.x, 0.02, middle.z, 0.07, 0.02, 0.15, WOOD, 12, 6);
+			// Five toes across the front, the big one on the inside
+			for (int toe = 0; toe < 5; toe++) {
+				double across = (toe - 2) * 0.027 * -side;
+				double length = toe == 0 ? 0.075 : 0.06 - toe * 0.006;
+				float r = toe == 0 ? 0.024f : 0.018f - toe * 0.0015f;
+				Vec3 base = ball.add(fz * across, 0, -fx * across);
+				double reach = 0.045 + length / 2 - Math.abs(toe - 1.5) * 0.008;
+				ellipsoid(quads, entry, base.x + fx * reach, r, base.z + fz * reach, r + 0.003, r, length / 2 + r, WOOD_LIGHT, 10, 6);
+			}
 		}
+	}
+
+	/** A small fist with the thumb on the inside. */
+	private static void hand(VertexConsumer quads, PoseStack.Pose entry, Vec3 at, int side) {
+		ellipsoid(quads, entry, at.x, at.y - 0.03, at.z, 0.036, 0.05, 0.034, WOOD, 10, 8);
+		ellipsoid(quads, entry, at.x - side * 0.022, at.y - 0.02, at.z + 0.02, 0.014, 0.026, 0.014, WOOD_LIGHT, 8, 6);
 	}
 
 	/** How far forward the log's round surface is at {@code x} across. */
@@ -585,10 +618,10 @@ public class TungSahurModule extends Module {
 		for (int i = 0; i < n - 1; i++) {
 			for (int side = 0; side < sides; side++) {
 				int next = (side + 1) % sides;
-				tubeVertex(quads, entry, rings[i][side], normals[i][side], color);
-				tubeVertex(quads, entry, rings[i][next], normals[i][next], color);
-				tubeVertex(quads, entry, rings[i + 1][next], normals[i + 1][next], color);
-				tubeVertex(quads, entry, rings[i + 1][side], normals[i + 1][side], color);
+				vertex(quads, entry, rings[i][side], lit(color, normals[i][side]));
+				vertex(quads, entry, rings[i][next], lit(color, normals[i][next]));
+				vertex(quads, entry, rings[i + 1][next], lit(color, normals[i + 1][next]));
+				vertex(quads, entry, rings[i + 1][side], lit(color, normals[i + 1][side]));
 			}
 		}
 		// Round both ends off
@@ -597,18 +630,18 @@ public class TungSahurModule extends Module {
 		}
 	}
 
-	private static void tubeVertex(VertexConsumer quads, PoseStack.Pose entry, Vec3 position, Vec3 normal, int color) {
-		vertex(quads, entry, (float) position.x, (float) position.y, (float) position.z, lit(color, normal));
+	private static void vertex(VertexConsumer quads, PoseStack.Pose entry, Vec3 at, int color) {
+		vertex(quads, entry, (float) at.x, (float) at.y, (float) at.z, color);
 	}
 
 	private static void vertex(VertexConsumer quads, PoseStack.Pose entry, float x, float y, float z, int color) {
 		quads.addVertex(entry, x, y, z).setColor(color);
 	}
 
-	/** {@code color} shaded by how much the surface faces the light, never fully black on the dark side. */
+	/** {@code color} shaded by how much the surface faces the light, never fully dark on the far side. */
 	private static int lit(int color, Vec3 normal) {
 		double facing = normal.dot(LIGHT);
-		float light = (float) (0.42 + 0.58 * Math.max(0, facing));
+		float light = (float) (0.5 + 0.55 * Math.max(0, facing));
 		return shade(color, light);
 	}
 

@@ -261,7 +261,12 @@ public final class Theme {
 	public static int menuSecondaryHover() { return color(ColorsModule::secondaryHover, 0xF0582452); }
 	public static int menuButtonText() { return color(ColorsModule::buttonText, 0xFFFFFFFF); }
 	public static int menuNameTag() { return color(ColorsModule::nameTag, 0xF0401838); }
-	public static int loadingScreen() { return color(ColorsModule::loading, 0xFFE8559E); }
+	/** The loading screen: the accent a little darker (a wallpaper's too), or Colors' own colour. */
+	public static int loadingScreen() {
+		ColorsModule colors = active(ColorsModule.class);
+		if (colors == null) return 0xFFE8559E;
+		return colors.loadingMatch() ? 0xFF000000 | WallpaperModule.mixColor(accent(), 0x000000, 0.12f) : colors.loading();
+	}
 
 	public static int menuFooter() { return color(ColorsModule::footer, 0xB0FFFFFF); }
 

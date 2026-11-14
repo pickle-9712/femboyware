@@ -107,6 +107,11 @@ public class PlayerModelModule extends Module {
 		return isEnabled() && mc.player != null && (others.get() || entityId == mc.player.getId());
 	}
 
+	/** As Tung Sahur your own skin's arm isn't drawn in first person. */
+	public boolean hidesOwnArm() {
+		return isEnabled() && shape.is(Shape.TUNG_SAHUR);
+	}
+
 	/** Whether this player is drawn as Tung Tung Tung Sahur, so their armour is hidden. */
 	public boolean replaces(AvatarRenderState state) {
 		return shape.is(Shape.TUNG_SAHUR) && applies(state.id);
@@ -126,12 +131,23 @@ public class PlayerModelModule extends Module {
 			// Swing the bat when they hit, sway it while they walk
 			float swing = player.getAttackAnim(tickDelta);
 			float walk = player.walkAnimation.speed(tickDelta);
-			float arm = -15 + (float) Math.sin(player.walkAnimation.position(tickDelta) * 0.6662f) * 25 * Math.min(1, walk);
-			if (swing > 0) arm = swing < 0.35f ? Mth.lerp(swing / 0.35f, arm, 150f) : Mth.lerp((swing - 0.35f) / 0.65f, 150f, -60f);
+			float arm = -4 + (float) Math.sin(player.walkAnimation.position(tickDelta) * 0.6662f) * 25 * Math.min(1, walk);
+			// An overhead chop: raise the bat forward over his head, bring it down hard in front, settle back
+			if (swing > 0) {
+				if (swing < 0.3f) arm = Mth.lerp(smooth(swing / 0.3f), arm, -200f);
+				else if (swing < 0.6f) {
+					float t = (swing - 0.3f) / 0.3f;
+					arm = Mth.lerp(t * t, -200f, -75f);
+				} else arm = Mth.lerp(smooth((swing - 0.6f) / 0.4f), -75f, arm);
+			}
 			// He's 2.5 blocks tall; shrink him to the player's height
 			float size = player.getBbHeight() / 2.5f * 1.1f;
 			TungSahurModule.drawSahur(event, feet.subtract(camera), yaw, 0, arm, size);
 		}
+	}
+
+	private static float smooth(float t) {
+		return t * t * (3 - 2 * t);
 	}
 
 	private static void scale(ModelPart head, float s) {

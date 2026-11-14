@@ -216,7 +216,9 @@ public class ColorsModule extends Module {
 	private final ColorSetting secondaryHover = title("Other Button Hover", "Those under the mouse", 0xF0582452);
 	private final ColorSetting buttonText = title("Button Text", "Labels on the buttons and your name tag", 0xFFFFFFFF);
 	private final ColorSetting nameTag = title("Name Tag", "Behind your name under your skin", 0xF0401838);
-	private final ColorSetting loading = title("Loading Screen", "Behind the logo while the game starts; the logo shows the client name", 0xFFE8559E);
+	private final BoolSetting loadingMatch = add(new BoolSetting("Loading Matches Accent", "The loading screen takes the accent colour, a little darker", true)).visibleWhen(() -> page.is(Page.MAIN_MENU));
+	private final ColorSetting loading = add(new ColorSetting("Loading Screen", "Behind the logo while the game starts; the logo shows the client name", 0xFFE8559E))
+		.visibleWhen(() -> page.is(Page.MAIN_MENU) && !loadingMatch.get());
 	private final ColorSetting footer = title("Footer Text", "The version and credit along the bottom", 0xB0FFFFFF);
 
 	private ColorSetting title(String name, String description, int color) {
@@ -237,6 +239,7 @@ public class ColorsModule extends Module {
 	public int nameTag() { return nameTag.get(); }
 	public int footer() { return footer.get(); }
 	public int loading() { return loading.get(); }
+	public boolean loadingMatch() { return loadingMatch.get(); }
 
 	public ColorsModule() {
 		super("Colors", "Every colour of the ClickGUI, the HUD and the main menu; off for the defaults", Category.THEME);

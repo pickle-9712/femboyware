@@ -12,9 +12,17 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
-/** Hand Chams: first person arms are submitted with a tint colour and optional glint. */
+/**
+ * Hand Chams: first person arms are submitted with a tint colour and optional glint. Player Model:
+ * as Tung Tung Tung Sahur your skin's arm isn't drawn in first person.
+ */
 @Mixin(AvatarRenderer.class)
 public class PlayerEntityRendererMixin {
+	@org.spongepowered.asm.mixin.injection.Inject(method = "renderHand", at = @At("HEAD"), cancellable = true, require = 0)
+	private void femboyware$sahurHand(org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+		if (FemboyWare.getModules() != null && FemboyWare.getModules().get(dev.femboyware.module.render.PlayerModelModule.class).hidesOwnArm()) ci.cancel();
+	}
+
 	//? if >=26.3 {
 	/*@Redirect(method = "renderHand", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/SubmitNodeCollector;submitModelPart(Lnet/minecraft/client/model/geom/ModelPart;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/rendertype/RenderType;IILnet/minecraft/client/renderer/texture/UvMapping;)V"), require = 0)
 	private void femboyware$handChams(SubmitNodeCollector queue, ModelPart part, PoseStack matrices, RenderType layer, int light, int overlay, net.minecraft.client.renderer.texture.UvMapping sprite) {

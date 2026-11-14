@@ -382,6 +382,10 @@ public class ModuleManager {
 		register(new TotemAnimationModule());
 		register(new TrajectoriesModule());
 		register(new TungSahurModule());
+		register(new dev.femboyware.module.tung.SahurPetModule());
+		register(new dev.femboyware.module.tung.TungHitsModule());
+		register(new dev.femboyware.module.tung.SahurCallModule());
+		register(new dev.femboyware.module.tung.SahurJumpscareModule());
 		register(new ViewModelModule());
 		register(new WorldRendererModule());
 		// Visual: Esp
