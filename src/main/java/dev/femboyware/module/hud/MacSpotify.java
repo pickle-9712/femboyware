@@ -28,13 +28,14 @@ final class MacSpotify implements MediaPlayer {
 		"    if s is \"stopped\" then return \"stopped\"",
 		"    set t to current track",
 		"    set d to ASCII character 31",
-		"    return s & d & (name of t) & d & (artist of t) & d & (album of t) & d & (duration of t) & d & (player position) & d & (artwork url of t)",
+		"    return s & d & (name of t) & d & (artist of t) & d & (album of t) & d & (duration of t) & d & (player position) & d & (artwork url of t) & d & (sound volume)",
 		"  end tell",
 		"end if",
 		"return \"off\"");
 
 	private final int artSize;
 	private String artUrl;
+	private float volume = -1;
 	private boolean warned;
 
 	MacSpotify(int artSize) {
@@ -70,10 +71,12 @@ final class MacSpotify implements MediaPlayer {
 		String out = running() ? run(READ) : null;
 		if (out == null || !out.contains(SEP)) {
 			artUrl = null;
+			volume = -1;
 			return null;
 		}
 		String[] parts = out.split(SEP, -1);
 		if (parts.length < 7) return null;
+		volume = parts.length > 7 ? (float) Math.max(0, Math.min(1, number(parts[7]) / 100)) : -1;
 		artUrl = parts[6].isBlank() ? null : parts[6].trim();
 		return new WindowsMedia.Track(parts[1], parts[2], parts[3], parts[0].equals("playing"), number(parts[5]), number(parts[4]) / 1000.0, System.currentTimeMillis());
 	}
@@ -112,6 +115,16 @@ final class MacSpotify implements MediaPlayer {
 			default -> null;
 		};
 		if (command != null) tell(command);
+	}
+
+	@Override
+	public float volume() {
+		return volume;
+	}
+
+	@Override
+	public void setVolume(float volume) {
+		tell("set sound volume to " + Math.round(Math.max(0, Math.min(1, volume)) * 100));
 	}
 
 	@Override

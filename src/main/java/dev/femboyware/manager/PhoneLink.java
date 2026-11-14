@@ -53,6 +53,8 @@ public final class PhoneLink {
 	private final String publicKey;
 	private final Consumer<Incoming> onMessage;
 	private final Map<String, Peer> peers = new ConcurrentHashMap<>();
+	/** People who just came online, for {@link #takeJoined()}. */
+	private final java.util.concurrent.ConcurrentLinkedQueue<String> joined = new java.util.concurrent.ConcurrentLinkedQueue<>();
 	private long lastAnnounce;
 	private boolean wasConnected;
 
@@ -178,7 +180,9 @@ public final class PhoneLink {
 				try {
 					byte[] key = Base64.getDecoder().decode(message.get("k").getAsString());
 					PublicKey publicKey = KeyFactory.getInstance("X25519").generatePublic(new X509EncodedKeySpec(key));
-					peers.put(from.toLowerCase(Locale.ROOT), new Peer(from, publicKey, System.currentTimeMillis()));
+					long now = System.currentTimeMillis();
+					Peer before = peers.put(from.toLowerCase(Locale.ROOT), new Peer(from, publicKey, now));
+					if (before == null || now - before.seen >= FORGET_AFTER || !before.key.equals(publicKey)) joined.add(from);
 				} catch (Exception e) {
 					return;
 				}
@@ -209,6 +213,13 @@ public final class PhoneLink {
 			default -> {
 			}
 		}
+	}
+
+	/** Who came online (or restarted) since the last call, so they can be caught up. */
+	public List<String> takeJoined() {
+		List<String> names = new ArrayList<>();
+		for (String name; (name = joined.poll()) != null; ) if (!names.contains(name)) names.add(name);
+		return names;
 	}
 
 	/** Disconnects and forgets who was online. */

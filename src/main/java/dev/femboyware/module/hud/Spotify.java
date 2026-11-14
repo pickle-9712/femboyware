@@ -34,6 +34,9 @@ public final class Spotify {
 	/** Until when the play button shows what was just pressed, before Spotify says so itself. */
 	private static volatile long pressedUntil;
 	private static volatile boolean pressedPlaying;
+	/** Spotify's own volume, 0 to 1, or -1 if unknown; and one waiting to be sent (NaN when none). */
+	private static volatile float volume = -1, pendingVolume = Float.NaN;
+	private static volatile long volumeSetAt;
 
 	private Spotify() {
 	}
@@ -60,6 +63,7 @@ public final class Spotify {
 		COMMANDS.clear();
 		track = null;
 		art = null;
+		volume = -1;
 	}
 
 	/** Whether Spotify's open with something loaded. */
@@ -123,6 +127,19 @@ public final class Spotify {
 		double to = Mth.clamp(seconds, 0, t.length());
 		track = new WindowsMedia.Track(t.title(), t.artist(), t.album(), t.playing(), to, t.length(), System.currentTimeMillis());
 		COMMANDS.add(player -> player.seek(to));
+	}
+
+	/** Spotify's own volume, 0 to 1, or -1 when it can't be read yet (on Windows, until it has played some sound). */
+	public static float volume() {
+		return volume;
+	}
+
+	/** Sets Spotify's own volume (not the PC's), shown straight away; while dragging, only the latest is sent. */
+	public static void setVolume(float to) {
+		float level = Mth.clamp(to, 0, 1);
+		volume = level;
+		volumeSetAt = System.currentTimeMillis();
+		pendingVolume = level;
 	}
 
 	/** Opens the Spotify app, for when it isn't running. */
@@ -190,7 +207,7 @@ public final class Spotify {
 			}
 			String lastKey = null;
 			int artTries = 0;
-			long nextPoll = 0;
+			long nextPoll = 0, nextVolume = 0;
 			while (reader == self) {
 				if (BodyguardModule.lowPower()) {
 					track = null;
@@ -204,6 +221,12 @@ public final class Spotify {
 				for (Consumer<MediaPlayer> command; (command = COMMANDS.poll()) != null; ) {
 					command.accept(player);
 					commanded = true;
+				}
+				float wanted = pendingVolume;
+				if (!Float.isNaN(wanted)) {
+					pendingVolume = Float.NaN;
+					player.setVolume(wanted);
+					nextVolume = System.currentTimeMillis() + 1200;
 				}
 				if (commanded) nextPoll = Math.min(nextPoll, System.currentTimeMillis() + 200);
 				if (System.currentTimeMillis() >= nextPoll) {
@@ -219,7 +242,13 @@ public final class Spotify {
 						artTries++;
 						art = player.art();
 					}
-					nextPoll = System.currentTimeMillis() + player.pollMillis();
+					long now = System.currentTimeMillis();
+					// Not while it's being dragged, or Spotify's slightly older value would make it jump back
+					if (current != null && now >= nextVolume && now - volumeSetAt > 1500) {
+						volume = player.volume();
+						nextVolume = now + 1000;
+					}
+					nextPoll = now + player.pollMillis();
 				}
 				Thread.sleep(30);
 			}

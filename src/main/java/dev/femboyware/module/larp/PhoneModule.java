@@ -713,6 +713,10 @@ public class PhoneModule extends Module {
 					discordFrom(incoming.from(), incoming.text().substring(DISCORD_MARK.length()));
 					return;
 				}
+				if (incoming.direct() && incoming.text().startsWith(DISCORD_HISTORY)) {
+					discordHistoryFrom(incoming.text().substring(DISCORD_HISTORY.length()));
+					return;
+				}
 				if (incoming.direct() && incoming.text().startsWith(TELEGRAM_MARK)) {
 					String text = incoming.text().substring(TELEGRAM_MARK.length()).trim();
 					if (text.isEmpty()) return;
@@ -738,7 +742,10 @@ public class PhoneModule extends Module {
 				receive(thread, incoming.direct() ? incoming.text() : incoming.from() + ": " + incoming.text());
 			}));
 		}
-		if (link != null) link.tick();
+		if (link != null) {
+			link.tick();
+			for (String name : link.takeJoined()) shareDiscordHistory(name);
+		}
 		tickCall();
 	}
 
@@ -1403,6 +1410,58 @@ public class PhoneModule extends Module {
 		while (channel.size() > 200) channel.removeFirst();
 		discordUnread.add(key);
 		if (text.toLowerCase(java.util.Locale.ROOT).contains("@" + selfName().toLowerCase(java.util.Locale.ROOT))) discordBanner(from, key, text);
+	}
+
+	/**
+	 * Marks a direct message as one line of the real server's history, for someone who just came
+	 * online and missed it: "server/channel time user text".
+	 */
+	private static final String DISCORD_HISTORY = "⁣dh ";
+	private static final int HISTORY_LINES = 25;
+	/** How far apart two copies of a line can be stamped (different PCs' clocks) and still be the same line. */
+	private static final long SAME_LINE_WITHIN = 10 * 60_000L;
+
+	/** Catches {@code name} up on the real server's channels: the latest lines, oldest first. */
+	private void shareDiscordHistory(String name) {
+		if (link == null) return;
+		List<String[]> lines = new ArrayList<>();
+		for (var entry : discord.entrySet()) {
+			if (!entry.getKey().startsWith(REAL_SERVER + "/")) continue;
+			for (Chat chat : entry.getValue()) {
+				String user = chat.mine() ? link.self() : chat.user();
+				lines.add(new String[]{entry.getKey(), Long.toString(chat.time()), user, chat.text()});
+			}
+		}
+		lines.sort(java.util.Comparator.comparingLong(l -> Long.parseLong(l[1])));
+		for (String[] l : lines.subList(Math.max(0, lines.size() - HISTORY_LINES), lines.size())) {
+			link.sendDirect(name, DISCORD_HISTORY + l[0] + " " + l[1] + " " + l[2] + " " + l[3]);
+		}
+	}
+
+	/** One line of history from someone already online; skipped if it's already here. */
+	private void discordHistoryFrom(String body) {
+		String[] parts = body.split(" ", 4);
+		if (parts.length < 4 || !parts[0].startsWith(REAL_SERVER + "/") || !knownChannel(parts[0])) return;
+		long time;
+		try {
+			time = Long.parseLong(parts[1]);
+		} catch (NumberFormatException e) {
+			return;
+		}
+		String user = parts[2], text = parts[3].trim();
+		if (text.isEmpty() || !user.matches("[A-Za-z0-9_.]{1,17}")) return;
+		boolean mine = link != null && user.equalsIgnoreCase(link.self());
+		List<Chat> channel = discordChannel(parts[0]);
+		for (Chat chat : channel) {
+			boolean sameUser = chat.mine() ? mine : chat.user().equalsIgnoreCase(user);
+			if (sameUser && chat.text().equals(text) && Math.abs(chat.time() - time) < SAME_LINE_WITHIN) return;
+		}
+		Chat line = new Chat(mine ? selfName() : user, text, time, mine);
+		int at = channel.size();
+		while (at > 0 && channel.get(at - 1).time() > time) at--;
+		channel.add(at, line);
+		while (channel.size() > 200) channel.removeFirst();
+		if (!mine) discordUnread.add(parts[0]);
 	}
 
 	/** The banner for being @'d: who, where, and what they said. */

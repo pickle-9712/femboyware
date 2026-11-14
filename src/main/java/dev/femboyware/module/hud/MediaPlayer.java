@@ -27,6 +27,15 @@ interface MediaPlayer {
 	/** Jumps to {@code seconds} into the current track. */
 	void seek(double seconds);
 
+	/** The player's own volume, 0 to 1, or -1 if it can't be read. Called after {@link #track()}. */
+	default float volume() {
+		return -1;
+	}
+
+	/** Sets the player's own volume, 0 to 1 (not the whole PC's). */
+	default void setVolume(float volume) {
+	}
+
 	/** How often it's worth asking what's playing, in milliseconds. */
 	int pollMillis();
 

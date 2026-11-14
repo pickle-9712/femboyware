@@ -823,6 +823,8 @@ public class PhoneScreen extends Screen {
 	private static final int SP_GREEN = 0xFF1ED760, SP_MUTED = 0xFFB3B3B3, SP_BG = 0xFF121212, SP_ROW_HOT = 0xFF1F1F1F;
 	/** Where the mouse was over the screen, for seeking to where the progress bar was clicked. */
 	private float spMouseX;
+	/** Whether the volume slider's being dragged. */
+	private boolean spVolumeDrag;
 	/** Whether Now Playing is up (else the library), and the playlist that's open; each slides with its own animation. */
 	private boolean spPlayerOpen = true;
 	private float spPlayerAnim = 1, spListAnim;
@@ -1237,9 +1239,49 @@ public class PhoneScreen extends Screen {
 		triangle(context, nx - 7, cy - 7, 13, 14, true, hotNext ? TEXT : 0xFFE0E0E0);
 		context.fill(nx + 6, cy - 7, nx + 8, cy + 7, hotNext ? TEXT : 0xFFE0E0E0);
 		hits.add(new Hit(nx - 14, cy - 14, 28, 28, dev.femboyware.module.hud.Spotify::next));
+		// Volume: Spotify's own, not the PC's; click or drag along it, or scroll anywhere
+		int vy = cy + 38, vx1 = 40, vx2 = SCREEN_W - 40;
+		float volume = dev.femboyware.module.hud.Spotify.volume();
+		if (spVolumeDrag) {
+			volume = Mth.clamp((mx - vx1) / (float) (vx2 - vx1), 0, 1);
+			dev.femboyware.module.hud.Spotify.setVolume(volume);
+		}
+		boolean overVolume = spVolumeDrag || (mx >= vx1 - 4 && mx < vx2 + 4 && my >= vy - 7 && my < vy + 8);
+		speaker(context, 22, vy + 1, 0, SP_MUTED);
+		speaker(context, SCREEN_W - 28, vy + 1, 2, SP_MUTED);
+		Glass.rounded(context, vx1, vy, vx2, vy + 3, 1, 0x4DFFFFFF);
+		if (volume >= 0) {
+			int knob = vx1 + Math.round((vx2 - vx1) * volume);
+			if (knob > vx1) Glass.rounded(context, vx1, vy, knob, vy + 3, 1, overVolume ? SP_GREEN : TEXT);
+			if (overVolume) Glass.rounded(context, knob - 4, vy - 3, knob + 4, vy + 5, 4, TEXT);
+			hits.add(new Hit(vx1 - 4, vy - 7, vx2 - vx1 + 8, 15, () -> {
+				spVolumeDrag = true;
+				dev.femboyware.module.hud.Spotify.setVolume((spMouseX - vx1) / (float) (vx2 - vx1));
+			}));
+		} else if (overVolume) {
+			String why = "Play something to change the volume";
+			context.pose().pushMatrix();
+			context.pose().translate(SCREEN_W / 2f, vy + 7);
+			context.pose().scale(0.75f, 0.75f);
+			context.drawString(font, why, -font.width(why) / 2, 0, SP_MUTED, false);
+			context.pose().popMatrix();
+		}
 		// Which device: this one
 		String device = "Listening on this computer";
-		context.drawString(font, device, (SCREEN_W - font.width(device)) / 2, cy + 30, SP_GREEN, false);
+		context.drawString(font, device, (SCREEN_W - font.width(device)) / 2, vy + 20, SP_GREEN, false);
+	}
+
+	/** A small speaker with {@code waves} sound waves (0 to 2), its middle at ({@code x}, {@code y}). */
+	private static void speaker(GuiGraphics context, int x, int y, int waves, int color) {
+		context.fill(x, y - 1, x + 2, y + 2, color);
+		context.fill(x + 2, y - 2, x + 3, y + 3, color);
+		context.fill(x + 3, y - 3, x + 4, y + 4, color);
+		for (int w = 1; w <= waves; w++) {
+			int wx = x + 4 + w * 2, h = 1 + w;
+			context.fill(wx, y - h + 1, wx + 1, y + h, color);
+			context.fill(wx - 1, y - h, wx, y - h + 1, color);
+			context.fill(wx - 1, y + h, wx, y + h + 1, color);
+		}
 	}
 
 	/** A "<", drawn in screen pixels so it's smooth. */
@@ -3146,12 +3188,23 @@ public class PhoneScreen extends Screen {
 	}
 
 	@Override
+	public boolean mouseReleased(MouseButtonEvent click) {
+		spVolumeDrag = false;
+		return super.mouseReleased(click);
+	}
+
+	@Override
 	public boolean mouseScrolled(double mouseX, double mouseY, double horizontal, double vertical) {
 		if (app == App.ROBLOX || app == App.X) {
 			scroll = Mth.clamp(scroll - (int) (vertical * 24), 0, maxScroll);
 			return true;
 		}
 		if (app == App.SPOTIFY) {
+			if (spPlayerOpen && spPlayerAnim == 1) {
+				float volume = dev.femboyware.module.hud.Spotify.volume();
+				if (volume >= 0) dev.femboyware.module.hud.Spotify.setVolume(volume + (float) Math.signum(vertical) * 0.05f);
+				return true;
+			}
 			if (spList != null) spListScroll = Mth.clamp(spListScroll - (int) (vertical * 24), 0, spListMaxScroll);
 			else if (!spPlayerOpen) spScroll = Mth.clamp(spScroll - (int) (vertical * 24), 0, spMaxScroll);
 			return true;

@@ -60,6 +60,17 @@ final class WindowsMedia implements MediaPlayer {
 		this.artSize = artSize;
 	}
 
+	/** The app's own volume (its slider in the Volume mixer), for a session picked by app; -1 otherwise. */
+	@Override
+	public float volume() {
+		return app == null ? -1 : WinAppVolume.get(app);
+	}
+
+	@Override
+	public void setVolume(float volume) {
+		if (app != null) WinAppVolume.set(app, volume);
+	}
+
 	@Override
 	public int pollMillis() {
 		return 250;
