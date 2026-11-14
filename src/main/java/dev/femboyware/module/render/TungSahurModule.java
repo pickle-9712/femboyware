@@ -51,7 +51,6 @@ public class TungSahurModule extends Module {
 	private static final int END_RING = 0xFFBFA272;
 	private static final int SOCKET = 0xFF4A2C20;
 	private static final int EYE_WHITE = 0xFFD9D3CC;
-	private static final int IRIS = 0xFF4A2A16;
 	private static final int BROW = 0xFF3A2218;
 	private static final int PUPIL = 0xFF050404;
 	private static final int GLINT = 0xFFF4F4F4;
@@ -64,8 +63,8 @@ public class TungSahurModule extends Module {
 	private static final float LOG_TOP = 2.5f;
 	private static final float RADIUS = 0.275f;
 	private static final float EYE_Y = 2.08f;
-	private static final float EYE_X = 0.14f;
-	private static final float MOUTH_Y = 1.74f;
+	private static final float EYE_X = 0.13f;
+	private static final float MOUTH_Y = 1.77f;
 
 	private static final float SHOULDER = 1.5f;
 	private static final float SHOULDER_X = 0.285f;
@@ -499,11 +498,10 @@ public class TungSahurModule extends Module {
 	}
 
 	/**
-	 * The face, as in the meme close-up: big round staring eyes ringed by a dark lid line, a
-	 * puffy wooden lid and an outer crease, with a brown iris, black pupil and a glint; thin brows
-	 * high above; full round cheeks; a long nose from between the eyes down to a wide rounded tip;
-	 * and a wide grin with a fuller lower lip. Each eye faces straight out from the log's curve so
-	 * nothing sinks into the wood.
+	 * The face, kept simple and friendly: two big round eyes popping out of the log, each with a
+	 * big black pupil and a glint, thin arched brows, a smooth nose with a round tip, and one
+	 * smile line with a soft lower lip. Each eye faces straight out from the log's curve so nothing
+	 * sinks into the wood.
 	 */
 	private static void drawFace(VertexConsumer quads, PoseStack matrices) {
 		for (int side = -1; side <= 1; side += 2) {
@@ -512,76 +510,50 @@ public class TungSahurModule extends Module {
 			matrices.translate(cx, EYE_Y, surfaceZ(cx));
 			matrices.mulPose(Axis.YP.rotation((float) Math.atan2(cx, surfaceZ(cx))));
 			PoseStack.Pose eye = matrices.last();
-			// A soft shadow behind it all
-			ellipsoid(quads, eye, 0, -0.004, -0.028, 0.142, 0.138, 0.036, SOCKET, 24, 12);
-			// Outer crease, the puffy lid, then the dark line hugging the eyeball
-			ring(quads, eye, 0.115, 0.109, 0.0, 0.016f, WOOD_LIGHT);
-			ring(quads, eye, 0.098, 0.092, 0.022, 0.009f, SOCKET);
-			// The eyeball bulging out of the middle
-			ellipsoid(quads, eye, 0, 0, -0.005, 0.098, 0.092, 0.08, EYE_WHITE, 24, 16);
-			// Brown iris, black pupil looking a little to the side, a glint
+			// A thin lid round the eye so it sits in the wood, then the eyeball popping out
+			ring(quads, eye, 0.096, 0.09, 0.012, 0.011f, WOOD_LIGHT);
+			ellipsoid(quads, eye, 0, 0, -0.01, 0.094, 0.088, 0.075, EYE_WHITE, 24, 16);
+			// Big black pupil looking a little to the side, and a glint
 			double look = side * -0.01;
-			ellipsoid(quads, eye, look, -0.004, 0.066, 0.052, 0.052, 0.014, IRIS, 20, 10);
-			ellipsoid(quads, eye, look, -0.004, 0.074, 0.029, 0.029, 0.01, PUPIL, 16, 8);
-			ellipsoid(quads, eye, look - 0.018, 0.016, 0.084, 0.012, 0.012, 0.004, GLINT, 8, 6);
-			// Thin brow high above, arching
+			ellipsoid(quads, eye, look, -0.004, 0.06, 0.048, 0.048, 0.014, PUPIL, 20, 10);
+			ellipsoid(quads, eye, look - 0.016, 0.016, 0.072, 0.013, 0.013, 0.004, GLINT, 8, 6);
+			// Thin arched brow above
 			Vec3[] brow = new Vec3[9];
 			float[] browRadius = new float[9];
 			for (int i = 0; i < 9; i++) {
 				double t = i / 8.0 * 2 - 1;
-				brow[i] = new Vec3(t * 0.12, 0.19 + 0.03 * (1 - t * t), 0.006 - t * t * 0.03);
-				browRadius[i] = (float) (0.013 - Math.abs(t) * 0.004);
+				brow[i] = new Vec3(t * 0.1, 0.15 + 0.025 * (1 - t * t), 0.006 - t * t * 0.025);
+				browRadius[i] = (float) (0.012 - Math.abs(t) * 0.004);
 			}
 			tube(quads, eye, brow, browRadius, BROW, 8);
 			matrices.popPose();
-			// Full round cheek under the eye, pushed up by the grin
-			double cheek = side * 0.125;
-			ellipsoid(quads, matrices.last(), cheek, MOUTH_Y + 0.08, surfaceZ(cheek) - 0.05, 0.08, 0.07, 0.06, WOOD, 16, 10);
 		}
 		PoseStack.Pose entry = matrices.last();
 
-		// The nose: a long bridge from between the eyes sloping out to a wide rounded tip
-		tube(quads, entry, new Vec3[]{new Vec3(0, EYE_Y + 0.08, RADIUS - 0.006), new Vec3(0, EYE_Y - 0.06, RADIUS + 0.012),
-			new Vec3(0, EYE_Y - 0.16, RADIUS + 0.04)}, new float[]{0.028f, 0.034f, 0.042f}, WOOD_LIGHT, 12);
-		ellipsoid(quads, entry, 0, EYE_Y - 0.19, RADIUS + 0.046, 0.06, 0.048, 0.05, WOOD_LIGHT, 18, 12);
-		for (int side = -1; side <= 1; side += 2) {
-			// Nostril wings flaring either side of the tip, and the nostrils under them
-			ellipsoid(quads, entry, side * 0.058, EYE_Y - 0.205, RADIUS + 0.02, 0.034, 0.03, 0.034, WOOD_LIGHT, 12, 8);
-			ellipsoid(quads, entry, side * 0.026, EYE_Y - 0.228, RADIUS + 0.038, 0.016, 0.008, 0.013, SOCKET, 8, 6);
-		}
+		// A smooth nose sloping out from between the eyes to a round tip
+		tube(quads, entry, new Vec3[]{new Vec3(0, EYE_Y + 0.02, RADIUS - 0.004), new Vec3(0, EYE_Y - 0.08, RADIUS + 0.014),
+			new Vec3(0, EYE_Y - 0.15, RADIUS + 0.03)}, new float[]{0.026f, 0.032f, 0.038f}, WOOD_LIGHT, 12);
+		ellipsoid(quads, entry, 0, EYE_Y - 0.17, RADIUS + 0.036, 0.052, 0.044, 0.046, WOOD_LIGHT, 18, 12);
 
-		// The grin: a wide dark line curving up at both ends, a thin upper lip, a fuller lower lip
-		float width = 0.15f;
-		Vec3[] line = new Vec3[17];
-		float[] lineRadius = new float[17];
-		for (int i = 0; i < 17; i++) {
-			double x = -width + 2 * width * i / 16;
-			line[i] = new Vec3(x, MOUTH_Y + 2.4 * x * x, surfaceZ(x) + 0.01);
-			// A touch open in the middle
-			lineRadius[i] = (float) (0.009 + 0.006 * (1 - Math.pow(x / width, 2)));
+		// One smile line curving up at the ends, with a soft lower lip under the middle
+		float width = 0.13f;
+		Vec3[] line = new Vec3[15];
+		float[] lineRadius = new float[15];
+		for (int i = 0; i < 15; i++) {
+			double x = -width + 2 * width * i / 14;
+			line[i] = new Vec3(x, MOUTH_Y + 2.4 * x * x, surfaceZ(x) + 0.008);
+			lineRadius[i] = 0.011f;
 		}
-		Vec3[] upper = new Vec3[13];
-		Vec3[] lower = new Vec3[13];
-		float[] upperRadius = new float[13];
-		float[] lowerRadius = new float[13];
-		for (int i = 0; i < 13; i++) {
-			double t = i / 12.0 * 2 - 1;
-			double swell = 1 - t * t;
-			double x = t * width * 0.85;
-			upper[i] = new Vec3(x, MOUTH_Y + 2.4 * x * x + 0.02, surfaceZ(x) + 0.006);
-			upperRadius[i] = (float) (0.005 + 0.008 * swell);
-			double lx = t * width * 0.7;
-			lower[i] = new Vec3(lx, MOUTH_Y + 2.4 * lx * lx * 0.8 - 0.022, surfaceZ(lx) + 0.004);
-			lowerRadius[i] = (float) (0.006 + 0.014 * swell);
-		}
-		tube(quads, entry, upper, upperRadius, WOOD_LIGHT, 8);
-		tube(quads, entry, lower, lowerRadius, WOOD_LIGHT, 8);
 		tube(quads, entry, line, lineRadius, MOUTH, 8);
-		// Dimples at the corners
-		for (int side = -1; side <= 1; side += 2) {
-			double x = side * (width + 0.014);
-			ellipsoid(quads, entry, x, MOUTH_Y + 2.4 * width * width + 0.006, surfaceZ(x) + 0.004, 0.012, 0.016, 0.008, SOCKET, 8, 6);
+		Vec3[] lip = new Vec3[9];
+		float[] lipRadius = new float[9];
+		for (int i = 0; i < 9; i++) {
+			double t = i / 8.0 * 2 - 1;
+			double x = t * 0.075;
+			lip[i] = new Vec3(x, MOUTH_Y + 2.4 * x * x - 0.024, surfaceZ(x) + 0.004);
+			lipRadius[i] = (float) (0.006 + 0.01 * (1 - t * t));
 		}
+		tube(quads, entry, lip, lipRadius, WOOD_LIGHT, 8);
 	}
 
 	/** A round ring in the xy plane at depth {@code z}, of radius rx by ry, as a tube {@code thickness} thick. */

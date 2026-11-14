@@ -72,7 +72,37 @@ public class ColorsModule extends Module {
 			Map.entry("Other Button", 0xF02A2448),
 			Map.entry("Other Button Hover", 0xF03C3466),
 			Map.entry("Name Tag", 0xF02A2448),
-			Map.entry("Loading Screen", 0xFF6E62D6)));
+			Map.entry("Loading Screen", 0xFF6E62D6)),
+		"Israel Client", Map.ofEntries(
+			Map.entry("Accent", 0xFF3D7BFF),
+			Map.entry("Muted Text", 0xFFB4C4E4),
+			Map.entry("Panel Color", 0x700A1632),
+			Map.entry("Tooltip Color", 0xC00A1632),
+			Map.entry("Text Selection", 0x903D7BFF),
+			Map.entry("Chat Prefix", 0xFF3D7BFF),
+			Map.entry("HUD Accent", 0xFF3D7BFF),
+			Map.entry("HUD Muted", 0xFFB4C4E4),
+			Map.entry("HUD Background", 0x500A1632),
+			Map.entry("Module List Color", 0xFF3D7BFF),
+			Map.entry("Watermark Color", 0xFFFFFFFF),
+			Map.entry("Gradient Start", 0xFF0038B8),
+			Map.entry("Gradient End", 0xFFFFFFFF),
+			Map.entry("Pressed Key Text", 0xFF0A1632),
+			Map.entry("Island Highlight", 0xFF0038B8),
+			Map.entry("Island Equalizer", 0xFF9DB8FF),
+			Map.entry("Swirl Tint", 0xFF3D6FFF),
+			Map.entry("Glow 1", 0x990038B8),
+			Map.entry("Glow 2", 0x70FFFFFF),
+			Map.entry("Glow 3", 0x803D7BFF),
+			Map.entry("Glow 4", 0x50FFFFFF),
+			Map.entry("Glow 5", 0x660038B8),
+			Map.entry("Tagline Color", 0xFFD6E2FF),
+			Map.entry("Main Button", 0xFF0038B8),
+			Map.entry("Main Button Hover", 0xFF2456D6),
+			Map.entry("Other Button", 0xF00A1A44),
+			Map.entry("Other Button Hover", 0xF0142C66),
+			Map.entry("Name Tag", 0xF00A1A44),
+			Map.entry("Loading Screen", 0xFF0038B8)));
 
 	private static final String CUSTOM = "Custom";
 	private static final Path THEMES = FabricLoader.getInstance().getGameDir().resolve("femboyware").resolve("themes");
@@ -274,13 +304,24 @@ public class ColorsModule extends Module {
 		themeNames = List.copyOf(names);
 	}
 
-	/** Writes the built-in themes the first time, so they show up and can be changed like saved ones. */
+	/**
+	 * Writes each built-in theme into the folder once, so they show up and can be changed like saved
+	 * ones. The marker file lists the ones already written, so a deleted one stays deleted and a new
+	 * one added in an update still turns up.
+	 */
 	private void seed() {
 		Path marker = THEMES.resolve(".seeded");
-		if (Files.exists(marker)) return;
 		try {
 			Files.createDirectories(THEMES);
+			List<String> done = new ArrayList<>();
+			if (Files.exists(marker)) {
+				for (String line : Files.readAllLines(marker)) if (!line.isBlank()) done.add(line.trim());
+				// Markers from before this list existed: those two were written already
+				if (done.isEmpty()) done.addAll(List.of(dev.femboyware.FemboyWare.NAME, "Catgirl Client"));
+			}
 			for (Map.Entry<String, Map<String, Integer>> entry : BUILT_IN.entrySet()) {
+				if (done.contains(entry.getKey())) continue;
+				done.add(entry.getKey());
 				if (Files.exists(file(entry.getKey()))) continue;
 				JsonObject json = new JsonObject();
 				for (Setting<?> setting : getSettings()) {
@@ -290,7 +331,7 @@ public class ColorsModule extends Module {
 				}
 				Files.writeString(file(entry.getKey()), GSON.toJson(json));
 			}
-			Files.writeString(marker, "");
+			Files.write(marker, done);
 		} catch (IOException e) {
 			dev.femboyware.FemboyWare.LOGGER.warn("Couldn't write the built-in themes", e);
 		}
