@@ -48,7 +48,7 @@ public class EmoteWheelScreen extends Screen {
 
 	@Override
 	public void renderBackground(GuiGraphics context, int mouseX, int mouseY, float deltaTicks) {
-		context.fill(0, 0, width, height, 0x50000000);
+		context.fill(0, 0, width, height, Theme.dim());
 	}
 
 	@Override
@@ -148,7 +148,7 @@ public class EmoteWheelScreen extends Screen {
 		hovered = pick(mouseX - cx, mouseY - cy);
 
 		// The ring the slots sit on
-		Glass.ellipse(context, cx - radius - SLOT_SIZE / 2 - 6, cy - radius - SLOT_SIZE / 2 - 6, cx + radius + SLOT_SIZE / 2 + 6, cy + radius + SLOT_SIZE / 2 + 6, 0x40000000);
+		Glass.ellipse(context, cx - radius - SLOT_SIZE / 2 - 6, cy - radius - SLOT_SIZE / 2 - 6, cx + radius + SLOT_SIZE / 2 + 6, cy + radius + SLOT_SIZE / 2 + 6, Theme.content());
 
 		for (int slot = 0; slot < SLOTS; slot++) {
 			double angle = slotAngle(slot);
@@ -192,7 +192,7 @@ public class EmoteWheelScreen extends Screen {
 			drawCentered(context, font, ">", rightArrowX, arrowY, Theme.text());
 			for (int i = 0; i < pages(); i++) {
 				int dx = cx - (pages() - 1) * 5 + i * 10;
-				Glass.rounded(context, dx - 2, arrowY + 2, dx + 2, arrowY + 6, 2, i == page ? Theme.accent() | 0xFF000000 : 0x80FFFFFF);
+				Glass.rounded(context, dx - 2, arrowY + 2, dx + 2, arrowY + 6, 2, i == page ? Theme.accent() | 0xFF000000 : Theme.switchOff());
 			}
 		}
 		String help = ridesOnlyPage() ? "Pull up in something" : forFakes ? "Your fake players do it, not you"

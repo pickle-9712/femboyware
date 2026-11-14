@@ -167,7 +167,7 @@ public class NotificationsModule extends HudElement {
 			offset += h + GAP;
 
 			Glass.draw(context, x, y, x + w, y + h, 5, backgroundColor(Theme.panel()), true);
-			int muted = usesCustomColors() ? mutedColor() : 0xFF7A7280;
+			int muted = usesCustomColors() ? mutedColor() : Theme.offDot();
 			if (alert) {
 				// The accent bar down the side, the title, then what it says
 				Glass.rounded(context, x + 5, y + 5, x + 7, y + h - 5, 1, accentColor());

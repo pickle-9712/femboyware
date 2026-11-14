@@ -71,6 +71,10 @@ public class ColorsModule extends Module {
 	private final ColorSetting tooltip = menu("Tooltip Color", "Tint of the tooltip bubbles", DEFAULT_TOOLTIP);
 	private final ColorSetting highlight = menu("Highlight Color", "Colour of the glass's rim and sheen", DEFAULT_HIGHLIGHT);
 	private final ColorSetting dim = menu("Dim Color", "Laid over the world behind the menu; alpha is how strong", DEFAULT_DIM);
+	private final ColorSetting editorDim = menu("HUD Editor Dim", "Over the screen while dragging the HUD about", 0x30000000);
+	private final ColorSetting editorOutline = menu("HUD Editor Outline", "Around each HUD element in the editor", 0x80FFFFFF);
+	private final ColorSetting textSelection = menu("Text Selection", "Behind selected text in text boxes; alpha is how strong", 0x90FF77C8);
+	private final ColorSetting chatPrefix = menu("Chat Prefix", "The client's name before its chat messages", 0xFFFF55FF);
 	private final ColorSetting online = menu("Online Color", "The dot next to your name", DEFAULT_ONLINE);
 
 	// ---------------------------------------------------------------- the HUD
@@ -83,6 +87,11 @@ public class ColorsModule extends Module {
 	private final ColorSetting listColor = hud("Module List Color", "Colour for Static", DEFAULT_ACCENT, () -> listColors.is(HudColors.STATIC));
 	private final EnumSetting<HudColors> watermarkColors = add(new EnumSetting<>("Watermark Colors", "How the watermark's letters are coloured", HudColors.PASTEL)).visibleWhen(() -> page.is(Page.HUD));
 	private final ColorSetting watermarkColor = hud("Watermark Color", "Colour for Static", DEFAULT_ACCENT, () -> watermarkColors.is(HudColors.STATIC));
+	private final ColorSetting gradientStart = hud("Gradient Start", "First colour of the Gradient mode", DEFAULT_ACCENT, null);
+	private final ColorSetting gradientEnd = hud("Gradient End", "Second colour of the Gradient mode", 0xFF8AD8FF, null);
+	private final ColorSetting barTrack = hud("Bar Track", "The empty part of health bars", 0x40000000, null);
+	private final ColorSetting progressTrack = hud("Progress Track", "The empty part of song progress, and empty album art", 0x40FFFFFF, null);
+	private final ColorSetting offDot = hud("Off Dot", "The dot on a notification for a module switched off", 0xFF7A7280, null);
 	private final ColorSetting healthFull = hud("Health Full", "Health bars at full health", DEFAULT_HEALTH_FULL, null);
 	private final ColorSetting healthLow = hud("Health Low", "Health bars when nearly dead", DEFAULT_HEALTH_LOW, null);
 	private final ColorSetting absorption = hud("Absorption", "Extra hearts on health bars", DEFAULT_ABSORPTION, null);
@@ -167,6 +176,15 @@ public class ColorsModule extends Module {
 	public int highlight() { return highlight.get(); }
 	public int dim() { return dim.get(); }
 	public int online() { return online.get(); }
+	public int editorDim() { return editorDim.get(); }
+	public int editorOutline() { return editorOutline.get(); }
+	public int textSelection() { return textSelection.get(); }
+	public int chatPrefix() { return chatPrefix.get(); }
+	public int gradientStart() { return gradientStart.get(); }
+	public int gradientEnd() { return gradientEnd.get(); }
+	public int barTrack() { return barTrack.get(); }
+	public int progressTrack() { return progressTrack.get(); }
+	public int offDot() { return offDot.get(); }
 
 	public boolean matchMenu() { return matchMenu.get(); }
 	public int hudText() { return hudText.get(); }

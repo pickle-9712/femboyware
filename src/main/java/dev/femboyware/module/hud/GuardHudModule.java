@@ -75,7 +75,7 @@ public class GuardHudModule extends HudElement {
 			// Health bar, with absorption already counted in its length
 			int barLeft = left + 5, barRight = left + WIDTH - 5;
 			float fraction = Mth.clamp(guard.health() / Math.max(1, guard.maxHealth()), 0, 1);
-			Glass.rounded(context, barLeft, y + 14, barRight, y + 17, 1, 0x40000000);
+			Glass.rounded(context, barLeft, y + 14, barRight, y + 17, 1, Theme.barTrack());
 			int filled = barLeft + Math.round((barRight - barLeft) * fraction);
 			if (filled > barLeft) Glass.rounded(context, barLeft, y + 14, filled, y + 17, 1, usesCustomColors() ? LyricFont.mix(healthLow.get(), healthFull.get(), fraction) : LyricFont.mix(Theme.healthLow(), Theme.healthFull(), fraction));
 

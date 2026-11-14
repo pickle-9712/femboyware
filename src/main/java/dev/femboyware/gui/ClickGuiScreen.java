@@ -234,7 +234,7 @@ public class ClickGuiScreen extends Screen {
 		// Hanging in the world: nothing over your screen
 		if (WorldGui.showing(this)) return;
 		if (hudEditing) {
-			context.fill(0, 0, width, height, 0x30000000);
+			context.fill(0, 0, width, height, Theme.editorDim());
 			return;
 		}
 		if (Theme.blur()) renderBlurredBackground(context);
@@ -307,8 +307,8 @@ public class ClickGuiScreen extends Screen {
 				int left = element.left(width, true), top = element.top(height, true);
 				int right = left + element.width(true), bottom = top + element.height(true);
 				boolean hot = element == draggingElement || (draggingElement == null && mouseX >= left && mouseX < right && mouseY >= top && mouseY < bottom);
-				dashedOutline(context, left - 1, top - 1, right + 1, bottom + 1, hot ? Theme.accent() : 0x80FFFFFF);
-				if (element.resizable()) context.fill(right - RESIZE_HANDLE, bottom - RESIZE_HANDLE, right + 1, bottom + 1, element == resizingElement || hot ? Theme.accent() : 0xC0FFFFFF);
+				dashedOutline(context, left - 1, top - 1, right + 1, bottom + 1, hot ? Theme.accent() : Theme.editorOutline());
+				if (element.resizable()) context.fill(right - RESIZE_HANDLE, bottom - RESIZE_HANDLE, right + 1, bottom + 1, element == resizingElement || hot ? Theme.accent() : Theme.editorOutline());
 			}
 		} finally {
 			UiScale.endClient();
@@ -483,7 +483,7 @@ public class ClickGuiScreen extends Screen {
 		if (search.get().isEmpty() && !searching) {
 			context.drawString(font, "Search modules...", x1 + 19, y + 5, Theme.muted());
 		} else {
-			editor(search).render(context, font, x1 + 19, y + 3, x2 - 8, y + SEARCH_HEIGHT - 2, searching, Theme.text(), (accent & 0x00FFFFFF) | 0x90000000, accent);
+			editor(search).render(context, font, x1 + 19, y + 3, x2 - 8, y + SEARCH_HEIGHT - 2, searching, Theme.text(), Theme.textSelection(), accent);
 		}
 	}
 
@@ -730,7 +730,7 @@ public class ClickGuiScreen extends Screen {
 					boolean focused = typing == text;
 					Glass.rounded(context, left - 2, y + ROW_HEIGHT, right, y + ROW_HEIGHT * 2 - 1, 3, focused ? Theme.surfaceHover() : Theme.content());
 					editor(text).render(context, font, left, y + ROW_HEIGHT, right, y + ROW_HEIGHT * 2 - 1, focused,
-						focused ? Theme.text() : Theme.muted(), (accent & 0x00FFFFFF) | 0x90000000, accent);
+						focused ? Theme.text() : Theme.muted(), Theme.textSelection(), accent);
 					yield new Row(RowType.STRING, x, y, w, ROW_HEIGHT * 2, null, m, setting, 0, null);
 				}
 				case KeySetting key -> {

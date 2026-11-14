@@ -132,7 +132,7 @@ public class TargetHudModule extends HudElement {
 		int barLeft = left + 6;
 		int barRight = left + WIDTH - 6;
 		int barTop = top + HEIGHT - 10;
-		Glass.rounded(context, barLeft, barTop, barRight, barTop + 4, 2, 0x40000000);
+		Glass.rounded(context, barLeft, barTop, barRight, barTop + 4, 2, Theme.barTrack());
 		float fraction = Mth.clamp(shownHealth / (max + absorption), 0, 1);
 		int filled = barLeft + Math.round((barRight - barLeft) * fraction);
 		if (filled > barLeft) Glass.rounded(context, barLeft, barTop, filled, barTop + 4, 2, healthColor(health / max));

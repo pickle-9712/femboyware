@@ -232,6 +232,21 @@ public final class Theme {
 		return p != null ? 0xFF000000 | p.text() : color(ColorsModule::islandTime, ColorsModule.DEFAULT_ISLAND_TIME);
 	}
 
+	public static int editorDim() { return color(ColorsModule::editorDim, 0x30000000); }
+	public static int editorOutline() { return color(ColorsModule::editorOutline, 0x80FFFFFF); }
+	public static int chatPrefix() { return color(ColorsModule::chatPrefix, 0xFFFF55FF); }
+	public static int gradientStart() { return color(ColorsModule::gradientStart, ColorsModule.DEFAULT_ACCENT); }
+	public static int gradientEnd() { return color(ColorsModule::gradientEnd, 0xFF8AD8FF); }
+	public static int barTrack() { return color(ColorsModule::barTrack, 0x40000000); }
+	public static int progressTrack() { return color(ColorsModule::progressTrack, 0x40FFFFFF); }
+	public static int offDot() { return color(ColorsModule::offDot, 0xFF7A7280); }
+
+	/** Behind selected text: Colors' own, or the accent over a wallpaper. */
+	public static int textSelection() {
+		WallpaperModule.Palette p = WallpaperModule.active();
+		return p != null ? 0x90000000 | p.accent() : color(ColorsModule::textSelection, 0x90FF77C8);
+	}
+
 	// ---------------------------------------------------------------- the main menu
 
 	public static int swirl() { return color(ColorsModule::swirl, 0xFFFFFFFF); }

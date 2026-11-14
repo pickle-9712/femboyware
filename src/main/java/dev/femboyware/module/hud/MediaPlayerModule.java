@@ -72,7 +72,7 @@ public class MediaPlayerModule extends HudElement {
 		if (active && MediaSource.prepareArt()) {
 			context.blit(RenderPipelines.GUI_TEXTURED, MediaSource.ART, left + 6, top + 6, 0, 0, artSize, artSize, artSize, artSize);
 		} else {
-			Glass.rounded(context, left + 6, top + 6, left + 6 + artSize, top + 6 + artSize, 4, 0x40FFFFFF);
+			Glass.rounded(context, left + 6, top + 6, left + 6 + artSize, top + 6 + artSize, 4, Theme.progressTrack());
 			context.drawString(mc.font, "♪", left + 6 + artSize / 2 - 3, top + 6 + artSize / 2 - 4, textColor());
 		}
 
@@ -88,7 +88,7 @@ public class MediaPlayerModule extends HudElement {
 			double length = current.length();
 			double position = MediaSource.position(current);
 			int barTop = top + HEIGHT - 9;
-			Glass.rounded(context, textLeft, barTop, left + WIDTH - 6, barTop + 3, 1, 0x40FFFFFF);
+			Glass.rounded(context, textLeft, barTop, left + WIDTH - 6, barTop + 3, 1, Theme.progressTrack());
 			if (length > 0) {
 				int filled = textLeft + (int) Math.round((left + WIDTH - 6 - textLeft) * position / length);
 				if (filled > textLeft) Glass.rounded(context, textLeft, barTop, filled, barTop + 3, 1, accentColor());

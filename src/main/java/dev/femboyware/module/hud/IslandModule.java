@@ -113,7 +113,7 @@ public class IslandModule extends HudElement {
 		}
 		if (ping.get()) {
 			int latency = latency();
-			int color = !pingColors.get() ? Theme.islandTime() : latency < 80 ? 0xFF7CF0A0 : latency < 180 ? 0xFFFFD36B : 0xFFFF6B7A;
+			int color = !pingColors.get() ? Theme.islandTime() : latency < 80 ? Theme.good() : latency < 180 ? Theme.okay() : Theme.warning();
 			signal(context, x, top + HEIGHT / 2 + 4, color);
 			context.drawString(mc.font, info(Integer.toString(latency)), x + 13, textY, Theme.islandTime(), false);
 		}
@@ -129,7 +129,7 @@ public class IslandModule extends HudElement {
 			int side = HEIGHT - 6;
 			if (track != null && MediaSource.prepareArt()) {
 				context.blit(RenderPipelines.GUI_TEXTURED, MediaSource.ROUND_ART, left + 3, top + 3, 0, 0, side, side, side, side);
-			} else Glass.rounded(context, left + 3, top + 3, left + 3 + side, top + 3 + side, side / 2, 0x40FFFFFF);
+			} else Glass.rounded(context, left + 3, top + 3, left + 3 + side, top + 3 + side, side / 2, Theme.progressTrack());
 			textLeft = left + 3 + side + 5;
 		}
 		int textRight = left + width - 9;

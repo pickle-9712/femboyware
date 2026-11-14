@@ -135,17 +135,17 @@ public class FormationMakerScreen extends Screen {
 		for (int line = 0; line <= GRID; line++) {
 			// The middle cell's edges stand out, and so does every fourth line, to count by
 			boolean major = (line - REACH) % 4 == 0;
-			int color = major ? 0x30FFFFFF : 0x14FFFFFF;
+			int color = major ? Theme.divider() : Theme.surface();
 			context.fill(gridX + line * cell, gridY, gridX + line * cell + 1, gridY + gridSize, color);
 			context.fill(gridX, gridY + line * cell, gridX + gridSize, gridY + line * cell + 1, color);
 		}
-		context.fill(cellX(0) + 1, cellY(0) + 1, cellX(0) + cell, cellY(0) + cell, 0x40FFFFFF);
+		context.fill(cellX(0) + 1, cellY(0) + 1, cellX(0) + cell, cellY(0) + cell, Theme.surfaceHover());
 
 		for (FakeFormations.Cell spot : cells) {
 			if (inGrid(spot)) Glass.rounded(context, cellX(spot.right()) + 1, cellY(spot.forward()) + 1, cellX(spot.right()) + cell, cellY(spot.forward()) + cell, cell / 2, ColorUtil.withAlpha(Theme.accent(), 0xFF));
 		}
 		FakeFormations.Cell hovered = cellAt(mouseX, mouseY);
-		if (hovered != null) context.fill(cellX(hovered.right()) + 1, cellY(hovered.forward()) + 1, cellX(hovered.right()) + cell, cellY(hovered.forward()) + cell, 0x40FFFFFF);
+		if (hovered != null) context.fill(cellX(hovered.right()) + 1, cellY(hovered.forward()) + 1, cellX(hovered.right()) + cell, cellY(hovered.forward()) + cell, Theme.surfaceHover());
 
 		String help = "Left drag: add   Right drag: erase   Middle: center";
 		context.drawString(font, font.plainSubstrByWidth(help, gridSize), gridX, gridY + gridSize + 5, Theme.muted());
@@ -158,7 +158,7 @@ public class FormationMakerScreen extends Screen {
 
 		context.drawString(font, "Name", left + 1, row, Theme.text());
 		row += 11;
-		Glass.rounded(context, left, row, left + wide, row + BUTTON_HEIGHT, 4, 0x40000000);
+		Glass.rounded(context, left, row, left + wide, row + BUTTON_HEIGHT, 4, Theme.content());
 		String shown = name.isEmpty() ? "Type a name..." : font.plainSubstrByWidth(name + (System.currentTimeMillis() / 500 % 2 == 0 ? "_" : ""), wide - 8);
 		context.drawString(font, shown, left + 4, row + 4, name.isEmpty() ? Theme.muted() : Theme.text());
 		row += BUTTON_HEIGHT + 4;
