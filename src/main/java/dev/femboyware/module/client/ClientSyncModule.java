@@ -282,8 +282,27 @@ public class ClientSyncModule extends Module {
 		state.remove("fast");
 		sendTimer = fast ? FAST_TICKS : SLOW_TICKS;
 		state.addProperty("i", sendTimer * 50);
-		link.send(state.toString());
+		link.send(fitted(state));
 		sharing = true;
+	}
+
+	/**
+	 * The update as text, trimmed until it fits in one message: the relay can't take big ones, and
+	 * a lot of fake players out would otherwise stop anything at all getting through. Fakes go
+	 * first, then valets, then schematics past the first.
+	 */
+	private String fitted(JsonObject state) {
+		String message = state.toString();
+		for (String list : new String[]{"fp", "v", "sc"}) {
+			while (!link.fits(message) && state.has(list)) {
+				JsonArray array = state.getAsJsonArray(list);
+				int keep = list.equals("sc") ? Math.min(1, array.size() - 1) : array.size() / 2;
+				if (keep <= 0) state.remove(list);
+				else while (array.size() > keep) array.remove(array.size() - 1);
+				message = state.toString();
+			}
+		}
+		return message;
 	}
 
 	private String gone() {

@@ -188,10 +188,68 @@ public final class PeerLink {
 		queue = queue.handle((result, error) -> null).thenCompose(ignored -> ws.sendBinary(ByteBuffer.wrap(frame), true));
 	}
 
+	/**
+	 * The relay closes the connection on frames over 4096 bytes, and we don't take ones over
+	 * MAX_MESSAGE + 64; this is the most that fits in one after the IV and tag.
+	 */
+	private static final int MAX_PLAIN = MAX_MESSAGE + 64 - IV - 16;
+	/** Small messages go as plain JSON (which starts with '{'), so older versions still read them; bigger ones are deflated behind this marker. */
+	private static final byte DEFLATED = 1;
+	private static final int SMALL = 1000, MAX_INFLATED = 256 * 1024;
+
+	/** Whether {@code message} fits in one frame (compressed if it needs to be); ones that don't are never sent. */
+	public boolean fits(String message) {
+		return pack(message) != null;
+	}
+
+	private static byte[] pack(String message) {
+		byte[] text = message.getBytes(StandardCharsets.UTF_8);
+		if (text.length <= SMALL) return text;
+		java.util.zip.Deflater deflater = new java.util.zip.Deflater(java.util.zip.Deflater.BEST_COMPRESSION);
+		try {
+			deflater.setInput(text);
+			deflater.finish();
+			byte[] out = new byte[MAX_PLAIN];
+			out[0] = DEFLATED;
+			int length = 1;
+			while (!deflater.finished()) {
+				if (length >= out.length) return null;
+				length += deflater.deflate(out, length, out.length - length);
+			}
+			return java.util.Arrays.copyOf(out, length);
+		} finally {
+			deflater.end();
+		}
+	}
+
+	private static String unpack(byte[] data) {
+		if (data.length == 0 || data[0] != DEFLATED) return new String(data, StandardCharsets.UTF_8);
+		java.util.zip.Inflater inflater = new java.util.zip.Inflater();
+		try {
+			inflater.setInput(data, 1, data.length - 1);
+			java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+			byte[] buffer = new byte[8192];
+			while (!inflater.finished()) {
+				int n = inflater.inflate(buffer);
+				if (n == 0 && (inflater.needsInput() || inflater.needsDictionary())) return null;
+				out.write(buffer, 0, n);
+				if (out.size() > MAX_INFLATED) return null;
+			}
+			return out.toString(StandardCharsets.UTF_8);
+		} catch (java.util.zip.DataFormatException e) {
+			return null;
+		} finally {
+			inflater.end();
+		}
+	}
+
 	private byte[] seal(String message) {
 		try {
-			byte[] text = message.getBytes(StandardCharsets.UTF_8);
-			if (text.length > MAX_MESSAGE) return null;
+			byte[] text = pack(message);
+			if (text == null) {
+				FemboyWare.LOGGER.warn("Client sync message too big to send ({} bytes)", message.length());
+				return null;
+			}
 			byte[] iv = new byte[IV];
 			RANDOM.nextBytes(iv);
 			Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
@@ -208,7 +266,7 @@ public final class PeerLink {
 		try {
 			Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
 			cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, frame, 0, IV));
-			return new String(cipher.doFinal(frame, IV, frame.length - IV), StandardCharsets.UTF_8);
+			return unpack(cipher.doFinal(frame, IV, frame.length - IV));
 		} catch (Exception e) {
 			return null;
 		}
