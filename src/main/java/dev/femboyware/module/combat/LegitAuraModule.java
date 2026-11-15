@@ -679,9 +679,31 @@ public class LegitAuraModule extends Module {
 		AABB box = player.getBoundingBox().move(player.getPosition(tickDelta).subtract(player.position()));
 		AABB inside = box.deflate(0.18, 0.3, 0.18);
 		Vec3 onLook = eye.add(mc.player.getViewVector(tickDelta).scale(eye.distanceTo(box.getCenter())));
-		return new Vec3(Mth.clamp(onLook.x, inside.minX, inside.maxX),
+		Vec3 point = new Vec3(Mth.clamp(onLook.x, inside.minX, inside.maxX),
 			Mth.clamp(onLook.y, inside.minY, inside.maxY),
 			Mth.clamp(onLook.z, inside.minZ, inside.maxZ));
+		if (seesPoint(eye, point)) return point;
+		// That part of them is behind something (a web round their legs, a trap block): the nearest
+		// part that can be seen, like their head through the gap, so a click actually lands
+		Vec3 best = null;
+		double bestOff = Double.MAX_VALUE;
+		double width = (box.maxX - box.minX) / 2 - 0.1;
+		for (double y = box.maxY - 0.15; y >= box.minY + 0.15; y -= 0.2) {
+			for (double[] o : new double[][]{{0, 0}, {width, 0}, {-width, 0}, {0, width}, {0, -width}}) {
+				Vec3 spot = new Vec3(box.getCenter().x + o[0], y, box.getCenter().z + o[1]);
+				double off = spot.distanceToSqr(point);
+				if (off >= bestOff || !seesPoint(eye, spot)) continue;
+				best = spot;
+				bestOff = off;
+			}
+		}
+		return best != null ? best : point;
+	}
+
+	/** Nothing's in the way from {@code eye} to {@code point}, as the crosshair sees it. */
+	private boolean seesPoint(Vec3 eye, Vec3 point) {
+		return mc.level.clip(new net.minecraft.world.level.ClipContext(eye, point, net.minecraft.world.level.ClipContext.Block.OUTLINE,
+			net.minecraft.world.level.ClipContext.Fluid.NONE, mc.player)).getType() == net.minecraft.world.phys.HitResult.Type.MISS;
 	}
 
 	/** Where to look to aim at {@code player}'s upper body, drifting slowly around it rather than one fixed point. */

@@ -80,8 +80,9 @@ public class TrapModule extends Module {
 	private final BoolSetting jump = add(new BoolSetting("Jump", "Jump while trapping, to reach the high blocks and look the part", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
 	private final BoolSetting realLook = add(new BoolSetting("Real Look", "Really turn your head to each block (no silent rotation), with free look so you can still look anywhere", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
 	private final BoolSetting thirdPerson = add(new BoolSetting("Third Person", "Switch to third person while Real Look turns your head", true)).visibleWhen(() -> mode.is(Mode.LEGIT) && realLook.get());
+	private final BoolSetting rushWebbed = add(new BoolSetting("Rush When Webbed", "In a fight, once they're stuck in a web the rest of the trap goes in straight away, before your next hit, instead of a few blocks between swings", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
 	private final BoolSetting autoOffhand = add(new BoolSetting("Auto Offhand", "Put your trap blocks in your offhand the way you would (select them, press swap hands, back to your sword), so you keep fighting with the sword while it places. Never swaps out a totem", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
-	private final NumberSetting flickSpeed = add(new NumberSetting("Flick Speed", "How fast your view flicks onto each block: turned every frame in whole mouse steps at your sensitivity, easing in as it arrives", 30, 4, 60, 1)).visibleWhen(() -> mode.is(Mode.LEGIT));
+	private final NumberSetting flickSpeed = add(new NumberSetting("Flick Speed", "How fast your view flicks onto each block: turned every frame in whole mouse steps at your sensitivity, easing in as it arrives", 45, 4, 80, 1)).visibleWhen(() -> mode.is(Mode.LEGIT));
 	private final RotationSettings rotations = new RotationSettings(s -> add(s), () -> mode.is(Mode.LEGIT), 45f);
 	private final NumberSetting blocksPerTick = add(new NumberSetting("Blocks Per Tick", "Max placements per tick", 4, 1, 12, 1)).visibleWhen(() -> mode.is(Mode.PACKET));
 	private final BoolSetting rotate = add(new BoolSetting("Rotate", "Send a rotation packet before placing", true)).visibleWhen(() -> mode.is(Mode.PACKET));
@@ -114,6 +115,10 @@ public class TrapModule extends Module {
 	 */
 	private int turnTicks;
 	private boolean restoreNext, turnEndedThisTick;
+	/** Blocks this turn has put down. */
+	private int turnPlaced;
+	/** After a turn, ticks the fight gets to itself: time to flick back onto them and swing. */
+	private int fightTicks;
 	/** Where the knockback hit went in, so it's only done again once they've got well away. */
 	private BlockPos hitAt;
 	/** First tick of a turn: look only, so a click never lands in the same tick as the swing before it. */
@@ -137,11 +142,11 @@ public class TrapModule extends Module {
 	/** The way there, round the trap's own blocks and webs, or null to head straight for it. */
 	private List<Vec3> path;
 	private int pathIndex, walkTicks;
-	private static final int TURN_TICKS = 8;
-	/** Legit Aura's eased mouse needs a few ticks to come back onto them before the next hit. */
-	private static final int LEGIT_TURN_TICKS = 8;
-	/** With the blocks in your offhand the sword never leaves your hand: just a look and a click. */
-	private static final int OFFHAND_TURN_TICKS = 6;
+	/** A turn stops this many ticks before the sword's charged: the flick back onto them takes about that. */
+	private static final int HAND_BACK_TICKS = 3;
+	private static final int MAX_TURN_TICKS = 14, RUSH_TURN_TICKS = 30;
+	/** After a turn the fight gets at least this long, or till the next swing. */
+	private static final int FIGHT_TICKS = 8;
 	/** How many ticks ahead to put the trap around someone on the move. */
 	private static final int LEAD_TICKS = 2;
 
@@ -209,6 +214,16 @@ public class TrapModule extends Module {
 		return open.isEmpty() ? open : new ArrayList<>(open.subList(0, 1));
 	}
 
+	/** Ticks till the held weapon is fully charged again. */
+	private int ticksToCharged() {
+		return (int) Math.ceil((1 - mc.player.getAttackStrengthScale(0.5f)) * mc.player.getCurrentItemAttackStrengthDelay());
+	}
+
+	/** Mid-fight with Rush When Webbed, and they're in a web: the turn runs till the trap's done. */
+	private boolean rushing() {
+		return rushWebbed.get() && target != null && mc.level.getBlockState(target.blockPosition()).is(Blocks.COBWEB);
+	}
+
 	/** Aura's on too: it does the fighting and Trap takes turns between its swings. */
 	private boolean fighting() {
 		return mode.is(Mode.LEGIT) && (FemboyWare.getModules().get(AuraModule.class).isEnabled() || legitFighting());
@@ -253,6 +268,7 @@ public class TrapModule extends Module {
 	private void endTurn() {
 		if (turnTicks == 0) return;
 		turnTicks = 0;
+		fightTicks = FIGHT_TICKS;
 		restoreNext = true;
 		// Still this tick: Aura swinging now would be two actions in one tick
 		turnEndedThisTick = true;
@@ -461,8 +477,10 @@ public class TrapModule extends Module {
 			// the webs first with Web First, the back wall if any of it is in reach, then the web,
 			// then any other block in reach
 			if (webFirst.get() && !filled && fillReachable(feetPos)) stage = Stage.FILL;
-			else if (!escape.isEmpty() && reachNow(escape) > 0) stage = Stage.ESCAPE;
-			else if (backFirst.get() && reachNow(back) > 0) stage = Stage.BACK;
+			// Only a stage with a block you can click now: one in reach but hidden (behind a web) would
+			// hold the whole trap up while what can be placed waits
+			else if (!escape.isEmpty() && reachNow(escape) == 2) stage = Stage.ESCAPE;
+			else if (backFirst.get() && reachNow(back) == 2) stage = Stage.BACK;
 			else if (fillOn() && !filled && fillReachable(feetPos)) stage = Stage.FILL;
 			else stage = missing.isEmpty() ? Stage.DONE : Stage.WALLS;
 		}
@@ -495,16 +513,40 @@ public class TrapModule extends Module {
 				// Blocks in the offhand: no switching, so a turn fits in more of the recharge
 				boolean offhand = offhandBlocks() && stage != Stage.FILL && stage != Stage.ESCAPE;
 				float window = offhand ? 0.6f : legit ? 0.35f : 0.45f;
-				if (mc.player.getAttackStrengthScale(0.5f) > window && auraCanHit()) return;
+				float charge = mc.player.getAttackStrengthScale(0.5f);
+				// The fight's turn: till it's swung (the charge drops) or had long enough to try
+				if (fightTicks > 0) {
+					fightTicks--;
+					if (charge > 0.3f) return;
+					fightTicks = 0;
+				}
+				if (charge > window && auraCanHit()) return;
 				// Nothing it could place from here (all out of reach, or hidden with no jump to show it):
 				// no turn, and the fight carries on undisturbed
 				int chance = stage == Stage.FILL ? (fillReachable(feetPos) ? 2 : 0) : reachNow(stage == Stage.BACK ? back : stage == Stage.ESCAPE ? escape : missing);
-				if (chance == 0 || chance == 1 && !(jump.get() && mc.player.onGround())) return;
+				if (chance == 0 || chance == 1 && !(jump.get() && mc.player.onGround())) {
+					// Nothing to place from here. Once they're stuck (webbed or boxed at the feet) walk
+					// round them to where the rest can be placed; Legit Aura keeps aiming and hitting
+					if (walkTo == null && !missing.isEmpty() && isPinned(target) && ++stuckTicks > 6) {
+						stuckTicks = 0;
+						planWalk(missing);
+					}
+					return;
+				}
 				turnTicks = 1;
+				turnPlaced = 0;
 				clickBlocked = true;
 			} else {
 				clickBlocked = false;
-				if (++turnTicks > (offhandBlocks() && stage != Stage.FILL && stage != Stage.ESCAPE ? OFFHAND_TURN_TICKS : legit ? LEGIT_TURN_TICKS : TURN_TICKS)) {
+				++turnTicks;
+				if (rushing()) {
+					// Stuck in a web: finish it now, the hits can wait a second
+					if (turnTicks > RUSH_TURN_TICKS) {
+						endTurn();
+						return;
+					}
+				} else if (turnTicks > MAX_TURN_TICKS || turnTicks > 2 && ticksToCharged() <= HAND_BACK_TICKS) {
+					// Give the view back in time to flick onto them for the charged hit
 					endTurn();
 					return;
 				}
@@ -528,8 +570,8 @@ public class TrapModule extends Module {
 			case WALLS -> placeAll(missing);
 			default -> false;
 		};
-		// One block a turn, then back to the fight
-		if (fighting && placed) endTurn();
+		// As many as fit in the turn, then back to the fight (the web on its own is a turn, it needs a switch)
+		if (fighting && placed && (++turnPlaced >= 8 || stage == Stage.FILL && !rushing())) endTurn();
 		if (placed) {
 			stuckTicks = 0;
 			walkTo = null;
@@ -708,7 +750,10 @@ public class TrapModule extends Module {
 		Vec3 heading = moving() ? velocity().normalize() : null;
 		Vec3 centre = target.position();
 		List<BlockPos> ordered = new ArrayList<>(list);
+		boolean lowFirst = fighting();
 		ordered.sort((a, b) -> {
+			// Mid-fight the blocks at their feet first: those are what stop them walking out
+			if (lowFirst && a.getY() != b.getY()) return Integer.compare(a.getY(), b.getY());
 			if (heading != null) {
 				double da = heading.dot(Vec3.atCenterOf(a).subtract(centre).multiply(1, 0, 1).normalize());
 				double db = heading.dot(Vec3.atCenterOf(b).subtract(centre).multiply(1, 0, 1).normalize());
@@ -1109,7 +1154,7 @@ public class TrapModule extends Module {
 		// Jump when a jump would show you a block you can't see from the ground
 		boolean doJump = jump.get() && mc.player.onGround() && needJump && aimingAt == null;
 		// Legit Aura is chasing and strafing for you; a jump on Trap's turn still helps it see the high blocks
-		if (legitFighting() && legitTarget() != null) {
+		if (legitFighting() && legitTarget() != null && !(walkTo != null && isPinned(target) && followWalk(keys))) {
 			if (needBackOff && turnTicks > 0 && aimingAt == null) {
 				// Standing in a spot the trap needs: a step back, then Legit Aura carries on
 				float frame = mc.player.getYRot();
@@ -1121,6 +1166,18 @@ public class TrapModule extends Module {
 			if (doJump && turnTicks > 0) mc.player.input.keyPresses = new Input(keys.forward(), keys.backward(), keys.left(), keys.right(), true, keys.shift(), keys.sprint());
 			return;
 		}
+		if (followWalk(keys)) return;
+		// Hands off WASD and it walks in, steps back or runs at them as usual
+		if (fighting() && (keys.forward() || keys.backward() || keys.left() || keys.right())) {
+			// Mid-fight your own WASD stays yours (strafing, chasing); only the jump helps out
+			if (doJump && turnTicks > 0) mc.player.input.keyPresses = new Input(keys.forward(), keys.backward(), keys.left(), keys.right(), true, keys.shift(), keys.sprint());
+			return;
+		}
+		walkRest(keys, doJump);
+	}
+
+	/** Walks the planned way round them, while your own WASD is off it. True while it's walking. */
+	private boolean followWalk(Input keys) {
 		if (walkTo != null && !(keys.forward() || keys.backward() || keys.left() || keys.right())) {
 			Vec3 me = mc.player.position();
 			if (me.multiply(1, 0, 1).distanceTo(walkTo.multiply(1, 0, 1)) < 0.4 || ++walkTicks > 120) {
@@ -1128,7 +1185,7 @@ public class TrapModule extends Module {
 				walkTo = null;
 				path = null;
 				stuckTicks = 0;
-				return;
+				return false;
 			}
 			Vec3 next = walkTo;
 			if (path != null) {
@@ -1137,16 +1194,15 @@ public class TrapModule extends Module {
 			} else next = around(walkTo);
 			float frame = FreeLook.active() ? FreeLook.yaw() : mc.player.getYRot();
 			int[] k = MoveFix.keysToward(frame, Rotation.between(me, next).yaw());
-			mc.player.input.keyPresses = new Input(k[0] > 0, k[0] < 0, k[1] > 0, k[1] < 0, mc.player.horizontalCollision && mc.player.onGround(), false, false);
+			mc.player.input.keyPresses = new Input(k[0] > 0, k[0] < 0, k[1] > 0, k[1] < 0, mc.player.horizontalCollision && mc.player.onGround(), false, k[0] > 0);
 			((InputAccessor) mc.player.input).femboyware$setMovementVector(new Vec2(k[1], k[0]).normalized());
-			return;
+			return true;
 		}
-		// Hands off WASD and it walks in, steps back or runs at them as usual
-		if (fighting() && (keys.forward() || keys.backward() || keys.left() || keys.right())) {
-			// Mid-fight your own WASD stays yours (strafing, chasing); only the jump helps out
-			if (doJump && turnTicks > 0) mc.player.input.keyPresses = new Input(keys.forward(), keys.backward(), keys.left(), keys.right(), true, keys.shift(), keys.sprint());
-			return;
-		}
+		return false;
+	}
+
+	/** Backing off, running in or jumping, with your hands off WASD. */
+	private void walkRest(Input keys, boolean doJump) {
 		if (needBackOff && aimingAt == null && stage != Stage.HIT) {
 			// Your own body is in a spot the trap needs: back away from them
 			float frame = FreeLook.active() ? FreeLook.yaw() : mc.player.getYRot();
