@@ -410,6 +410,40 @@ public class ScaffoldModule extends Module {
 		return mc.player.position().add(v.x + push.x, dy, v.z + push.z);
 	}
 
+	/**
+	 * femboyware: eye heights a click has to land from. Hypixel runs 1.8, where sneaking puts your eyes
+	 * at 1.54 instead of 1.21's 1.27, so a sneaking click aimed from 1.21's eyes can miss on their end
+	 * and the block's taken back; and Ledge may start or stop sneaking right after the aim is chosen.
+	 */
+	private static final double[] EYE_HEIGHTS = {1.62, 1.54, 1.27};
+
+	/** Whether looking along {@code rotation} from feet at {@code feet} clicks {@code target} from every eye height above. */
+	private boolean landsFromAllEyes(PlacementTarget target, Rotation rotation, Vec3 feet) {
+		Vec3 look = rotation.toVector();
+		for (double height : EYE_HEIGHTS) {
+			BlockHitResult hit = TargetFinding.traceFromPoint(feet.add(0, height, 0), look, mc.player.blockInteractionRange());
+			if (!target.matches(hit) || !validCrosshair(hit)) return false;
+		}
+		return true;
+	}
+
+	/** Searches pitch at {@code yaw} for a look that clicks {@code target} from every eye height. */
+	private Rotation pitchForAllEyes(PlacementTarget target, float yaw, float pitch0, Vec3 feet) {
+		for (int i = 0; i <= 120; i++) {
+			float pitch = pitch0 + ((i & 1) == 0 ? 1 : -1) * (i / 2) * 0.25f;
+			if (pitch < -90f || pitch > 90f) continue;
+			Rotation candidate = new Rotation(yaw, pitch);
+			if (landsFromAllEyes(target, candidate, feet)) return candidate;
+		}
+		return null;
+	}
+
+	/** Whether standing at {@code feet} there'd be a block under some part of you. */
+	private boolean supportedAt(Vec3 feet) {
+		AABB box = mc.player.getBoundingBox().move(feet.subtract(mc.player.position())).move(0, -0.6, 0).setMaxY(feet.y - 0.01);
+		return mc.level.getBlockCollisions(mc.player, box).iterator().hasNext();
+	}
+
 	private Vec3 nextEyes() {
 		return nextPosition().add(0, mc.player.getEyeHeight(), 0);
 	}
@@ -572,6 +606,10 @@ public class ScaffoldModule extends Module {
 			Rotation aligned = keyAlignedRotation(target);
 			if (aligned != null) return aligned;
 		}
+		if (!isTowering()) {
+			Rotation safe = pitchForAllEyes(target, target.rotation().yaw(), target.rotation().pitch(), nextPosition());
+			if (safe != null) return safe;
+		}
 		return target.rotation();
 	}
 
@@ -591,17 +629,12 @@ public class ScaffoldModule extends Module {
 		}
 		float yaw = base + Mth.wrapDegrees(best - base);
 		if (Math.abs(Mth.wrapDegrees(yaw - base)) > 23f) return null;
-		float pitch0 = target.rotation().pitch();
-		for (int i = 0; i <= 80; i++) {
-			float pitch = pitch0 + ((i & 1) == 0 ? 1 : -1) * (i / 2) * 0.5f;
-			if (pitch < -90f || pitch > 90f) continue;
-			Rotation candidate = new Rotation(yaw, pitch);
-			BlockHitResult hit = TargetFinding.traceFromPoint(nextEyes(), candidate.toVector(), mc.player.blockInteractionRange());
-			if (!target.matches(hit) || !validCrosshair(hit)) continue;
-			if (requiresSight.get() && !hit.getBlockPos().equals(target.interactedBlockPos())) continue;
-			return candidate;
+		Rotation found = pitchForAllEyes(target, yaw, target.rotation().pitch(), nextPosition());
+		if (found != null && requiresSight.get()) {
+			BlockHitResult hit = TargetFinding.traceFromPoint(nextEyes(), found.toVector(), mc.player.blockInteractionRange());
+			if (!hit.getBlockPos().equals(target.interactedBlockPos())) return null;
 		}
-		return null;
+		return found;
 	}
 
 	/** femboyware: whether either God Bridge diagonal lands on {@code target} from where you stand. */
@@ -847,6 +880,9 @@ public class ScaffoldModule extends Module {
 		if (!rotate.get() && target != null) rotation = target.rotation();
 		BlockHitResult hit = crosshairFor(target, rotation);
 		if (target == null || hit == null || !validCrosshair(hit)) return;
+		// femboyware: flat bridging, click only when it also lands from 1.8's eye heights (see EYE_HEIGHTS),
+		// or Hypixel takes the block back; Ledge holds you at the edge meanwhile
+		if (mc.player.onGround() && !isTowering() && rotate.get() && !landsFromAllEyes(target, rotation, mc.player.position())) return;
 
 		boolean mainHand = isValidBlock(mc.player.getMainHandItem());
 		boolean offHand = isValidBlock(mc.player.getOffhandItem());
@@ -962,9 +998,17 @@ public class ScaffoldModule extends Module {
 				// nothing to click), so you never walk off before the block's in
 				// From where this tick's movement leaves you, which is where the click goes out from
 				BlockHitResult now = target != null ? TargetFinding.traceFromPoint(nextEyes(), rotation.toVector(), mc.player.blockInteractionRange()) : null;
-				boolean placeable = now != null && target.matches(now) && validCrosshair(now);
+				boolean placeable = now != null && target.matches(now) && validCrosshair(now) && landsFromAllEyes(target, rotation, nextPosition());
 				boolean needsBlock = mc.level.getBlockState(BlockPos.containing(mc.player.position().add(Vec3.directionFromRotation(0, movementYaw(keys.forward(), keys.backward(), keys.left(), keys.right())).scale(0.4))).below()).canBeReplaced();
 				if (blockCount() <= 0 || ticks >= 1 || needsBlock && !placeable) sneakTime = Math.max(1, ticks);
+			}
+			// femboyware: whatever the aim's doing, never take the step that leaves you over nothing: if this
+			// tick's walk (and a bit) would, sneak, and vanilla's sneak stops you at the edge till the block's in.
+			// Going diagonally you cross corners, where the 0.1 edge check above notices too late
+			if (sneakTime == 0 && mc.player.onGround() && (keys.forward() || keys.backward() || keys.left() || keys.right()) && !isTowering()) {
+				Vec3 dir = Vec3.directionFromRotation(0, movementYaw(keys.forward(), keys.backward(), keys.left(), keys.right()));
+				Vec3 next = nextPosition().add(dir.scale(0.15));
+				if (!supportedAt(next)) sneakTime = 1;
 			}
 			if (sneakTime == 0 && active == Technique.GOD_BRIDGE && target != null) {
 				// Held at the edge (the walk would take you off it): if the aim can't place from here, act
