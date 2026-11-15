@@ -11,4 +11,10 @@ public interface ClientPlayerEntityAccessor {
 
 	@Accessor("xRotLast")
 	void femboyware$setLastPitch(float pitch);
+
+	@Accessor("yRotLast")
+	float femboyware$getLastYaw();
+
+	@Accessor("xRotLast")
+	float femboyware$getLastPitch();
 }

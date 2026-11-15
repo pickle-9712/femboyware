@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Predicate;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -76,6 +77,8 @@ public class TrapModule extends Module {
 	private final BoolSetting jump = add(new BoolSetting("Jump", "Jump while trapping, to reach the high blocks and look the part", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
 	private final BoolSetting realLook = add(new BoolSetting("Real Look", "Really turn your head to each block (no silent rotation), with free look so you can still look anywhere", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
 	private final BoolSetting thirdPerson = add(new BoolSetting("Third Person", "Switch to third person while Real Look turns your head", true)).visibleWhen(() -> mode.is(Mode.LEGIT) && realLook.get());
+	private final BoolSetting autoOffhand = add(new BoolSetting("Auto Offhand", "Put your trap blocks in your offhand the way you would (select them, press swap hands, back to your sword), so you keep fighting with the sword while it places. Never swaps out a totem", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
+	private final NumberSetting flickSpeed = add(new NumberSetting("Flick Speed", "How fast your view flicks onto each block: turned every frame in whole mouse steps at your sensitivity, easing in as it arrives", 30, 4, 60, 1)).visibleWhen(() -> mode.is(Mode.LEGIT));
 	private final RotationSettings rotations = new RotationSettings(s -> add(s), () -> mode.is(Mode.LEGIT), 45f);
 	private final NumberSetting blocksPerTick = add(new NumberSetting("Blocks Per Tick", "Max placements per tick", 4, 1, 12, 1)).visibleWhen(() -> mode.is(Mode.PACKET));
 	private final BoolSetting rotate = add(new BoolSetting("Rotate", "Send a rotation packet before placing", true)).visibleWhen(() -> mode.is(Mode.PACKET));
@@ -106,6 +109,14 @@ public class TrapModule extends Module {
 	private boolean restoreNext, turnEndedThisTick;
 	/** Where the knockback hit went in, so it's only done again once they've got well away. */
 	private BlockPos hitAt;
+	/** The block this turn is going for: kept till it's in, so the look doesn't chase a new one every tick. */
+	private BlockPos committed;
+	/** Where the view is flicking to this tick (frame turning), or null. */
+	private Vec3 aimPoint;
+	private long lastFrame;
+	private double yawCarry, pitchCarry;
+	/** Auto Offhand: 1 = the block stack's selected, 2 = swap sent. */
+	private int offhandStep;
 	/** The head-height block left open to hit through, picked once on your side. */
 	private BlockPos gap;
 	/** Ticks the trap has gone without a block while blocks are missing, to walk round for a better view. */
@@ -114,7 +125,9 @@ public class TrapModule extends Module {
 	private Vec3 walkTo;
 	private static final int TURN_TICKS = 8;
 	/** Legit Aura's eased mouse needs a few ticks to come back onto them before the next hit. */
-	private static final int LEGIT_TURN_TICKS = 6;
+	private static final int LEGIT_TURN_TICKS = 8;
+	/** With the blocks in your offhand the sword never leaves your hand: just a look and a click. */
+	private static final int OFFHAND_TURN_TICKS = 6;
 	/** How many ticks ahead to put the trap around someone on the move. */
 	private static final int LEAD_TICKS = 2;
 
@@ -141,7 +154,7 @@ public class TrapModule extends Module {
 	 * never fight over your look or do two things in one tick.
 	 */
 	public boolean isBusy() {
-		return isEnabled() && working && mode.is(Mode.LEGIT) && (!fighting() || turnTicks > 0 || turnEndedThisTick);
+		return isEnabled() && mode.is(Mode.LEGIT) && (offhandStep > 0 || working && (!fighting() || turnTicks > 0 || turnEndedThisTick));
 	}
 
 	/** Aura's on too: it does the fighting and Trap takes turns between its swings. */
@@ -231,6 +244,56 @@ public class TrapModule extends Module {
 		return block.defaultBlockState().isCollisionShapeFullBlock(mc.level, BlockPos.ZERO);
 	}
 
+	/**
+	 * Auto Offhand, one step a tick like a player: select the block stack, press swap hands, then
+	 * (next tick) back to the sword. True while it's busy with that.
+	 */
+	private boolean autoOffhandTick() {
+		if (offhandStep == 2) {
+			offhandStep = 0;
+			restoreSlot();
+			return true;
+		}
+		if (!mode.is(Mode.LEGIT) || !autoOffhand.get() || Mc.screen() != null || mc.player.isUsingItem()) {
+			offhandStep = 0;
+			return false;
+		}
+		ItemStack offhand = mc.player.getOffhandItem();
+		if (isTrapBlock(offhand) || offhand.is(Items.TOTEM_OF_UNDYING)) {
+			offhandStep = 0;
+			return false;
+		}
+		int slot = -1;
+		for (int i = 0; i < 9; i++) {
+			ItemStack stack = mc.player.getInventory().getItem(i);
+			if (isTrapBlock(stack) && (slot < 0 || resistance(stack) > resistance(mc.player.getInventory().getItem(slot)))) slot = i;
+		}
+		if (slot < 0) {
+			offhandStep = 0;
+			return false;
+		}
+		if (mc.player.getInventory().getSelectedSlot() != slot) {
+			readySlot(slot);
+			offhandStep = 1;
+			return true;
+		}
+		if (sinceSwitch < 1) {
+			offhandStep = 1;
+			return true;
+		}
+		// The swap-hands key: the server swaps them and tells us
+		mc.getConnection().send(new net.minecraft.network.protocol.game.ServerboundPlayerActionPacket(
+			net.minecraft.network.protocol.game.ServerboundPlayerActionPacket.Action.SWAP_ITEM_WITH_OFFHAND, BlockPos.ZERO, Direction.DOWN));
+		offhandStep = 2;
+		return true;
+	}
+
+	/** Fighting with the trap blocks in your offhand: the sword stays in your main hand the whole time. */
+	private boolean offhandBlocks() {
+		ItemStack best = bestBlock();
+		return best != null && best == mc.player.getOffhandItem();
+	}
+
 	/** The toughest trap block you hold or have on the hotbar, or null. */
 	private ItemStack bestBlock() {
 		ItemStack best = null;
@@ -285,6 +348,8 @@ public class TrapModule extends Module {
 		} else {
 			sinceSwitch++;
 		}
+		aimPoint = null;
+		if (autoOffhandTick()) return;
 		LivingEntity found = findTarget();
 		if (found != target) {
 			target = found;
@@ -340,9 +405,12 @@ public class TrapModule extends Module {
 			// look back in time for its next hit
 			boolean legit = legitFighting();
 			if (turnTicks == 0) {
-				if (mc.player.getAttackStrengthScale(0.5f) > (legit ? 0.35f : 0.45f) && auraCanHit()) return;
+				// Blocks in the offhand: no switching, so a turn fits in more of the recharge
+				boolean offhand = offhandBlocks() && stage != Stage.FILL;
+				float window = offhand ? 0.6f : legit ? 0.35f : 0.45f;
+				if (mc.player.getAttackStrengthScale(0.5f) > window && auraCanHit()) return;
 				turnTicks = 1;
-			} else if (++turnTicks > (legit ? LEGIT_TURN_TICKS : TURN_TICKS)) {
+			} else if (++turnTicks > (offhandBlocks() && stage != Stage.FILL ? OFFHAND_TURN_TICKS : legit ? LEGIT_TURN_TICKS : TURN_TICKS)) {
 				endTurn();
 				return;
 			}
@@ -455,6 +523,7 @@ public class TrapModule extends Module {
 	}
 
 	private void resetStages() {
+		committed = null;
 		gap = null;
 		stuckTicks = 0;
 		hitDone = false;
@@ -506,6 +575,18 @@ public class TrapModule extends Module {
 			}
 			return Double.compare(Vec3.atCenterOf(b).distanceToSqr(eyes), Vec3.atCenterOf(a).distanceToSqr(eyes));
 		});
+		if (committed != null) {
+			if (mc.level.getBlockState(committed).canBeReplaced() && !BlockUtil.hasBlockingEntity(committed, false)) {
+				BlockHitResult planned = visiblePlacement(committed);
+				if (planned != null) {
+					aimingAt = committed;
+					boolean placed = placeAimed(planned, item);
+					if (placed) committed = null;
+					return placed;
+				}
+			}
+			committed = null;
+		}
 		Vec3 lookAt = null;
 		for (BlockPos pos : ordered) {
 			if (!mc.level.getBlockState(pos).canBeReplaced()) continue;
@@ -520,7 +601,9 @@ public class TrapModule extends Module {
 				continue;
 			}
 			aimingAt = pos;
-			return placeAimed(planned, item);
+			boolean placed = placeAimed(planned, item);
+			committed = placed ? null : pos;
+			return placed;
 		}
 		// Nothing to click from here yet: look at the next block while jumping or walking to it
 		if (lookAt != null) aim(lookAt);
@@ -596,13 +679,75 @@ public class TrapModule extends Module {
 	// ---------------------------------------------------------------- legit placement
 
 	private void aim(Vec3 point) {
-		FemboyWare.getRotations().request(Rotation.between(mc.player.getEyePosition(), point), ROTATION_PRIORITY, rotations, realLook.get() || legitFighting());
+		if (frameAim()) {
+			aimPoint = point;
+			return;
+		}
+		FemboyWare.getRotations().request(Rotation.between(mc.player.getEyePosition(), point), ROTATION_PRIORITY, rotations, false);
+	}
+
+	/** Legit with your real view or head turning (next to Legit Aura, or Real Look): turned frame by frame. */
+	private boolean frameAim() {
+		return mode.is(Mode.LEGIT) && (realLook.get() || legitFighting());
+	}
+
+	/**
+	 * A quick flick onto the block, the way a hand moves a mouse: every frame, a share of what's
+	 * left (fast at first, easing in at the end, a little uneven), in whole mouse steps at your
+	 * sensitivity. The rotation then changes smoothly between ticks instead of jumping on each one.
+	 */
+	@Override
+	public void onFrame() {
+		long now = System.nanoTime();
+		float seconds = lastFrame == 0 ? 0 : Math.min(0.1f, (now - lastFrame) / 1e9f);
+		lastFrame = now;
+		if (aimPoint == null || seconds <= 0 || mc.player == null || Mc.screen() != null) {
+			yawCarry = pitchCarry = 0;
+			return;
+		}
+		float tickDelta = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
+		Rotation wanted = Rotation.between(mc.player.getEyePosition(tickDelta), aimPoint);
+		double yawLeft = Mth.wrapDegrees(wanted.yaw() - mc.player.getYRot());
+		double pitchLeft = wanted.pitch() - mc.player.getXRot();
+		double follow = 1 - Math.exp(-flickSpeed.get() * seconds);
+		double wobble = 0.85 + ThreadLocalRandom.current().nextDouble() * 0.3;
+		double yawStep = yawLeft * follow * wobble + yawCarry;
+		double pitchStep = pitchLeft * follow * wobble + pitchCarry;
+		// Whole mouse counts, as Minecraft turns for a real mouse
+		double sensitivity = mc.options.sensitivity().get() * 0.6 + 0.2;
+		double perCount = sensitivity * sensitivity * sensitivity * 8;
+		double degreesPerCount = perCount * 0.15;
+		long yawCounts = Math.round(yawStep / degreesPerCount);
+		long pitchCounts = Math.round(pitchStep / degreesPerCount);
+		yawCarry = yawStep - yawCounts * degreesPerCount;
+		pitchCarry = pitchStep - pitchCounts * degreesPerCount;
+		if (yawCounts == 0 && pitchCounts == 0) return;
+		// Straight onto the player, past free look's grab on the mouse, so Real Look turns the head
+		float dYaw = (float) (yawCounts * degreesPerCount), dPitch = (float) (pitchCounts * degreesPerCount);
+		float pitch = Mth.clamp(mc.player.getXRot() + dPitch, -90f, 90f);
+		dPitch = pitch - mc.player.getXRot();
+		mc.player.setYRot(mc.player.getYRot() + dYaw);
+		mc.player.setXRot(pitch);
+		mc.player.yRotO += dYaw;
+		mc.player.xRotO += dPitch;
+	}
+
+	/**
+	 * The rotation the server has: with frame turning, the one in the last movement packet, since
+	 * the view keeps moving between ticks and a click is checked against what was sent.
+	 */
+	private Rotation sentRotation() {
+		if (frameAim() && mc.player instanceof net.minecraft.client.player.LocalPlayer) {
+			var sent = (dev.femboyware.mixin.ClientPlayerEntityAccessor) mc.player;
+			return new Rotation(sent.femboyware$getLastYaw(), sent.femboyware$getLastPitch());
+		}
+		return FemboyWare.getRotations().getServerRotation();
 	}
 
 	/** Where the rotation the server has looks, or null. */
 	private BlockHitResult seen() {
 		Vec3 eyes = mc.player.getEyePosition();
-		Vec3 end = eyes.add(FemboyWare.getRotations().getServerRotation().toVector().scale(mc.player.blockInteractionRange()));
+		Vec3 end = eyes.add(sentRotation().toVector().scale(mc.player.blockInteractionRange()));
 		BlockHitResult hit = mc.level.clip(new ClipContext(eyes, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, mc.player));
 		return hit.getType() == HitResult.Type.BLOCK ? hit : null;
 	}
@@ -619,6 +764,12 @@ public class TrapModule extends Module {
 		if (!ready(item)) return false;
 		BlockHitResult click = new BlockHitResult(seen.getLocation(), seen.getDirection(), seen.getBlockPos(), false);
 		InteractionHand hand = item.test(mc.player.getMainHandItem()) ? InteractionHand.MAIN_HAND : InteractionHand.OFF_HAND;
+		// A right click tries the main hand first and only then the offhand, as vanilla does
+		if (hand == InteractionHand.OFF_HAND && !mc.player.getMainHandItem().isEmpty()
+			&& mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, click).consumesAction()) {
+			mc.player.swing(InteractionHand.MAIN_HAND);
+			return true;
+		}
 		if (mc.gameMode.useItemOn(mc.player, hand, click).consumesAction()) mc.player.swing(hand);
 		return true;
 	}
@@ -647,7 +798,7 @@ public class TrapModule extends Module {
 		AABB box = target.getBoundingBox();
 		Vec3 eyes = mc.player.getEyePosition();
 		aim(BlockUtil.closestPoint(box.deflate(0.1), eyes));
-		Vec3 end = eyes.add(FemboyWare.getRotations().getServerRotation().toVector().scale(3.0));
+		Vec3 end = eyes.add(sentRotation().toVector().scale(3.0));
 		var point = box.clip(eyes, end);
 		boolean onTarget = box.contains(eyes) || point.isPresent()
 			// Not through a wall: the server checks that
