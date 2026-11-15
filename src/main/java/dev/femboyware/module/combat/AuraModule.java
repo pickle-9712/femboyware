@@ -233,7 +233,7 @@ public class AuraModule extends Module {
 		} else {
 			ticksSinceSwitch++;
 		}
-		target = findTarget();
+		target = trapBusy() ? null : findTarget();
 		if (target == null) {
 			reset();
 			return;
@@ -289,9 +289,20 @@ public class AuraModule extends Module {
 		FemboyWare.getRotations().request(current, ROTATION_PRIORITY, 180f, clientLook.get());
 	}
 
+	/** Trap's legit mode has the look and the clicks right now: Aura waits its turn. */
+	private static boolean trapBusy() {
+		return FemboyWare.getModules().get(TrapModule.class).isBusy();
+	}
+
 	@Override
 	public void onPostMotion() {
 		if (clickMode.is(ClickMode.CLICKER)) clicker.tick();
+		if (trapBusy()) {
+			// Lower the shield: placing with it up is two actions at once
+			if (blocking && mc.player.isUsingItem()) mc.gameMode.releaseUsingItem(mc.player);
+			blocking = false;
+			return;
+		}
 		if (pauseTicks > 0) {
 			pauseTicks--;
 			return;

@@ -14,6 +14,7 @@ import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.util.BlockUtil;
 import dev.femboyware.util.FreeLook;
 import dev.femboyware.util.InventoryUtil;
+import dev.femboyware.util.Mc;
 import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.MoveFix;
 import dev.femboyware.util.PlaceUtil;
@@ -74,11 +75,11 @@ public class TrapModule extends Module {
 	private final BoolSetting jump = add(new BoolSetting("Jump", "Jump while trapping, to reach the high blocks and look the part", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
 	private final BoolSetting realLook = add(new BoolSetting("Real Look", "Really turn your head to each block (no silent rotation), with free look so you can still look anywhere", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
 	private final BoolSetting thirdPerson = add(new BoolSetting("Third Person", "Switch to third person while Real Look turns your head", true)).visibleWhen(() -> mode.is(Mode.LEGIT) && realLook.get());
-	private final RotationSettings rotations = new RotationSettings(s -> add(s), () -> mode.is(Mode.LEGIT), 180f);
+	private final RotationSettings rotations = new RotationSettings(s -> add(s), () -> mode.is(Mode.LEGIT), 45f);
 	private final NumberSetting blocksPerTick = add(new NumberSetting("Blocks Per Tick", "Max placements per tick", 4, 1, 12, 1)).visibleWhen(() -> mode.is(Mode.PACKET));
 	private final BoolSetting rotate = add(new BoolSetting("Rotate", "Send a rotation packet before placing", true)).visibleWhen(() -> mode.is(Mode.PACKET));
 	private final BoolSetting strict = add(new BoolSetting("Strict", "Only click faces you can see", false)).visibleWhen(() -> mode.is(Mode.PACKET));
-	private final EnumSetting<SwitchMode> switchMode = add(new EnumSetting<>("Switch", "How to switch to blocks", SwitchMode.SILENT));
+	private final EnumSetting<SwitchMode> switchMode = add(new EnumSetting<>("Switch", "How to switch to blocks (Legit always really switches, a tick before using it, and goes back after)", SwitchMode.SILENT)).visibleWhen(() -> mode.is(Mode.PACKET));
 	private final BoolSetting render = add(new BoolSetting("Render", "Highlight trap positions", true));
 	private final ColorSetting color = add(new ColorSetting("Color", "Highlight colour", 0x40FF5577)).visibleWhen(render::get);
 	private final BoolSetting grim = addGrim();
@@ -93,6 +94,9 @@ public class TrapModule extends Module {
 	private BlockPos aimingAt;
 	/** Nothing left to place can be seen from here: a jump might show it, or it's too far and you walk closer. */
 	private boolean needJump, needApproach, needBackOff;
+	/** Legit: the slot you had before the trap took over, to go back to after; -1 when nothing to restore. */
+	private int originalSlot = -1;
+	private int lastSlot = -1, sinceSwitch;
 
 	public TrapModule() {
 		super("Trap", "Traps your target in blocks: back wall, knockback hit, web or lava, then the rest", Category.ATTACK);
@@ -109,6 +113,43 @@ public class TrapModule extends Module {
 		target = null;
 		trappedAt = null;
 		working = false;
+		restoreSlot();
+	}
+
+	/**
+	 * Legit mode is taking turns with Aura: while it traps, Aura doesn't aim or swing, so the two
+	 * never fight over your look or do two things in one tick.
+	 */
+	public boolean isBusy() {
+		return isEnabled() && working && mode.is(Mode.LEGIT);
+	}
+
+	/** Legit: back to the slot you had before the trap, like switching back to your sword. */
+	private void restoreSlot() {
+		if (originalSlot >= 0 && mc.player != null && mc.player.getInventory().getSelectedSlot() != originalSlot) InventoryUtil.select(originalSlot);
+		originalSlot = -1;
+	}
+
+	/**
+	 * Legit: really switch to the item and give it a tick in your hand before using it, like a
+	 * player scrolling to it; true once it's ready.
+	 */
+	private boolean ready(Predicate<ItemStack> item) {
+		if (item.test(mc.player.getOffhandItem()) && !item.test(mc.player.getMainHandItem())) return true;
+		int slot = InventoryUtil.findHotbar(item);
+		if (slot < 0) return false;
+		return readySlot(slot);
+	}
+
+	private boolean readySlot(int slot) {
+		if (mc.player.getInventory().getSelectedSlot() != slot) {
+			if (originalSlot < 0) originalSlot = mc.player.getInventory().getSelectedSlot();
+			InventoryUtil.select(slot);
+			lastSlot = slot;
+			sinceSwitch = 0;
+			return false;
+		}
+		return sinceSwitch >= 1;
 	}
 
 	// ---------------------------------------------------------------- blocks
@@ -161,6 +202,13 @@ public class TrapModule extends Module {
 		working = false;
 		aimingAt = null;
 		needJump = needApproach = needBackOff = false;
+		int selected = mc.player.getInventory().getSelectedSlot();
+		if (selected != lastSlot) {
+			lastSlot = selected;
+			sinceSwitch = 0;
+		} else {
+			sinceSwitch++;
+		}
 		LivingEntity found = findTarget();
 		if (found != target) {
 			target = found;
@@ -168,6 +216,7 @@ public class TrapModule extends Module {
 		}
 		if (target == null) {
 			positions = Set.of();
+			restoreSlot();
 			return;
 		}
 		BlockPos feetPos = BlockPos.containing(target.getX(), target.getY() + 0.2, target.getZ());
@@ -188,9 +237,14 @@ public class TrapModule extends Module {
 		else if (!fill.is(Fill.NONE) && !filled) stage = Stage.FILL;
 		else stage = missing.isEmpty() ? Stage.DONE : Stage.WALLS;
 
-		if (stage == Stage.DONE) return;
+		if (stage == Stage.DONE) {
+			restoreSlot();
+			return;
+		}
 		working = true;
 		if (mode.is(Mode.LEGIT) && realLook.get()) FreeLook.hold(thirdPerson.get());
+		// Eating, blocking or in a menu: a player can't place or hit then, so neither does Legit
+		if (mode.is(Mode.LEGIT) && (mc.player.isUsingItem() || Mc.screen() != null)) return;
 		switch (stage) {
 			case BACK -> placeAll(back);
 			case HIT -> hit();
@@ -257,6 +311,7 @@ public class TrapModule extends Module {
 		Vec3 eyes = mc.player.getEyePosition();
 		List<BlockPos> ordered = new ArrayList<>(list);
 		ordered.sort((a, b) -> Double.compare(Vec3.atCenterOf(b).distanceToSqr(eyes), Vec3.atCenterOf(a).distanceToSqr(eyes)));
+		Vec3 lookAt = null;
 		for (BlockPos pos : ordered) {
 			if (!mc.level.getBlockState(pos).canBeReplaced()) continue;
 			if (BlockUtil.hasBlockingEntity(pos, false)) {
@@ -265,11 +320,16 @@ public class TrapModule extends Module {
 				continue;
 			}
 			BlockHitResult planned = visiblePlacement(pos);
-			if (planned == null) continue;
+			if (planned == null) {
+				if (lookAt == null) lookAt = Vec3.atCenterOf(pos);
+				continue;
+			}
 			aimingAt = pos;
 			placeAimed(planned, item);
 			return;
 		}
+		// Nothing to click from here yet: look at the next block while jumping or walking to it
+		if (lookAt != null) aim(lookAt);
 	}
 
 	/**
@@ -340,13 +400,10 @@ public class TrapModule extends Module {
 			aim(planned.getLocation());
 			return false;
 		}
+		if (!ready(item)) return false;
 		BlockHitResult click = new BlockHitResult(seen.getLocation(), seen.getDirection(), seen.getBlockPos(), false);
-		InteractionHand hand = item.test(mc.player.getOffhandItem()) ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
-		Runnable action = () -> {
-			if (mc.gameMode.useItemOn(mc.player, hand, click).consumesAction()) mc.player.swing(hand);
-		};
-		if (hand == InteractionHand.OFF_HAND) action.run();
-		else if (!InventoryUtil.withSlot(InventoryUtil.findHotbar(item), switchMode.get(), action)) return false;
+		InteractionHand hand = item.test(mc.player.getMainHandItem()) ? InteractionHand.MAIN_HAND : InteractionHand.OFF_HAND;
+		if (mc.gameMode.useItemOn(mc.player, hand, click).consumesAction()) mc.player.swing(hand);
 		return true;
 	}
 
@@ -375,15 +432,23 @@ public class TrapModule extends Module {
 		Vec3 eyes = mc.player.getEyePosition();
 		aim(BlockUtil.closestPoint(box.deflate(0.1), eyes));
 		Vec3 end = eyes.add(FemboyWare.getRotations().getServerRotation().toVector().scale(3.0));
-		boolean onTarget = box.contains(eyes) || box.clip(eyes, end).isPresent();
+		var point = box.clip(eyes, end);
+		boolean onTarget = box.contains(eyes) || point.isPresent()
+			// Not through a wall: the server checks that
+			&& mc.level.clip(new ClipContext(eyes, point.get(), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, mc.player)).getType() == HitResult.Type.MISS;
+		int slot = bestKnockbackSlot();
+		boolean legit = mode.is(Mode.LEGIT);
+		// Scroll to the knockback weapon while running at them
+		if (legit && !readySlot(slot)) return;
 		// A sprint hit at full charge gives the extra knockback
 		if (!onTarget || mc.player.getAttackStrengthScale(0.5f) < 0.95f || !mc.player.isSprinting() && hitTicks < 30) return;
-		int slot = bestKnockbackSlot();
 		LivingEntity victim = target;
-		InventoryUtil.withSlot(slot, SwitchMode.SILENT, () -> {
+		Runnable attack = () -> {
 			mc.gameMode.attack(mc.player, victim);
 			mc.player.swing(InteractionHand.MAIN_HAND);
-		});
+		};
+		if (legit) attack.run();
+		else InventoryUtil.withSlot(slot, SwitchMode.SILENT, attack);
 		hitDone = true;
 	}
 
@@ -399,7 +464,10 @@ public class TrapModule extends Module {
 			return;
 		}
 		// Wait for them to land after the knockback, or the web holds them up in the air with their head where the roof goes
-		if ((!target.onGround() || target.getY() - feetPos.getY() > 0.05) && ++fillWait < 40) return;
+		if ((!target.onGround() || target.getY() - feetPos.getY() > 0.05) && ++fillWait < 40) {
+			if (mode.is(Mode.LEGIT)) aim(new Vec3(feetPos.getX() + 0.5, feetPos.getY(), feetPos.getZ() + 0.5));
+			return;
+		}
 		BlockPos ground = feetPos.below();
 		if (mc.level.getBlockState(ground).canBeReplaced()) {
 			// Nothing under them to click on
@@ -435,7 +503,11 @@ public class TrapModule extends Module {
 			mc.player.setYRot(yaw);
 			mc.player.setXRot(pitch);
 		};
-		if (hand == InteractionHand.OFF_HAND) action.run();
+		if (mode.is(Mode.LEGIT)) {
+			if (!ready(item)) return;
+			InteractionHand held = item.test(mc.player.getMainHandItem()) ? InteractionHand.MAIN_HAND : InteractionHand.OFF_HAND;
+			if (mc.gameMode.useItem(mc.player, held).consumesAction()) mc.player.swing(held);
+		} else if (hand == InteractionHand.OFF_HAND) action.run();
 		else InventoryUtil.withSlot(InventoryUtil.findHotbar(item), switchMode.get(), action);
 		filled = true;
 	}
@@ -469,7 +541,6 @@ public class TrapModule extends Module {
 			}
 			mc.player.input.keyPresses = new Input(k[0] > 0, k[0] < 0, k[1] > 0, k[1] < 0, doJump || keys.jump(), false, true);
 			((InputAccessor) mc.player.input).femboyware$setMovementVector(new Vec2(k[1], k[0]).normalized());
-			if (k[0] > 0 || FreeLook.active()) mc.player.setSprinting(true);
 			return;
 		}
 		if (doJump) mc.player.input.keyPresses = new Input(keys.forward(), keys.backward(), keys.left(), keys.right(), true, keys.shift(), keys.sprint());
