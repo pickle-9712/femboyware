@@ -2,6 +2,7 @@ package dev.femboyware.module.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.math.Axis;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.manager.CommandManager;
@@ -82,12 +83,16 @@ public class CosmeticsModule extends Module {
 	private final EnumSetting<Watch> watch = add(new EnumSetting<>("Watch", "A watch on your left wrist", Watch.ICED));
 	private final BoolSetting onFakes = add(new BoolSetting("Fake Players", "Fake players wear your cosmetics too, each with its own random horns", true));
 	/** Who you gave the cosmetics to with .cos give, as name:horns pairs. Only saved, never shown. */
+	private final StringSetting hatIds = add(new StringSetting("Hats", "Roblox hat ids (or catalog links) to wear, separated by commas. Use " + CommandManager.PREFIX + "hat add <id>", ""));
+	private final NumberSetting hatSize = add(new NumberSetting("Hat Size", "How big the hats are next to your head", 1.0, 0.5, 2.0, 0.05)).visibleWhen(() -> !hatIds.get().isBlank());
+	private final NumberSetting hatRaise = add(new NumberSetting("Hat Raise", "Moves the hats up or down, in pixels", 0, -4, 4, 0.25)).visibleWhen(() -> !hatIds.get().isBlank());
+	private final RobloxHats robloxHats = new RobloxHats(this, hatIds, hatSize, hatRaise);
 	private final StringSetting givenTo = add(new StringSetting("Given To", "", "")).visibleWhen(() -> false);
 	private String givenParsedFrom;
 	private Map<String, String> givenParsed = Map.of();
 
 	public CosmeticsModule() {
-		super("Cosmetics", "Korblox leg, headless and Roblox horns", Category.LARP);
+		super("Cosmetics", "Korblox leg, headless, Roblox horns and any Roblox hat", Category.LARP);
 		LivingEntityFeatureRendererRegistrationCallback.EVENT.register((type, renderer, helper, context) -> {
 			if (renderer instanceof AvatarRenderer<?> player) helper.register(new Feature(asContext(player)));
 		});
@@ -104,7 +109,20 @@ public class CosmeticsModule extends Module {
 
 	@Override
 	public String getInfo() {
-		return horns.is(Horns.OFF) ? null : horns.getDisplayName();
+		String hornInfo = horns.is(Horns.OFF) ? null : horns.getDisplayName();
+		String hatInfo = robloxHats.info();
+		if (hatInfo == null) return hornInfo;
+		return hornInfo == null ? hatInfo : hornInfo + ", " + hatInfo;
+	}
+
+	@Override
+	public void onTick() {
+		robloxHats.tick();
+	}
+
+	/** The Roblox hats you wear ({@code .hat}). */
+	public RobloxHats robloxHats() {
+		return robloxHats;
 	}
 
 	// ---------------------------------------------------------------- Client Sync
@@ -131,16 +149,25 @@ public class CosmeticsModule extends Module {
 
 	/** What another femboyware user (or one of their fake players) is wearing, from Client Sync; null if not shared. */
 	private Worn peer(AvatarRenderState state) {
-		return mc.player == null || state.id == mc.player.getId() ? null
-			: FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class).cosmeticsOf(state.id);
+		return peer(state.id);
+	}
+
+	private Worn peer(int id) {
+		return mc.player == null || id == mc.player.getId() ? null
+			: FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class).cosmeticsOf(id);
 	}
 
 	private boolean wears(AvatarRenderState state) {
 		if (mc.player != null && !state.isInvisible && peer(state) != null) return true;
-		if (!isEnabled() || mc.player == null || mc.level == null || state.isInvisible) return false;
-		if (state.id == mc.player.getId()) return true;
-		if (onFakes.get() && FemboyWare.getModules().get(FakePlayerModule.class).isFake(state.id)) return true;
-		Entity entity = mc.level.getEntity(state.id);
+		return wears(state.id, state.isInvisible);
+	}
+
+	/** Whether your own cosmetics (and hats) go on this one: you, your fake players, who you gave them to, Show On. */
+	boolean wears(int id, boolean invisible) {
+		if (!isEnabled() || mc.player == null || mc.level == null || invisible) return false;
+		if (id == mc.player.getId()) return true;
+		if (onFakes.get() && FemboyWare.getModules().get(FakePlayerModule.class).isFake(id)) return true;
+		Entity entity = mc.level.getEntity(id);
 		if (!(entity instanceof Player player)) return false;
 		if (given().containsKey(nameOf(player))) return true;
 		if (showOn.is(ShowOn.YOU)) return false;
@@ -153,9 +180,13 @@ public class CosmeticsModule extends Module {
 	 * horns off, only players you gave a kind to have any.
 	 */
 	private Horns hornsFor(AvatarRenderState state) {
+		return hornsFor(state.id);
+	}
+
+	private Horns hornsFor(int id) {
 		Horns yours = horns.get();
-		if (mc.player == null || state.id == mc.player.getId()) return yours;
-		Entity entity = mc.level.getEntity(state.id);
+		if (mc.player == null || id == mc.player.getId()) return yours;
+		Entity entity = mc.level.getEntity(id);
 		if (entity instanceof Player player) {
 			String pick = given().get(nameOf(player));
 			if (pick != null && !pick.equals(GIVE_SAME)) {
@@ -164,7 +195,7 @@ public class CosmeticsModule extends Module {
 			}
 		}
 		if (yours == Horns.OFF || entity == null) return yours;
-		if (!onFakes.get() || !FemboyWare.getModules().get(FakePlayerModule.class).isFake(state.id)) return yours;
+		if (!onFakes.get() || !FemboyWare.getModules().get(FakePlayerModule.class).isFake(id)) return yours;
 		return randomHorns(entity);
 	}
 
@@ -324,6 +355,48 @@ public class CosmeticsModule extends Module {
 			}
 			matrices.popPose();
 		}
+	}
+
+	/**
+	 * Tung Tung Tung Sahur has no player head, so his log's top wears the horns, their fire and the
+	 * hats. Called from Player Model with where he's drawn: {@code at} his feet relative to the camera,
+	 * {@code yaw} his turn (radians, as he's drawn), {@code size} his scale.
+	 */
+	public void decorateSahur(Render3DEvent event, Player player, Vec3 at, float yaw, float size) {
+		int id = player.getId();
+		boolean invisible = player.isInvisible();
+		Worn peer = mc.player != null && !invisible ? peer(id) : null;
+		boolean mine = peer == null && wears(id, invisible);
+		// Where his head would be: the top of the log, which is a little wider than a head
+		float head = TungSahurModule.LOG_TOP * size, k = TungSahurModule.RADIUS * 2 / 0.5f * size;
+		int light = 0xF000F0;
+		PoseStack matrices = event.matrices();
+		matrices.pushPose();
+		matrices.translate(at.x, at.y + head, at.z);
+		matrices.mulPose(Axis.YP.rotation(yaw));
+		// Into head-model space: y down, the face toward -z
+		matrices.scale(k, -k, -k);
+		if (peer != null || mine) {
+			Horns style = peer != null ? peer.horns() : hornsFor(id);
+			Mesh hornMesh = horns();
+			if (style != Horns.OFF && hornMesh.triangles() > 0) {
+				float hornScale = peer != null ? Mth.clamp(peer.hornSize(), 0.15f, 0.5f) : hornSize.get().floatValue();
+				boolean burning = peer != null ? peer.fire() : fire.get();
+				matrices.pushPose();
+				matrices.scale(hornScale, hornScale, hornScale);
+				hornMesh.draw(matrices.last(), event.consumers().getBuffer(cutout(style.texture)), light);
+				matrices.popPose();
+				if (burning && fires.size() < MAX_FIRES) {
+					// Camera-relative, straight up from the middle of the log's top (y is flipped in horn space)
+					Vector3f base = new Vector3f((float) at.x, (float) (at.y + head - FIRE_BASE * k * hornScale), (float) at.z);
+					fires.add(new FireSpot(base, player.position(), player.tickCount + mc.getDeltaTracker().getGameTimeDeltaPartialTick(true), hornScale * k, style));
+				}
+			}
+		}
+		// The hats sit from the head's middle
+		matrices.translate(0, 0.25f, 0);
+		robloxHats.drawOn(matrices, event.consumers(), id, invisible, light);
+		matrices.popPose();
 	}
 
 	/** A fire to draw this frame: where it starts relative to the camera, and whose it is. */

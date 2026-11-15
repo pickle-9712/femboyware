@@ -45,6 +45,7 @@ public class ConfigManager {
 		try {
 			JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
 			migrateColors(root);
+			migrateMoved(root);
 			for (Module module : FemboyWare.getModules().getModules()) {
 				// Older configs stored names without spaces ("AutoCrystal")
 				String key = root.has(module.getName()) ? module.getName() : module.getName().replace(" ", "");
@@ -89,6 +90,28 @@ public class ConfigManager {
 	};
 
 	/** Copies colours from where an older config kept them into Colors, unless Colors already has its own. */
+	/** Settings that moved to another module: old module, old name, new module, new name. */
+	private static final String[][] MOVED_SETTINGS = {
+		{"Roblox Hats", "Hats", "Cosmetics", "Hats"},
+		{"Roblox Hats", "Size", "Cosmetics", "Hat Size"},
+		{"Roblox Hats", "Raise", "Cosmetics", "Hat Raise"},
+	};
+
+	private static void migrateMoved(JsonObject root) {
+		for (String[] move : MOVED_SETTINGS) {
+			String from = root.has(move[0]) ? move[0] : move[0].replace(" ", "");
+			if (!root.has(from) || !root.get(from).isJsonObject()) continue;
+			JsonObject old = root.getAsJsonObject(from);
+			if (!old.has("settings") || !old.getAsJsonObject("settings").has(move[1])) continue;
+			JsonObject target = root.has(move[2]) && root.get(move[2]).isJsonObject() ? root.getAsJsonObject(move[2]) : new JsonObject();
+			JsonObject settings = target.has("settings") ? target.getAsJsonObject("settings") : new JsonObject();
+			if (settings.has(move[3])) continue;
+			settings.add(move[3], old.getAsJsonObject("settings").get(move[1]));
+			target.add("settings", settings);
+			root.add(move[2], target);
+		}
+	}
+
 	private static void migrateColors(JsonObject root) {
 		JsonObject colors = root.has("Colors") ? root.getAsJsonObject("Colors") : new JsonObject();
 		JsonObject colorSettings = colors.has("settings") ? colors.getAsJsonObject("settings") : new JsonObject();

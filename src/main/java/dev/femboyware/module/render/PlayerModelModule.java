@@ -131,6 +131,7 @@ public class PlayerModelModule extends Module {
 		if (!shape.is(Shape.TUNG_SAHUR)) return;
 		float tickDelta = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
 		Vec3 camera = event.camera().pos;
+		CosmeticsModule cosmetics = dev.femboyware.FemboyWare.getModules().get(CosmeticsModule.class);
 		for (Player player : mc.level.players()) {
 			if (!applies(player.getId()) || player.isSpectator() || player.isInvisible()) continue;
 			if (player == mc.player && mc.options.getCameraType().isFirstPerson()) continue;
@@ -152,6 +153,7 @@ public class PlayerModelModule extends Module {
 			// He's 2.5 blocks tall; shrink him to the player's height
 			float size = player.getBbHeight() / 2.5f * 1.1f;
 			TungSahurModule.drawSahur(event, feet.subtract(camera), yaw, 0, arm, size);
+			cosmetics.decorateSahur(event, player, feet.subtract(camera), yaw, size);
 		}
 	}
 

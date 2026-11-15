@@ -480,7 +480,7 @@ public class ClientSyncModule extends Module {
 	/** Your cosmetics and Roblox hats, and whether your fake players wear them; null if you've neither on. */
 	private JsonObject wornState() {
 		var cosmetics = FemboyWare.getModules().get(dev.femboyware.module.render.CosmeticsModule.class);
-		var hats = FemboyWare.getModules().get(dev.femboyware.module.render.RobloxHatsModule.class);
+		var hats = FemboyWare.getModules().get(dev.femboyware.module.render.CosmeticsModule.class).robloxHats();
 		var c = cosmetics.shareWorn();
 		var h = hats.shareWorn();
 		var fu = FemboyWare.getModules().get(dev.femboyware.module.render.FurryModule.class).shareWorn();
@@ -522,7 +522,7 @@ public class ClientSyncModule extends Module {
 
 	/** What someone's wearing, read from their update; cached per update so it's only read once. */
 	private record Looks(dev.femboyware.module.render.CosmeticsModule.Worn cosmetics, boolean cosmeticsOnFakes,
-						 dev.femboyware.module.render.RobloxHatsModule.Worn hats, boolean hatsOnFakes,
+						 dev.femboyware.module.render.RobloxHats.Worn hats, boolean hatsOnFakes,
 						 dev.femboyware.module.render.FurryModule.Worn furry) {
 	}
 
@@ -535,20 +535,20 @@ public class ClientSyncModule extends Module {
 	private final Map<JsonObject, Looks> looksRead = new java.util.WeakHashMap<>();
 	/** Who's wearing what this tick, by entity id: other players and their fake players. */
 	private final Map<Integer, dev.femboyware.module.render.CosmeticsModule.Worn> cosmeticsById = new HashMap<>();
-	private final Map<Integer, dev.femboyware.module.render.RobloxHatsModule.Worn> hatsById = new HashMap<>();
+	private final Map<Integer, dev.femboyware.module.render.RobloxHats.Worn> hatsById = new HashMap<>();
 
 	public dev.femboyware.module.render.CosmeticsModule.Worn cosmeticsOf(int entityId) {
 		return isEnabled() && showOthers.get() ? cosmeticsById.get(entityId) : null;
 	}
 
-	public dev.femboyware.module.render.RobloxHatsModule.Worn hatsOf(int entityId) {
+	public dev.femboyware.module.render.RobloxHats.Worn hatsOf(int entityId) {
 		return isEnabled() && showOthers.get() ? hatsById.get(entityId) : null;
 	}
 
 	private Looks readLooks(JsonObject w) {
 		return looksRead.computeIfAbsent(w, key -> {
 			dev.femboyware.module.render.CosmeticsModule.Worn cosmetics = null;
-			dev.femboyware.module.render.RobloxHatsModule.Worn hats = null;
+			dev.femboyware.module.render.RobloxHats.Worn hats = null;
 			boolean cFakes = false, hFakes = false;
 			try {
 				if (key.has("c")) {
@@ -567,7 +567,7 @@ public class ClientSyncModule extends Module {
 					JsonObject o = key.getAsJsonObject("h");
 					List<Long> ids = new ArrayList<>();
 					for (JsonElement id : o.getAsJsonArray("i")) if (ids.size() < 8 && id.getAsLong() > 0) ids.add(id.getAsLong());
-					if (!ids.isEmpty()) hats = new dev.femboyware.module.render.RobloxHatsModule.Worn(List.copyOf(ids), o.get("s").getAsFloat(), o.get("r").getAsFloat());
+					if (!ids.isEmpty()) hats = new dev.femboyware.module.render.RobloxHats.Worn(List.copyOf(ids), o.get("s").getAsFloat(), o.get("r").getAsFloat());
 					hFakes = o.has("fk") && o.get("fk").getAsBoolean();
 				}
 			} catch (RuntimeException ignored) {
@@ -594,7 +594,7 @@ public class ClientSyncModule extends Module {
 	private void wear(Peer peer, Snap a, Player entity) {
 		if (a == null || a.looks == null) return;
 		Looks looks = readLooks(a.looks);
-		if (looks.hats != null) FemboyWare.getModules().get(dev.femboyware.module.render.RobloxHatsModule.class).ensureLoaded(looks.hats.ids());
+		if (looks.hats != null) FemboyWare.getModules().get(dev.femboyware.module.render.CosmeticsModule.class).robloxHats().ensureLoaded(looks.hats.ids());
 		if (entity != null) {
 			if (looks.furry != null) furryById.put(entity.getId(), looks.furry);
 			if (looks.cosmetics != null) cosmeticsById.put(entity.getId(), looks.cosmetics);

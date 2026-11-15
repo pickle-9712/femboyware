@@ -37,7 +37,7 @@ public class CommandManager {
 			case "nameprotect", "np" -> FemboyWare.getModules().get(NameProtectModule.class).command(args);
 			case "fakeplayer", "fp" -> FemboyWare.getModules().get(FakePlayerModule.class).command(args);
 			case "scoreboard", "sb" -> FemboyWare.getModules().get(dev.femboyware.module.render.ScoreboardEditModule.class).command(args);
-			case "hat", "hats" -> FemboyWare.getModules().get(dev.femboyware.module.render.RobloxHatsModule.class).command(args);
+			case "hat", "hats" -> FemboyWare.getModules().get(dev.femboyware.module.render.CosmeticsModule.class).robloxHats().command(args);
 			case "heli", "helicopter", "chopper" -> FemboyWare.getModules().get(dev.femboyware.module.larp.HelicopterModule.class).command(args);
 			case "hangar", "hanger" -> FemboyWare.getModules().get(dev.femboyware.module.larp.HangarModule.class).command(args);
 			case "mansion", "manson", "house", "home" -> FemboyWare.getModules().get(dev.femboyware.module.larp.MansionModule.class).command(args);

@@ -60,8 +60,8 @@ public class TungSahurModule extends Module {
 
 	/** He's 2.5 tall: legs up to the log's bottom, the log, the face high on it. */
 	private static final float LOG_BOTTOM = 0.9f;
-	private static final float LOG_TOP = 2.5f;
-	private static final float RADIUS = 0.275f;
+	static final float LOG_TOP = 2.5f;
+	static final float RADIUS = 0.275f;
 	private static final float EYE_Y = 2.08f;
 	private static final float EYE_X = 0.13f;
 	private static final float MOUTH_Y = 1.77f;

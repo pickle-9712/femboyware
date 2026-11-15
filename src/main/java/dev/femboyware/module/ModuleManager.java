@@ -332,7 +332,6 @@ public class ModuleManager {
 		register(new CapeModule());
 		register(new FurryModule());
 		register(new CosmeticsModule());
-		register(new dev.femboyware.module.render.RobloxHatsModule());
 		register(new EmotesModule());
 		register(new dev.femboyware.module.larp.LedgerModule());
 		register(new dev.femboyware.module.larp.CinematicCameraModule());

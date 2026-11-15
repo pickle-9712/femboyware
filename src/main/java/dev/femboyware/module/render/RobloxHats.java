@@ -5,13 +5,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.manager.CommandManager;
-import dev.femboyware.module.Category;
-import dev.femboyware.module.Module;
-import dev.femboyware.module.client.FakePlayerModule;
-import dev.femboyware.module.effects.PlayerFxModule.ShowOn;
 import dev.femboyware.module.render.RobloxAssets.Accessory;
-import dev.femboyware.setting.BoolSetting;
-import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.StringSetting;
 import dev.femboyware.util.ChatUtil;
@@ -36,20 +30,20 @@ import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.Identifier;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.player.Player;
+import net.minecraft.client.Minecraft;
 
 /**
- * Wear any Roblox hat: give it the hat's id (or its catalog link) and it downloads the accessory
- * from Roblox, with its mesh and texture, and puts it on your head where it sits on a Roblox
- * avatar. Several at once. Separate from Cosmetics, so they go with the horns or without.
+ * Wear any Roblox hat, part of Cosmetics: give it the hat's id (or its catalog link) and it
+ * downloads the accessory from Roblox, with its mesh and texture, and puts it on your head where it
+ * sits on a Roblox avatar. Several at once. Who wears them goes by Cosmetics' Show On and Fake
+ * Players, and they sit on Tung Tung Tung Sahur's log too.
  */
-public class RobloxHatsModule extends Module {
-	private final StringSetting hats = add(new StringSetting("Hats", "Roblox hat ids (or catalog links) to wear, separated by commas", ""));
-	private final NumberSetting size = add(new NumberSetting("Size", "How big the hats are next to your head", 1.0, 0.5, 2.0, 0.05));
-	private final NumberSetting raise = add(new NumberSetting("Raise", "Moves the hats up or down, in pixels", 0, -4, 4, 0.25));
-	private final EnumSetting<ShowOn> showOn = add(new EnumSetting<>("Show On", "You, you and your friends, or every player", ShowOn.YOU));
-	private final BoolSetting onFakes = add(new BoolSetting("Fake Players", "Fake players wear your hats too", true));
+public final class RobloxHats {
+	private static final Minecraft mc = Minecraft.getInstance();
+	private final CosmeticsModule owner;
+	private final StringSetting hats;
+	private final NumberSetting size;
+	private final NumberSetting raise;
 
 	/** A hat being loaded or ready to draw: its triangles in head space (Minecraft model units) and its texture. */
 	private static final class Hat {
@@ -71,8 +65,11 @@ public class RobloxHatsModule extends Module {
 	/** The Roblox head is 1.2 studs tall; a Minecraft head is half a block. */
 	private static final float STUD = 0.5f / 1.2f;
 
-	public RobloxHatsModule() {
-		super("Roblox Hats", "Wear any Roblox hat by its id. Use " + CommandManager.PREFIX + "hat add <id>", Category.LARP);
+	RobloxHats(CosmeticsModule owner, StringSetting hats, NumberSetting size, NumberSetting raise) {
+		this.owner = owner;
+		this.hats = hats;
+		this.size = size;
+		this.raise = raise;
 		LivingEntityFeatureRendererRegistrationCallback.EVENT.register((type, renderer, helper, context) -> {
 			if (renderer instanceof AvatarRenderer<?> player) helper.register(new Feature(asContext(player)));
 		});
@@ -83,8 +80,8 @@ public class RobloxHatsModule extends Module {
 		return (RenderLayerParent<AvatarRenderState, PlayerModel>) (Object) renderer;
 	}
 
-	@Override
-	public String getInfo() {
+	/** "2 hats", or null with none on. */
+	public String info() {
 		int count = ids().size();
 		return count == 0 ? null : count == 1 ? "1 hat" : count + " hats";
 	}
@@ -106,8 +103,8 @@ public class RobloxHatsModule extends Module {
 		return idsParsed;
 	}
 
-	@Override
-	public void onTick() {
+	/** From Cosmetics' tick: starts loading any hat that isn't yet. */
+	void tick() {
 		for (long id : ids()) {
 			if (!loaded.containsKey(id)) load(id);
 		}
@@ -128,7 +125,7 @@ public class RobloxHatsModule extends Module {
 				}
 				if (!ids.contains(id)) ids.add(id);
 				save(ids);
-				if (!isEnabled()) setEnabled(true);
+				if (!owner.isEnabled()) owner.setEnabled(true);
 				Hat hat = loaded.get(id);
 				ChatUtil.info(hat != null && hat.data != null ? "Wearing hat " + id : "Loading hat " + id + "...");
 			}
@@ -297,12 +294,12 @@ public class RobloxHatsModule extends Module {
 
 	/** For Client Sync: your hats, or null with none on. */
 	public Worn shareWorn() {
-		if (!isEnabled() || ids().isEmpty()) return null;
+		if (!owner.isEnabled() || ids().isEmpty()) return null;
 		return new Worn(ids(), size.get().floatValue(), raise.get().floatValue());
 	}
 
 	public boolean sharesWithFakes() {
-		return onFakes.get();
+		return owner.sharesWithFakes();
 	}
 
 	/** Starts loading someone else's hats, so they're ready to draw. */
@@ -317,15 +314,38 @@ public class RobloxHatsModule extends Module {
 			: FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class).hatsOf(state.id);
 	}
 
+	private Worn peer(int id) {
+		return mc.player == null || id == mc.player.getId() ? null
+			: FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class).hatsOf(id);
+	}
+
 	private boolean wears(AvatarRenderState state) {
 		if (mc.player != null && !state.isInvisible && peer(state) != null) return true;
-		if (!isEnabled() || mc.player == null || mc.level == null || state.isInvisible) return false;
-		if (state.id == mc.player.getId()) return true;
-		if (onFakes.get() && FemboyWare.getModules().get(FakePlayerModule.class).isFake(state.id)) return true;
-		if (showOn.is(ShowOn.YOU)) return false;
-		Entity entity = mc.level.getEntity(state.id);
-		if (!(entity instanceof Player player)) return false;
-		return showOn.is(ShowOn.EVERYONE) || FemboyWare.getFriends().isFriend(player);
+		return owner.wears(state.id, state.isInvisible);
+	}
+
+	/**
+	 * Draws the hats someone wears on a head that isn't a player model's (Tung Sahur's log):
+	 * {@code matrices} sits at the head's middle in Minecraft head-model space (y down, half a block
+	 * across).
+	 */
+	void drawOn(PoseStack matrices, dev.femboyware.event.WorldBuffers buffers, int id, boolean invisible, int light) {
+		Worn peer = mc.player != null && !invisible ? peer(id) : null;
+		if (peer == null && !owner.wears(id, invisible)) return;
+		List<Long> ids = peer != null ? peer.ids() : ids();
+		if (ids.isEmpty()) return;
+		float wornRaise = peer != null ? net.minecraft.util.Mth.clamp(peer.raise(), -4, 4) : raise.get().floatValue();
+		float wornSize = peer != null ? net.minecraft.util.Mth.clamp(peer.size(), 0.5f, 2f) : size.get().floatValue();
+		matrices.pushPose();
+		matrices.translate(0, -wornRaise / 16f, 0);
+		float scale = STUD * wornSize;
+		matrices.scale(scale, scale, scale);
+		for (long hatId : ids) {
+			Hat hat = loaded.get(hatId);
+			if (hat == null || hat.data == null || hat.texture == null) continue;
+			draw(matrices.last(), buffers.getBuffer(cutout(hat.texture)), hat.data, hat.triangles, light);
+		}
+		matrices.popPose();
 	}
 
 	private static RenderType cutout(Identifier texture) {
