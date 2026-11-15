@@ -14,6 +14,11 @@ import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.StringSetting;
 import dev.femboyware.util.ChatUtil;
+import net.minecraft.client.gui.screens.ConnectScreen;
+import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.client.multiplayer.ServerData;
+import net.minecraft.client.multiplayer.resolver.ServerAddress;
+import net.minecraft.network.chat.Component;
 import dev.femboyware.util.InventoryUtil;
 import dev.femboyware.util.MouseTurner;
 import dev.femboyware.util.Pathfinder;
@@ -132,6 +137,7 @@ public class BodyguardModule extends Module {
 	private final NumberSetting crowdChatEvery = add(new NumberSetting("Crowd Chat Every", "About how many seconds between each guard's messages", 120, 30, 600, 10)).visibleWhen(crowdChat::get);
 	private final BoolSetting rallyPearl = add(new BoolSetting("Rally Pearl", "When called to a far-off place, throw an ender pearl from the hotbar to get there faster", true));
 	private final StringSetting prefix = add(new StringSetting("Prefix", "What orders start with", "!"));
+	private final BoolSetting followServer = add(new BoolSetting("Follow Server", "Join whatever server the principal is on (they need Bring Guards on in Guard Command), leaving the one you're on if it's different", true));
 	private final StringSetting linkKey = add(new StringSetting("Link Key", "Private orders: the same password as the principal's Guard Command module, from any computer or network. Leave empty to only take orders from chat", ""));
 	private final BoolSetting lowPower = add(new BoolSetting("Low Power", "Don't draw the world (just the HUD on black), cap the frame rate and shorten the render distance, so many guards can run on one PC", true));
 	private final NumberSetting lowPowerFps = add(new NumberSetting("Low Power FPS", "Frame rate cap in low power; aiming gets choppier below about 15", 15, 5, 60, 1)).visibleWhen(lowPower::get);
@@ -192,6 +198,9 @@ public class BodyguardModule extends Module {
 	private String linkSettings = "";
 	/** Whether the order being carried out came over the link, so its reply goes back that way too. */
 	private boolean linkOrder;
+	/** When we last set off to the principal's server, so a slow join or a kick isn't retried every announcement. */
+	private long lastJoin;
+	private static final long JOIN_RETRY = 20_000;
 	/** Which way we're walking after steering round people; null when not walking. The camera turns this way. */
 	private Vec3 heading;
 	/** Ticks we've barely moved while trying to walk, and ticks left of sidestepping to get unstuck. */
@@ -359,8 +368,14 @@ public class BodyguardModule extends Module {
 
 	/** Carries out an order from the link; a leading prefix is fine but not needed. */
 	private void linkOrder(String text) {
-		if (!isEnabled() || mc.player == null || mc.level == null) return;
+		if (!isEnabled()) return;
 		String body = text.trim();
+		// This one also works from the title screen or another server, where nothing else can
+		if (body.startsWith("join ")) {
+			joinServer(body.substring(5).trim());
+			return;
+		}
+		if (mc.player == null || mc.level == null) return;
 		if (!prefix.get().isEmpty() && body.startsWith(prefix.get())) body = body.substring(prefix.get().length()).trim();
 		linkOrder = true;
 		try {
@@ -368,6 +383,28 @@ public class BodyguardModule extends Module {
 		} finally {
 			linkOrder = false;
 		}
+	}
+
+	/** Goes to the principal's server unless we're already there or on our way. */
+	private void joinServer(String address) {
+		if (!followServer.get() || address.isEmpty() || !ServerAddress.isValidAddress(address)) return;
+		ServerData current = mc.getCurrentServer();
+		boolean there = mc.level != null && current != null && !mc.isLocalServer() && sameServer(current.ip, address);
+		if (there || dev.femboyware.util.Mc.screen() instanceof ConnectScreen) return;
+		long now = System.currentTimeMillis();
+		if (now - lastJoin < JOIN_RETRY) return;
+		lastJoin = now;
+		ChatUtil.info("Joining the principal's server: " + address);
+		if (mc.level != null) mc.disconnectFromWorld(Component.literal("Following the principal"));
+		// After the world's gone, so the connect screen isn't replaced by the title screen
+		mc.execute(() -> ConnectScreen.startConnecting(new TitleScreen(), mc, ServerAddress.parseString(address),
+			new ServerData("Principal", address, ServerData.Type.OTHER), false, null));
+	}
+
+	/** Two addresses for the same server: case and the default port don't matter. */
+	private static boolean sameServer(String a, String b) {
+		ServerAddress first = ServerAddress.parseString(a.trim()), second = ServerAddress.parseString(b.trim());
+		return first.getHost().equalsIgnoreCase(second.getHost()) && first.getPort() == second.getPort();
 	}
 
 	private boolean turnOn(Class<? extends Module> type) {

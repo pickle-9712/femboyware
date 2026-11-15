@@ -5,6 +5,7 @@ import dev.femboyware.manager.CommandManager;
 import dev.femboyware.manager.GuardLink;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
+import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.KeySetting;
 import dev.femboyware.setting.StringSetting;
 import dev.femboyware.util.ChatUtil;
@@ -25,6 +26,7 @@ public class GuardCommandModule extends Module {
 	private final StringSetting key = add(new StringSetting("Link Key", "Password shared with the guards' Link Key setting. Works between any computers and networks; use something long, since it protects commands run on the guards", ""));
 	private final KeySetting rallyKey = add(new KeySetting("Rally Key", "Press to call every guard to you", -1));
 	private final KeySetting hereKey = add(new KeySetting("Send Here Key", "Press to send every guard to the block you're looking at", -1));
+	private final BoolSetting bringGuards = add(new BoolSetting("Bring Guards", "Guards on the link join whatever server you're on by themselves, and follow you when you switch", true));
 
 	/** One guard's latest report. */
 	public record GuardStatus(String name, float health, float maxHealth, float absorption, int totems, int pots, String state, String target, double x, double y, double z, long received) {
@@ -45,6 +47,10 @@ public class GuardCommandModule extends Module {
 	private final BotArena arena = new BotArena(this);
 	private GuardLink.Server server;
 	private String running = "";
+	/** The server last announced to the guards, and ticks till it's said again for anyone who just connected. */
+	private String announced = "";
+	private int announceTimer;
+	private static final int ANNOUNCE_TICKS = 60;
 
 	public GuardCommandModule() {
 		super("Guard Command", "Send bodyguards orders privately with " + CommandManager.PREFIX + "g, without using chat", Category.LEGIT);
@@ -66,6 +72,21 @@ public class GuardCommandModule extends Module {
 		sync();
 		statuses.values().removeIf(status -> status.age() > STATUS_GONE);
 		arena.tick();
+		announceServer();
+	}
+
+	/**
+	 * Tells the guards which server you're on, straight away when it changes and every few seconds
+	 * after, so a guard that connects late, gets kicked or starts up later still finds its way.
+	 */
+	private void announceServer() {
+		if (!bringGuards.get() || server == null || mc.isLocalServer() || mc.getCurrentServer() == null) return;
+		String address = mc.getCurrentServer().ip.trim();
+		if (address.isEmpty()) return;
+		if (address.equals(announced) && ++announceTimer < ANNOUNCE_TICKS) return;
+		announced = address;
+		announceTimer = 0;
+		server.send("join " + address);
 	}
 
 	public BotArena arena() {
@@ -111,6 +132,7 @@ public class GuardCommandModule extends Module {
 		if (server != null) server.stop();
 		server = null;
 		running = "";
+		announced = "";
 		statuses.clear();
 	}
 
