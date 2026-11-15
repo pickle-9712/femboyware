@@ -73,6 +73,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.util.Mth;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -92,7 +93,7 @@ public class ScaffoldModule extends Module {
 	public enum Page { GENERAL, ROTATIONS, TECHNIQUE, TOWER, MOVEMENT, RENDER }
 	public enum Technique { NORMAL, EXPAND, GOD_BRIDGE, BREEZILY }
 	public enum SameY { OFF, ON, JUMP_KEY, FALLING }
-	public enum Tower { NONE, MOTION, PULLDOWN, KARHU, VULCAN }
+	public enum Tower { NONE, HYPIXEL, MOTION, PULLDOWN, KARHU, VULCAN }
 	public enum Timing { NORMAL, ON_TICK, ON_TICK_SNAP }
 	public enum Swing { NORMAL, PACKET, NONE }
 	public enum LedgeMode { JUMP, SNEAK, STOP_INPUT, BACKWARDS }
@@ -143,7 +144,7 @@ public class ScaffoldModule extends Module {
 	private final BoolSetting headHitter = add(new BoolSetting("Head Hitter", "Keep jumping under a low ceiling for speed (Normal technique)", false)).visibleWhen(() -> page.is(Page.TECHNIQUE) && technique.is(Technique.NORMAL));
 
 	// Tower
-	private final EnumSetting<Tower> tower = add(new EnumSetting<>("Tower", "How to climb straight up while holding jump", Tower.MOTION)).visibleWhen(() -> page.is(Page.TOWER));
+	private final EnumSetting<Tower> tower = add(new EnumSetting<>("Tower", "How to climb while holding jump. Hypixel never touches your motion (plain vanilla jumps, so nothing to flag): it places under you at the top of each jump, and walking while you hold jump it builds a staircase under where each jump lands, braking with a real key press if a step isn't in yet, so you never fall", Tower.HYPIXEL)).visibleWhen(() -> page.is(Page.TOWER));
 	private final NumberSetting towerMotion = add(new NumberSetting("Tower Motion", "Upward speed for each block", 0.42, 0, 1, 0.01)).visibleWhen(() -> page.is(Page.TOWER) && tower.is(Tower.MOTION));
 	private final NumberSetting towerTrigger = add(new NumberSetting("Tower Trigger Height", "How high to rise before snapping onto the block", 0.78, 0.76, 1, 0.01)).visibleWhen(() -> page.is(Page.TOWER) && tower.is(Tower.MOTION));
 	private final NumberSetting towerSlow = add(new NumberSetting("Tower Slow", "Horizontal speed kept while towering", 1, 0, 3, 0.05)).visibleWhen(() -> page.is(Page.TOWER) && tower.is(Tower.MOTION));
@@ -178,6 +179,7 @@ public class ScaffoldModule extends Module {
 	private double edgeRandom = 0.45;
 	private boolean onRightSide;
 	private double jumpOffY = Double.NaN;
+	private Vec3 jumpOffPos;
 	private boolean pulldownArmed;
 	private int karhuState;
 	private float karhuBoost;
@@ -399,6 +401,20 @@ public class ScaffoldModule extends Module {
 
 	private PlacementTarget findTarget(Vec3 pos, Pose pose, ItemStack stack) {
 		PlayerLocation location = PlayerLocation.of(pos, pose);
+		// femboyware: the Hypixel tower walking forward builds the step under where this jump lands
+		if (towerForward() && !mc.player.onGround()) {
+			TargetFinding.Options options = new TargetFinding.Options(TargetFinding.NO_OFFSET, TargetFinding.leastBlockDistanceToPos(pos),
+				TargetFinding.factory(AimMode.CENTER, null), true, stack, location);
+			int level = stepLevel();
+			for (BlockPos column : jumpColumns(mc.player.input.keyPresses)) {
+				BlockPos step = new BlockPos(column.getX(), level, column.getZ());
+				if (!mc.level.getBlockState(step).canBeReplaced()) continue;
+				// Not inside you (the server won't put a block there) till you've risen past it
+				if (mc.player.getBoundingBox().intersects(new AABB(step))) continue;
+				PlacementTarget found = TargetFinding.findBest(step, options);
+				if (found != null) return found;
+			}
+		}
 		BlockPos feet = BlockPos.containing(pos);
 		Comparator<BlockPos> priority = optimalLine != null ? TargetFinding.leastBlockDistanceToLine(optimalLine) : TargetFinding.leastBlockDistanceToPos(pos);
 		switch (activeTechnique()) {
@@ -516,10 +532,86 @@ public class ScaffoldModule extends Module {
 
 	// ---------------------------------------------------------------- towers
 
+	/** The Hypixel tower with you walking: a staircase forward, one step a jump. */
+	private boolean towerForward() {
+		return tower.is(Tower.HYPIXEL) && jumpKey() && rawMoving() && !Double.isNaN(jumpOffY);
+	}
+
+	/** The level the next step goes in: the one your feet were at when you jumped. */
+	private int stepLevel() {
+		return Mth.floor(jumpOffY + 1e-3);
+	}
+
+	/**
+	 * The blocks (at foot level) this jump passes over till it comes down onto the next step, in
+	 * order, worked out with vanilla's air physics from your speed and keys. The last is where you land.
+	 */
+	private List<BlockPos> jumpColumns(Input keys) {
+		List<BlockPos> columns = new ArrayList<>();
+		Vec3 at = mc.player.position(), v = mc.player.getDeltaMovement();
+		double landY = stepLevel() + 1;
+		boolean any = keys.forward() || keys.backward() || keys.left() || keys.right();
+		Vec3 push = Vec3.ZERO;
+		if (any) {
+			Vec3 dir = Vec3.directionFromRotation(0, movementYaw(keys.forward(), keys.backward(), keys.left(), keys.right()));
+			push = dir.scale(mc.player.isSprinting() ? 0.026 : 0.02);
+		}
+		BlockPos last = null;
+		// From where you jumped: the step under that spot is what the rest get clicked onto
+		if (jumpOffPos != null) {
+			Vec3 from = jumpOffPos, to = mc.player.position();
+			int samples = (int) Math.ceil(from.subtract(to).horizontalDistance() / 0.2);
+			for (int i = 0; i < samples; i++) {
+				Vec3 point = from.lerp(to, i / (double) samples);
+				BlockPos column = BlockPos.containing(point.x, landY, point.z);
+				if (!column.equals(last)) {
+					addColumn(columns, last, column);
+					last = column;
+				}
+			}
+		}
+		for (int tick = 0; tick < 30; tick++) {
+			BlockPos column = BlockPos.containing(at.x, landY, at.z);
+			if (!column.equals(last)) {
+				addColumn(columns, last, column);
+				last = column;
+			}
+			// Coming down onto the step's top
+			if (v.y < 0 && at.y <= landY) break;
+			v = new Vec3(v.x + push.x, v.y, v.z + push.z);
+			at = at.add(v);
+			v = new Vec3(v.x * 0.91, (v.y - 0.08) * 0.98, v.z * 0.91);
+		}
+		return columns;
+	}
+
+	/**
+	 * Adds a column to the staircase; crossing a corner diagonally, the block beside both goes in
+	 * first, since blocks only click onto faces and the diagonal one has none to click.
+	 */
+	private static void addColumn(List<BlockPos> columns, BlockPos last, BlockPos column) {
+		if (last != null && last.getX() != column.getX() && last.getZ() != column.getZ()) {
+			columns.add(new BlockPos(column.getX(), column.getY(), last.getZ()));
+		}
+		columns.add(column);
+	}
+
+	/** Ticks till this jump comes back down to the next step's top, by vanilla's gravity. */
+	private int ticksToLanding() {
+		double y = mc.player.getY(), vy = mc.player.getDeltaMovement().y, landY = stepLevel() + 1;
+		for (int tick = 0; tick < 30; tick++) {
+			if (vy < 0 && y <= landY) return tick;
+			y += vy;
+			vy = (vy - 0.08) * 0.98;
+		}
+		return 30;
+	}
+
 	private void onJump() {
 		ticksUntilJump = 0;
 		tellyJumpTicks = randomInt(tellyJump.getInt(), tellyJump.getInt());
 		jumpOffY = mc.player.getY();
+		jumpOffPos = mc.player.position();
 		pulldownArmed = true;
 		karhuState = 1;
 	}
@@ -711,6 +803,32 @@ public class ScaffoldModule extends Module {
 		if (forceSneak > 0) {
 			sneak = true;
 			forceSneak--;
+		}
+		// femboyware: Hypixel tower walking forward, in the air: if the step this jump lands on still
+		// isn't in close to landing, brake with the opposite key (vanilla air control) so you come
+		// down on a block instead of past it
+		if (towerForward() && !mc.player.onGround() && (forward || back || left || right)) {
+			List<BlockPos> columns = jumpColumns(keys);
+			BlockPos land = columns.get(columns.size() - 1);
+			BlockPos step = new BlockPos(land.getX(), stepLevel(), land.getZ());
+			BlockPos old = step.below();
+			boolean stepIn = !mc.level.getBlockState(step).getCollisionShape(mc.level, step).isEmpty();
+			boolean oldIn = !mc.level.getBlockState(old).getCollisionShape(mc.level, old).isEmpty();
+			if (!stepIn && ticksToLanding() <= 4) {
+				Vec3 v = mc.player.getDeltaMovement();
+				if (v.horizontalDistanceSqr() > 1e-4 && !oldIn) {
+					// Push against the way you're drifting, in your own key frame
+					float drift = (float) Math.toDegrees(Math.atan2(-v.x, v.z));
+					float rel = Mth.wrapDegrees(drift - cameraYaw());
+					forward = Math.abs(rel) > 112.5f;
+					back = Math.abs(rel) < 67.5f;
+					right = rel < -22.5f && rel > -157.5f;
+					left = rel > 22.5f && rel < 157.5f;
+				} else if (!oldIn) {
+					forward = back = left = right = false;
+				}
+				sprint = false;
+			}
 		}
 		Technique active = activeTechnique();
 		if (ledge.get()) {
