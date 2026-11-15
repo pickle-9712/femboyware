@@ -10,7 +10,7 @@ import org.lwjgl.glfw.GLFW;
 public class ClickGuiModule extends Module {
 	private ClickGuiScreen screen;
 	/** The starred modules, by name, kept in the config; set from the menu, not shown in it. */
-	private final dev.femboyware.setting.BoolSetting inWorld = add(new dev.femboyware.setting.BoolSetting("In World", "Open the ClickGUI on a panel in the world in front of you instead of over the screen (experimental)", false));
+	private final dev.femboyware.setting.BoolSetting inWorld = add(new dev.femboyware.setting.BoolSetting("In World", "Open the ClickGUI on a panel in the world in front of you instead of over the screen; your mouse stays locked and you aim with the crosshair (experimental)", false));
 	private final dev.femboyware.setting.StringSetting favorites = add(new dev.femboyware.setting.StringSetting("Favorites", "Starred modules", "")).visibleWhen(() -> false);
 
 	/** How the menu comes in and goes out; closing plays its animation backwards. */
@@ -97,6 +97,8 @@ public class ClickGuiModule extends Module {
 			for (net.minecraft.client.KeyMapping key : keys) key.setDown(false);
 		}
 		walking = walk;
+		// The mouse was kept locked for the world screen; the HUD editor goes back on your screen and needs it free
+		if (screen != null && Mc.screen() == screen && !dev.femboyware.gui.WorldGui.showing(screen) && mc.mouseHandler.isMouseGrabbed()) mc.mouseHandler.releaseMouse();
 	}
 
 	@Override

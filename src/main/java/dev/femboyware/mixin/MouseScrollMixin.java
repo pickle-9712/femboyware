@@ -15,4 +15,10 @@ public class MouseScrollMixin {
 	private void femboyware$tvSwipe(long window, double xOffset, double yOffset, CallbackInfo ci) {
 		if (FemboyWare.getModules() != null && FemboyWare.getModules().get(TvModule.class).onScroll(yOffset)) ci.cancel();
 	}
+
+	/** The ClickGUI hanging in the world keeps your mouse locked, so you aim at it with the crosshair. */
+	@Inject(method = "releaseMouse", at = @At("HEAD"), cancellable = true)
+	private void femboyware$worldGuiKeepsMouse(CallbackInfo ci) {
+		if (dev.femboyware.util.Mc.screen() instanceof dev.femboyware.gui.ClickGuiScreen screen && dev.femboyware.gui.WorldGui.showing(screen)) ci.cancel();
+	}
 }

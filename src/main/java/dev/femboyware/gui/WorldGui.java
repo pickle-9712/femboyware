@@ -26,8 +26,8 @@ import org.joml.Vector4f;
 /**
  * The ClickGUI as a floating screen in the world: while it's on, the GUI is drawn into a texture of
  * its own (by a second GUI renderer, after the normal one) instead of onto your screen, and that
- * texture hangs where you were looking when it opened, facing you, and stays there. Your cursor is
- * traced onto it, so clicking it works like clicking the normal one.
+ * texture hangs where you were looking when it opened, facing you, and stays there. Your mouse stays
+ * locked and turns your camera, and the crosshair is traced onto it, so you point at what you click.
  */
 public final class WorldGui {
 	private static final Identifier TEXTURE = Identifier.fromNamespaceAndPath("femboyware", "dynamic/world_gui");
@@ -113,6 +113,11 @@ public final class WorldGui {
 		Minecraft mc = Minecraft.getInstance();
 		double guiW = mc.getWindow().getGuiScaledWidth(), guiH = mc.getWindow().getGuiScaledHeight();
 		if (center == null || guiW <= 0 || guiH <= 0) return new double[]{-10_000, -10_000};
+		// With the mouse locked you aim with the crosshair, in the middle of the screen
+		if (mc.mouseHandler.isMouseGrabbed()) {
+			mouseX = guiW / 2;
+			mouseY = guiH / 2;
+		}
 		// The cursor as a ray from the camera, through the last frame's view and projection
 		float ndcX = (float) (mouseX / guiW * 2 - 1), ndcY = (float) (1 - mouseY / guiH * 2);
 		Matrix4f inverse = new Matrix4f(ProjectionUtil.projection()).mul(ProjectionUtil.view()).invert();
