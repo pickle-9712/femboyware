@@ -243,9 +243,51 @@ public class TrapModule extends Module {
 		return FemboyWare.getModules().get(LegitAuraModule.class).getTarget();
 	}
 
-	/** How far they moved in the last tick, sideways. */
+	/** Where they were the last few ticks, newest last, to read a steady speed from (one tick is jumpy). */
+	private final java.util.ArrayDeque<Vec3> history = new java.util.ArrayDeque<>();
+	private LivingEntity historyOf;
+
+	/** How far they move a tick, sideways, averaged over the last few ticks. */
 	private Vec3 velocity() {
-		return new Vec3(target.getX() - target.xo, 0, target.getZ() - target.zo);
+		if (history.size() < 2) return new Vec3(target.getX() - target.xo, 0, target.getZ() - target.zo);
+		Vec3 first = history.peekFirst(), last = history.peekLast();
+		return last.subtract(first).multiply(1, 0, 1).scale(1.0 / (history.size() - 1));
+	}
+
+	private void trackHistory() {
+		if (target != historyOf) {
+			history.clear();
+			historyOf = target;
+		}
+		if (target == null) return;
+		history.addLast(target.position());
+		while (history.size() > 4) history.removeFirst();
+		// Changed direction hard: only the newest counts
+		if (history.size() >= 3) {
+			Vec3[] p = history.toArray(new Vec3[0]);
+			Vec3 a = p[p.length - 2].subtract(p[p.length - 3]).multiply(1, 0, 1), b = p[p.length - 1].subtract(p[p.length - 2]).multiply(1, 0, 1);
+			if (a.lengthSqr() > 1e-4 && b.lengthSqr() > 1e-4 && a.normalize().dot(b.normalize()) < 0.5) {
+				Vec3 keep = history.peekLast();
+				history.clear();
+				history.addLast(p[p.length - 2]);
+				history.addLast(keep);
+			}
+		}
+	}
+
+	/**
+	 * Ticks till a click can land on a block round where they're headed: the flick there (more the
+	 * further the view has to turn, at Flick Speed), a tick for the switch and one for the click to
+	 * reach the server. Someone running is that much further on by then, so the block goes there.
+	 */
+	private int leadTicks() {
+		Vec3 ahead = target.position().add(velocity().scale(LEAD_TICKS));
+		Rotation wanted = Rotation.between(mc.player.getEyePosition(), ahead);
+		float turn = new Rotation(mc.player.getYRot(), mc.player.getXRot()).distanceTo(wanted);
+		// The flick closes most of the gap each frame: about ln(turn / 2 degrees) / speed seconds
+		double flickSeconds = Math.log(Math.max(1.5, turn / 2.0)) / Math.max(4, flickSpeed.get());
+		int flick = (int) Math.ceil(flickSeconds * 20);
+		return Mth.clamp(flick + 2, LEAD_TICKS, 10);
 	}
 
 	private boolean moving() {
@@ -255,7 +297,7 @@ public class TrapModule extends Module {
 	/** Their box a couple of ticks ahead when they're on the move: blocks go where they're about to be. */
 	private AABB predictedBox() {
 		if (!moving()) return target.getBoundingBox();
-		Vec3 ahead = velocity().scale(LEAD_TICKS);
+		Vec3 ahead = velocity().scale(mode.is(Mode.LEGIT) ? leadTicks() : LEAD_TICKS);
 		AABB moved = target.getBoundingBox().move(ahead);
 		// Not into a wall: they'd stop there
 		for (BlockPos pos : BlockPos.betweenClosed(BlockPos.containing(moved.minX, moved.minY + 0.2, moved.minZ), BlockPos.containing(moved.maxX - 1e-4, moved.minY + 0.2, moved.maxZ - 1e-4))) {
@@ -437,6 +479,7 @@ public class TrapModule extends Module {
 			target = found;
 			resetStages();
 		}
+		trackHistory();
 		if (target == null) {
 			positions = Set.of();
 			turnTicks = 0;
@@ -1077,7 +1120,26 @@ public class TrapModule extends Module {
 
 	// ---------------------------------------------------------------- fill
 
+	/** The web spot picked in a runner's path: kept till it's in or they've gone past it, so the flick doesn't chase. */
+	private BlockPos webAhead;
+	private int webAheadTicks;
+
+	private boolean webAheadValid(BlockPos spot) {
+		if (spot == null || ++webAheadTicks > 30) return false;
+		if (!mc.level.getBlockState(spot).canBeReplaced() || mc.level.getBlockState(spot.below()).canBeReplaced()) return false;
+		Vec3 toSpot = Vec3.atBottomCenterOf(spot).subtract(target.position()).multiply(1, 0, 1);
+		// Behind them now (they turned, or ran past it): pick again
+		return toSpot.length() < 5 && toSpot.dot(velocity().normalize()) > -0.3;
+	}
+
 	private boolean fill(BlockPos feetPos) {
+		if (mode.is(Mode.LEGIT) && webFill() && moving()) {
+			if (webAheadValid(webAhead)) feetPos = webAhead;
+			else {
+				webAhead = feetPos;
+				webAheadTicks = 0;
+			}
+		} else webAhead = null;
 		boolean done = webFill() ? mc.level.getBlockState(feetPos).is(Blocks.COBWEB)
 			: mc.level.getFluidState(feetPos).is(net.minecraft.tags.FluidTags.LAVA);
 		Predicate<ItemStack> item = webFill() ? stack -> stack.is(Items.COBWEB) : stack -> stack.is(Items.LAVA_BUCKET);
@@ -1108,9 +1170,16 @@ public class TrapModule extends Module {
 				return true;
 			}
 			BlockHitResult visible = visiblePlacement(feetPos);
-			if (visible == null) return false;
+			if (visible == null) {
+				// Can't click that one: try again from what's ahead of them next tick
+				webAhead = null;
+				return false;
+			}
 			boolean placed = placeAimed(visible, item);
-			if (placed) filled = true;
+			if (placed) {
+				filled = true;
+				webAhead = null;
+			}
 			return placed;
 		}
 		// Lava: the bucket pours where your look meets the ground under their feet

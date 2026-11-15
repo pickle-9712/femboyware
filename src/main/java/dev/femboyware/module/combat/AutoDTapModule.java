@@ -52,6 +52,8 @@ public class AutoDTapModule extends Module {
 	private final BoolSetting placeObsidian = add(new BoolSetting("Place Obsidian", "Put obsidian down next to them when there's none a crystal would do enough damage on", true));
 	private final NumberSetting flickSpeed = add(new NumberSetting("Flick Speed", "How fast your view flicks onto each thing, in whole mouse steps at your sensitivity", 28, 6, 60, 1));
 	private final BoolSetting hitFirst = add(new BoolSetting("Hit First", "Start every tap with a full sword hit (or Legit Aura's)", true));
+	private final BoolSetting spam = add(new BoolSetting("Spam", "Between sword hits, keep placing and popping crystals on the same obsidian (the view stays on it, so it's right click, left click, right click...) till the sword's charged again", true));
+	private final NumberSetting maxCrystals = add(new NumberSetting("Max Crystals", "Most crystals between two sword hits", 6, 1, 20, 1)).visibleWhen(spam::get);
 
 	private final MouseTurner turner = new MouseTurner();
 	private Player target;
@@ -64,6 +66,8 @@ public class AutoDTapModule extends Module {
 	private long lastFrame;
 	private int lastSlot = -1, sinceSwitch;
 	private float lastStrength = 1;
+	/** Crystals popped since the last sword hit. */
+	private int popped;
 
 	public AutoDTapModule() {
 		super("Auto DTap", "Hits them, then crystals them on the best obsidian (placing it if needed), all with real flicks and clicks", Category.LEGIT);
@@ -112,7 +116,7 @@ public class AutoDTapModule extends Module {
 		if (InventoryUtil.findHotbar(stack -> stack.is(Items.END_CRYSTAL)) < 0 && !mc.player.getOffhandItem().is(Items.END_CRYSTAL)) return;
 
 		// A step that can't get done in time is given up, back to the sword
-		if (step != Step.HIT && ++stepTicks > 16) next(Step.HIT);
+		if (step != Step.HIT && ++stepTicks > (step == Step.OBSIDIAN ? 20 : 12)) next(Step.HIT);
 		switch (step) {
 			case HIT -> hitStep(swungNow);
 			case OBSIDIAN -> obsidianStep();
@@ -149,6 +153,7 @@ public class AutoDTapModule extends Module {
 
 	/** Picks where the crystal goes: the best obsidian there is, or a spot for new obsidian. */
 	private void startCrystal() {
+		popped = 0;
 		base = bestBase();
 		if (base != null) {
 			next(Step.CRYSTAL);
@@ -186,8 +191,7 @@ public class AutoDTapModule extends Module {
 			else next(Step.HIT);
 			return;
 		}
-		Vec3 top = Vec3.atCenterOf(base).add(0, 0.5, 0);
-		aimPoint = top;
+		aimPoint = crystalAim(base);
 		if (!hold(stack -> stack.is(Items.END_CRYSTAL))) return;
 		if (mc.hitResult instanceof BlockHitResult hit && hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(base)) {
 			((MinecraftClientAccessor) mc).femboyware$rightClick();
@@ -196,18 +200,54 @@ public class AutoDTapModule extends Module {
 	}
 
 	private void popStep() {
+		// The same spot as the placing: the crystal stands on it, so the crosshair's already on it
+		aimPoint = crystalAim(base);
 		EndCrystal crystal = crystalOn(base);
 		if (crystal == null) {
 			// Not there yet (it's up to the server), or already gone
 			if (stepTicks > 6 && crystalFits(base)) next(Step.CRYSTAL);
-			else aimPoint = Vec3.atCenterOf(base).add(0, 1.0, 0);
 			return;
 		}
-		aimPoint = crystal.getBoundingBox().getCenter();
 		if (mc.hitResult instanceof EntityHitResult hit && hit.getEntity() == crystal) {
 			((MinecraftClientAccessor) mc).femboyware$leftClick();
-			next(Step.HIT);
+			popped++;
+			next(again() ? Step.CRYSTAL : Step.HIT);
 		}
+	}
+
+	/**
+	 * Another crystal before the next sword hit: Spam's on, it's not had its fill, the obsidian's still
+	 * worth it, and the sword's not nearly charged (it's the hit's turn then).
+	 */
+	private boolean again() {
+		if (!spam.get() || popped >= maxCrystals.getInt() || target == null || !TargetUtil.isValid(target)) return false;
+		if (hitFirst.get() && ticksToCharged() <= (legitAuraOn() ? 3 : 2)) return false;
+		return worth(base) > minDamage.getFloat();
+	}
+
+	private int ticksToCharged() {
+		return (int) Math.ceil((1 - mc.player.getAttackStrengthScale(0.5f)) * mc.player.getCurrentItemAttackStrengthDelay());
+	}
+
+	/**
+	 * Where the view sits for crystals on {@code base}: the top of the block, a little towards you. A
+	 * crystal there covers that point, so the crosshair is on the crystal when there is one and on the
+	 * obsidian when not, and the clicks alternate without the view moving.
+	 */
+	private Vec3 crystalAim(BlockPos base) {
+		Vec3 top = Vec3.atCenterOf(base).add(0, 0.5, 0);
+		Vec3 toward = mc.player.getEyePosition().subtract(top).multiply(1, 0, 1);
+		if (toward.lengthSqr() > 1e-4) top = top.add(toward.normalize().scale(0.2));
+		return top;
+	}
+
+	/** Nothing (no player, no crystal) stands between your eyes and {@code point}: the crosshair would land there. */
+	private boolean clearOfEntities(Vec3 eyes, Vec3 point) {
+		AABB span = new AABB(eyes, point).inflate(1);
+		for (Entity entity : mc.level.getEntities(mc.player, span, e -> !e.isSpectator() && e.isPickable())) {
+			if (entity.getBoundingBox().inflate(entity.getPickRadius()).clip(eyes, point).isPresent()) return false;
+		}
+		return true;
 	}
 
 	// ---------------------------------------------------------------- picking spots
@@ -276,8 +316,9 @@ public class AutoDTapModule extends Module {
 		Vec3 eyes = mc.player.getEyePosition();
 		Vec3 top = Vec3.atCenterOf(pos).add(0, 0.5, 0);
 		if (eyes.distanceTo(top) > mc.player.blockInteractionRange() - 0.3) return false;
+		top = crystalAim(pos);
 		BlockHitResult hit = mc.level.clip(new ClipContext(eyes, top.add(0, -0.05, 0), ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, mc.player));
-		return hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos);
+		return hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos) && clearOfEntities(eyes, top);
 	}
 
 	/** A face next to {@code pos} that can be seen and reached, clicked to put a block there. */
@@ -290,14 +331,24 @@ public class AutoDTapModule extends Module {
 			BlockPos neighbour = pos.relative(direction);
 			if (mc.level.getBlockState(neighbour).canBeReplaced()) continue;
 			Direction face = direction.getOpposite();
-			Vec3 point = Vec3.atCenterOf(neighbour).add(face.getStepX() * 0.5, face.getStepY() * 0.5, face.getStepZ() * 0.5);
-			double distance = eyes.distanceTo(point);
-			if (distance > reach || distance >= bestDistance) continue;
-			Vec3 through = point.add(eyes.subtract(point).normalize().scale(-0.05));
-			BlockHitResult hit = mc.level.clip(new ClipContext(eyes, through, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, mc.player));
-			if (hit.getType() != HitResult.Type.BLOCK || !hit.getBlockPos().equals(neighbour) || hit.getDirection() != face) continue;
-			best = new BlockHitResult(point, face, neighbour, false);
-			bestDistance = distance;
+			Vec3 middle = Vec3.atCenterOf(neighbour).add(face.getStepX() * 0.5, face.getStepY() * 0.5, face.getStepZ() * 0.5);
+			// The middle first, then spots towards the edges: the target standing beside it hides some
+			for (double[] o : new double[][]{{0, 0}, {0.3, 0}, {-0.3, 0}, {0, 0.3}, {0, -0.3}, {0.3, 0.3}, {-0.3, -0.3}, {0.3, -0.3}, {-0.3, 0.3}}) {
+				Vec3 point = middle.add(switch (face.getAxis()) {
+					case X -> new Vec3(0, o[0], o[1]);
+					case Y -> new Vec3(o[0], 0, o[1]);
+					case Z -> new Vec3(o[0], o[1], 0);
+				});
+				double distance = eyes.distanceTo(point);
+				if (distance > reach || distance >= bestDistance) continue;
+				Vec3 through = point.add(eyes.subtract(point).normalize().scale(-0.05));
+				BlockHitResult hit = mc.level.clip(new ClipContext(eyes, through, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, mc.player));
+				if (hit.getType() != HitResult.Type.BLOCK || !hit.getBlockPos().equals(neighbour) || hit.getDirection() != face) continue;
+				// Your crosshair stops at the first thing it meets: their body in the way and the click hits them
+				if (!clearOfEntities(eyes, point)) continue;
+				best = new BlockHitResult(point, face, neighbour, false);
+				bestDistance = distance;
+			}
 		}
 		return best;
 	}
