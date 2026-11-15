@@ -45,6 +45,8 @@ public final class TickRate {
 		if (FemboyWare.getModules() == null) return 1f;
 		TimerModule timer = FemboyWare.getModules().get(TimerModule.class);
 		if (timer.isEnabled()) return timer.getMultiplier();
+		float scaffold = FemboyWare.getModules().get(dev.femboyware.module.movement.ScaffoldModule.class).timerSpeed();
+		if (scaffold != 1f) return scaffold;
 		if (FemboyWare.isEnabled(TpsSyncModule.class)) return Math.max(0.1f, getTps() / 20f);
 		return 1f;
 	}

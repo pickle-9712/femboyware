@@ -1,0 +1,12 @@
+femboyware is licensed under the GNU General Public License v3 (see LICENSE).
+
+It includes code ported from LiquidBounce (https://github.com/CCBlueX/LiquidBounce),
+Copyright (c) 2015 - 2026 CCBlueX, licensed under the GNU General Public License v3
+or any later version. The ported code was translated from Kotlin to Java and modified
+to fit femboyware; each ported file keeps LiquidBounce's copyright header and says
+what was changed. Ported files:
+
+  src/main/java/dev/femboyware/lb/Geometry.java
+  src/main/java/dev/femboyware/lb/TargetFinding.java
+  src/main/java/dev/femboyware/lb/ScaffoldMovementPlanner.java
+  src/main/java/dev/femboyware/module/movement/ScaffoldModule.java

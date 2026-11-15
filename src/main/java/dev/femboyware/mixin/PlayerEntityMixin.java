@@ -24,7 +24,7 @@ public class PlayerEntityMixin {
 	@ModifyReturnValue(method = "isStayingOnGroundSurface", at = @At("RETURN"))
 	private boolean femboyware$safeWalk(boolean clip) {
 		if (clip || (Object) this != Minecraft.getInstance().player || FemboyWare.getModules() == null) return clip;
-		return FemboyWare.getModules().get(SafeWalkModule.class).shouldClip();
+		return FemboyWare.getModules().get(SafeWalkModule.class).shouldClip() || FemboyWare.getModules().get(dev.femboyware.module.movement.ScaffoldModule.class).safeWalks();
 	}
 
 	@ModifyReturnValue(method = "blockInteractionRange", at = @At("RETURN"))
