@@ -232,6 +232,10 @@ public class GuardCommandModule extends Module {
 			return;
 		}
 		int count = server.send(words);
-		ChatUtil.info(count == 0 ? "No guards are connected" : "Sent to " + count + (count == 1 ? " guard" : " guards"));
+		if (count == 0) {
+			// Often the link died quietly (a VPN or network change): start it over, the order follows
+			server.sendWhenConnected(words);
+			ChatUtil.info("No guards are connected, relinking: guards that connect in the next 15s get the order");
+		} else ChatUtil.info("Sent to " + count + (count == 1 ? " guard" : " guards"));
 	}
 }

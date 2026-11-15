@@ -53,8 +53,15 @@ public final class GuardLink {
 	private static final int HANDSHAKE_TIMEOUT = 8000;
 	private static final int CONNECT_TIMEOUT = 10000;
 	private static final int RECONNECT_DELAY = 3000;
-	/** Pings the relay this often while quiet, so the connection isn't dropped as idle. */
-	private static final int KEEPALIVE = 25000;
+	/** Pings the relay this often while quiet, so the connection isn't dropped as idle and a dead one is noticed. */
+	private static final int KEEPALIVE = 10000;
+	/**
+	 * Nothing at all from the relay (not even an answer to a ping) for this long means the connection
+	 * is dead even if it looks open, like after a VPN turns off or the network changes: start over.
+	 */
+	private static final int DEAD_AFTER = 25000;
+	/** Orders sent while no guards were connected go to guards that connect within this long. */
+	private static final int HOLD_ORDERS = 15000;
 	private static final int CLOSE_TAKEN_OVER = 4001;
 	private static final byte DATA = 0, JOINED = 1, LEFT = 2;
 	private static final byte[] SALT = "femboyware guard link v1".getBytes(StandardCharsets.UTF_8);
@@ -97,6 +104,8 @@ public final class GuardLink {
 		private volatile WebSocket socket;
 		volatile int closeCode = -1;
 		volatile String closeReason = "";
+		/** When anything last came from the relay, pongs included. */
+		private volatile long heard = System.currentTimeMillis();
 
 		static Relay open(String room, String role) throws IOException {
 			Relay relay = new Relay();
@@ -113,6 +122,7 @@ public final class GuardLink {
 
 		@Override
 		public CompletionStage<?> onBinary(WebSocket webSocket, ByteBuffer data, boolean last) {
+			heard = System.currentTimeMillis();
 			ByteBuffer joined = ByteBuffer.allocate(partialBinary.remaining() + data.remaining());
 			joined.put(partialBinary).put(data).flip();
 			if (last) {
@@ -129,6 +139,7 @@ public final class GuardLink {
 
 		@Override
 		public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+			heard = System.currentTimeMillis();
 			partialText.append(data);
 			if (last) {
 				incoming.add(partialText.toString());
@@ -136,6 +147,19 @@ public final class GuardLink {
 			}
 			webSocket.request(1);
 			return null;
+		}
+
+		@Override
+		public CompletionStage<?> onPong(WebSocket webSocket, ByteBuffer message) {
+			heard = System.currentTimeMillis();
+			webSocket.request(1);
+			return null;
+		}
+
+		@Override
+		public CompletionStage<?> onPing(WebSocket webSocket, ByteBuffer message) {
+			heard = System.currentTimeMillis();
+			return WebSocket.Listener.super.onPing(webSocket, message);
 		}
 
 		@Override
@@ -185,6 +209,11 @@ public final class GuardLink {
 					throw new EOFException("Relay connection closed");
 				}
 				if (next != null) return next;
+				if (System.currentTimeMillis() - heard > DEAD_AFTER) {
+					// Looks open, but the relay hasn't answered: the line's dead
+					incoming.add(CLOSED);
+					throw new EOFException("Relay stopped answering");
+				}
 				ping();
 			}
 		}
@@ -275,6 +304,9 @@ public final class GuardLink {
 	/** The principal's end: guards anywhere reach it through the relay. */
 	public static final class Server {
 		private final Map<Integer, GuardSession> sessions = new ConcurrentHashMap<>();
+		/** Orders waiting for guards to connect, and when they stop waiting. */
+		private final java.util.List<String> held = new java.util.concurrent.CopyOnWriteArrayList<>();
+		private volatile long holdUntil;
 		private final Consumer<String> onEvent;
 		private final BiConsumer<String, String> onStatus;
 		private volatile Relay relay;
@@ -423,6 +455,9 @@ public final class GuardLink {
 				session.channel = channel;
 				joined = true;
 				onEvent.accept(channel.name + " connected to the guard link");
+				if (System.currentTimeMillis() < holdUntil) {
+					for (String order : held) channel.send(order);
+				}
 				while (running) {
 					String message = channel.receive(0);
 					if (message.startsWith(STATUS)) onStatus.accept(channel.name, message.substring(STATUS.length()));
@@ -452,6 +487,33 @@ public final class GuardLink {
 				}
 			}
 			return count;
+		}
+
+		/** How many guards have finished connecting. */
+		public int connected() {
+			int count = 0;
+			for (GuardSession session : sessions.values()) {
+				if (session.channel != null) count++;
+			}
+			return count;
+		}
+
+		/**
+		 * Nobody's there to take {@code order}: reconnects to the relay from scratch, which also makes
+		 * every guard reconnect (even ones stuck talking to a dead connection of ours), and gives the
+		 * order to each guard that connects in the next few seconds.
+		 */
+		public void sendWhenConnected(String order) {
+			if (System.currentTimeMillis() >= holdUntil) held.clear();
+			held.add(order);
+			holdUntil = System.currentTimeMillis() + HOLD_ORDERS;
+			relink();
+		}
+
+		/** Drops the relay connection; the loop connects again straight away. */
+		public void relink() {
+			Relay current = relay;
+			if (current != null) current.close();
 		}
 
 		public void stop() {
