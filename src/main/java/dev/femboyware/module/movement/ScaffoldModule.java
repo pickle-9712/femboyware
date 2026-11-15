@@ -187,6 +187,11 @@ public class ScaffoldModule extends Module {
 	private float karhuBoost;
 	private boolean turnedOnSpeed;
 	private final List<long[]> placed = new ArrayList<>();
+	/** femboyware: blocks placed lately, watched for the server taking them back: {pos, game time}. */
+	private final List<long[]> watching = new ArrayList<>();
+	/** femboyware: rescue: jumping to rebuild the bridge at {@link #rescueLevel} under where you land. */
+	private int rescueTicks, rescueLevel, stuckTicks;
+	private boolean rescueJump;
 
 	public ScaffoldModule() {
 		super("Scaffold", "Bridges under you automatically (LiquidBounce's scaffold)", Category.BUILD);
@@ -207,6 +212,9 @@ public class ScaffoldModule extends Module {
 
 	@Override
 	protected void onDisable() {
+		watching.clear();
+		rescueTicks = stuckTicks = 0;
+		rescueJump = false;
 		planner.reset();
 		target = null;
 		optimalLine = null;
@@ -444,6 +452,46 @@ public class ScaffoldModule extends Module {
 		return mc.level.getBlockCollisions(mc.player, box).iterator().hasNext();
 	}
 
+	/**
+	 * femboyware: sees a fall coming and jumps to get out of it, rebuilding the bridge under where the
+	 * jump lands (as jump bridging does, which has the whole jump to get the block in):
+	 * <ul>
+	 * <li>the server took back a block placed in the last two seconds (it's air again) under or ahead of you,</li>
+	 * <li>or Ledge has held you at the edge for a while and the block still can't go in.</li>
+	 * </ul>
+	 */
+	private void tickRescue() {
+		long now = mc.level.getGameTime();
+		watching.removeIf(entry -> now - entry[1] > 40);
+		if (rescueTicks > 0) {
+			rescueTicks--;
+			// Landed back on the bridge: done
+			if (mc.player.onGround() && rescueTicks < 17) rescueTicks = 0;
+		}
+		if (!mc.player.onGround() || isTowering() || blockCount() <= 0 || !rawMoving()) {
+			stuckTicks = 0;
+			return;
+		}
+		int level = mc.player.blockPosition().getY() - 1;
+		boolean takenBack = false;
+		for (long[] entry : watching) {
+			BlockPos pos = BlockPos.of(entry[0]);
+			if (pos.getY() != level || !mc.level.getBlockState(pos).canBeReplaced()) continue;
+			if (Vec3.atCenterOf(pos).subtract(mc.player.position()).horizontalDistance() < 2.0) {
+				takenBack = true;
+				break;
+			}
+		}
+		stuckTicks = mc.player.isShiftKeyDown() && !supportedAt(nextPosition().add(Vec3.directionFromRotation(0, rawMovementYaw()).scale(0.15))) ? stuckTicks + 1 : 0;
+		if (takenBack || stuckTicks > 6) {
+			rescueLevel = level;
+			rescueTicks = 20;
+			rescueJump = true;
+			stuckTicks = 0;
+			watching.removeIf(entry -> BlockPos.of(entry[0]).getY() == level && mc.level.getBlockState(BlockPos.of(entry[0])).canBeReplaced());
+		}
+	}
+
 	private Vec3 nextEyes() {
 		return nextPosition().add(0, mc.player.getEyeHeight(), 0);
 	}
@@ -485,6 +533,9 @@ public class ScaffoldModule extends Module {
 	}
 
 	private BlockPos targetedPosition(BlockPos pos) {
+		// femboyware: rescue jump: the bridge goes back in at its own level under you
+		// (once you've dropped into that level it's too late for it: then it's the usual block under you, a level down)
+		if (rescueTicks > 0 && mc.player.getY() >= rescueLevel + 1) return new BlockPos(pos.getX(), rescueLevel, pos.getZ());
 		if (isTowering() || wasTowering) return pos.below();
 		if (shouldGoDown()) return pos.offset(0, -2, 0);
 		if (ceiling.get() && technique.is(Technique.NORMAL) && !mc.level.getBlockState(mc.player.blockPosition().below()).isAir()) return pos.offset(0, 3, 0);
@@ -504,6 +555,18 @@ public class ScaffoldModule extends Module {
 
 	private PlacementTarget findTarget(Vec3 pos, Pose pose, ItemStack stack) {
 		PlayerLocation location = PlayerLocation.of(pos, pose);
+		// femboyware: rescue jump: the bridge back in at its level along where this jump goes, first gap first
+		if (rescueTicks > 0 && !mc.player.onGround() && mc.player.getY() >= rescueLevel + 1) {
+			TargetFinding.Options options = new TargetFinding.Options(TargetFinding.NO_OFFSET, TargetFinding.leastBlockDistanceToPos(pos),
+				TargetFinding.factory(AimMode.CENTER, null), true, stack, location);
+			for (BlockPos column : jumpColumns(mc.player.input.keyPresses, rescueLevel + 1)) {
+				BlockPos gap = new BlockPos(column.getX(), rescueLevel, column.getZ());
+				if (!mc.level.getBlockState(gap).canBeReplaced()) continue;
+				if (mc.player.getBoundingBox().intersects(new AABB(gap))) continue;
+				PlacementTarget found = TargetFinding.findBest(gap, options);
+				if (found != null) return found;
+			}
+		}
 		// femboyware: the Hypixel tower walking forward builds the step under where this jump lands
 		if (towerForward() && !mc.player.onGround()) {
 			TargetFinding.Options options = new TargetFinding.Options(TargetFinding.NO_OFFSET, TargetFinding.leastBlockDistanceToPos(pos),
@@ -678,9 +741,13 @@ public class ScaffoldModule extends Module {
 	 * order, worked out with vanilla's air physics from your speed and keys. The last is where you land.
 	 */
 	private List<BlockPos> jumpColumns(Input keys) {
+		return jumpColumns(keys, stepLevel() + 1);
+	}
+
+	/** {@link #jumpColumns(Input)} coming down onto {@code landY} instead of the next step. */
+	private List<BlockPos> jumpColumns(Input keys, double landY) {
 		List<BlockPos> columns = new ArrayList<>();
 		Vec3 at = mc.player.position(), v = mc.player.getDeltaMovement();
-		double landY = stepLevel() + 1;
 		boolean any = keys.forward() || keys.backward() || keys.left() || keys.right();
 		Vec3 push = Vec3.ZERO;
 		if (any) {
@@ -825,6 +892,7 @@ public class ScaffoldModule extends Module {
 			}
 		}
 
+		tickRescue();
 		int slot = bestHotbarSlot();
 		ItemStack stack = slot < 0 ? new ItemStack(Items.SANDSTONE, 64) : mc.player.getInventory().getItem(slot);
 		optimalLine = rawMoving() ? planner.optimalLine(rawMovementYaw()) : null;
@@ -900,9 +968,18 @@ public class ScaffoldModule extends Module {
 
 		PlacementTarget placing = target;
 		BlockHitResult click = hit;
+		// femboyware: sneaking, the click goes out with the point Hypixel's own look lands on: its 1.8 server
+		// puts sneaking eyes at 1.54, not 1.21's 1.27, and takes back blocks whose click point doesn't match
+		// what it traces (a few in a row and it starts cancelling them)
+		if (mc.player.isShiftKeyDown() && rotate.get()) {
+			BlockHitResult theirs = TargetFinding.traceFromPoint(mc.player.position().add(0, 1.54, 0), rotation.toVector(), mc.player.blockInteractionRange());
+			if (!placing.matches(theirs) || !validCrosshair(theirs)) return;
+			click = theirs;
+		}
+		BlockHitResult clicked = click;
 		boolean[] success = {false};
 		Runnable place = () -> {
-			InteractionResult result = mc.gameMode.useItemOn(mc.player, hand, click);
+			InteractionResult result = mc.gameMode.useItemOn(mc.player, hand, clicked);
 			if (result.consumesAction()) {
 				success[0] = true;
 				switch (swing.get()) {
@@ -926,6 +1003,7 @@ public class ScaffoldModule extends Module {
 		}
 		if (!success[0]) return;
 		planner.trackPlacedBlock(placing.placedBlock());
+		watching.add(new long[]{placing.placedBlock().asLong(), mc.level.getGameTime()});
 		placed.add(new long[]{placing.placedBlock().asLong(), System.currentTimeMillis()});
 		onEaglePlace();
 		target = null;
@@ -1067,6 +1145,17 @@ public class ScaffoldModule extends Module {
 			}
 		}
 		if (shouldFallOffBlock()) sneak = false;
+		if (rescueJump) {
+			rescueJump = false;
+			if (mc.player.onGround()) {
+				jump = true;
+				sneak = false;
+			} else {
+				rescueTicks = 0;
+			}
+		}
+		// In the air rebuilding the bridge: no sneaking (it would only slow the jump's reach)
+		if (rescueTicks > 0 && !mc.player.onGround()) sneak = false;
 		if (noSprint.get()) sprint = false;
 
 		Input changed = new Input(forward, back, left, right, jump, sneak, sprint);
