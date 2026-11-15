@@ -7,6 +7,7 @@ import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.KeySetting;
+import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.StringSetting;
 import dev.femboyware.util.ChatUtil;
 import java.util.ArrayList;
@@ -27,6 +28,7 @@ public class GuardCommandModule extends Module {
 	private final KeySetting rallyKey = add(new KeySetting("Rally Key", "Press to call every guard to you", -1));
 	private final KeySetting hereKey = add(new KeySetting("Send Here Key", "Press to send every guard to the block you're looking at", -1));
 	private final BoolSetting bringGuards = add(new BoolSetting("Bring Guards", "Guards on the link join whatever server you're on by themselves, and follow you when you switch", true));
+	private final NumberSetting joinSpacing = add(new NumberSetting("Join Spacing", "Seconds between guards joining, one at a time: servers turn away joins from the same IP that come close together (\"Connection throttled\"), and every turned away try restarts their wait", 6, 4, 30, 0.5)).visibleWhen(bringGuards::get);
 
 	/** One guard's latest report. */
 	public record GuardStatus(String name, float health, float maxHealth, float absorption, int totems, int pots, String state, String target, double x, double y, double z, long received) {
@@ -47,10 +49,10 @@ public class GuardCommandModule extends Module {
 	private final BotArena arena = new BotArena(this);
 	private GuardLink.Server server;
 	private String running = "";
-	/** The server last announced to the guards, and ticks till it's said again for anyone who just connected. */
+	/** The server the guards are being brought to, ticks till the next guard is sent, and whose turn it is. */
 	private String announced = "";
 	private int announceTimer;
-	private static final int ANNOUNCE_TICKS = 60;
+	private int joinTurn;
 
 	public GuardCommandModule() {
 		super("Guard Command", "Send bodyguards orders privately with " + CommandManager.PREFIX + "g, without using chat", Category.LEGIT);
@@ -76,17 +78,34 @@ public class GuardCommandModule extends Module {
 	}
 
 	/**
-	 * Tells the guards which server you're on, straight away when it changes and every few seconds
-	 * after, so a guard that connects late, gets kicked or starts up later still finds its way.
+	 * Brings guards that aren't on your server to it, one at a time, {@link #joinSpacing} apart (after
+	 * your own join too): all of them at once from one IP gets them all turned away as throttled.
+	 * Guards already in the tab list are left alone, and it keeps going round, so one that connects
+	 * late, gets kicked or starts up later still finds its way.
 	 */
 	private void announceServer() {
-		if (!bringGuards.get() || server == null || mc.isLocalServer() || mc.getCurrentServer() == null) return;
+		if (!bringGuards.get() || server == null || mc.isLocalServer() || mc.getCurrentServer() == null || mc.getConnection() == null) return;
 		String address = mc.getCurrentServer().ip.trim();
 		if (address.isEmpty()) return;
-		if (address.equals(announced) && ++announceTimer < ANNOUNCE_TICKS) return;
-		announced = address;
-		announceTimer = 0;
-		server.send("join " + address);
+		int spacing = (int) Math.ceil(joinSpacing.get() * 20);
+		if (!address.equals(announced)) {
+			// You just joined: that counts against the server's wait as well
+			announced = address;
+			announceTimer = spacing;
+			joinTurn = 0;
+		}
+		if (--announceTimer > 0) return;
+		List<String> missing = new ArrayList<>();
+		for (String name : server.names()) {
+			if (mc.getConnection().getPlayerInfo(name) == null && !missing.contains(name)) missing.add(name);
+		}
+		if (missing.isEmpty()) {
+			announceTimer = 20;
+			return;
+		}
+		missing.sort(String.CASE_INSENSITIVE_ORDER);
+		server.sendTo(missing.get(joinTurn++ % missing.size()), "join " + address);
+		announceTimer = spacing;
 	}
 
 	public BotArena arena() {

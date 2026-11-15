@@ -489,6 +489,32 @@ public final class GuardLink {
 			return count;
 		}
 
+		/** The names of the guards that have finished connecting. */
+		public java.util.List<String> names() {
+			java.util.List<String> names = new java.util.ArrayList<>();
+			for (GuardSession session : sessions.values()) {
+				Channel channel = session.channel;
+				if (channel != null) names.add(channel.name);
+			}
+			return names;
+		}
+
+		/** Sends an order to the guards called {@code name} only; how many got it. */
+		public int sendTo(String name, String order) {
+			int count = 0;
+			for (GuardSession session : sessions.values()) {
+				Channel channel = session.channel;
+				if (channel == null || !channel.name.equalsIgnoreCase(name)) continue;
+				try {
+					channel.send(order);
+					count++;
+				} catch (IOException e) {
+					session.close();
+				}
+			}
+			return count;
+		}
+
 		/** How many guards have finished connecting. */
 		public int connected() {
 			int count = 0;
