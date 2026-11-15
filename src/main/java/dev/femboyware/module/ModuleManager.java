@@ -234,6 +234,7 @@ public class ModuleManager {
 		register(new dev.femboyware.module.combat.BacktrackModule());
 		register(new LegitCrystalModule());
 		register(new dev.femboyware.module.combat.AutoDTapModule());
+		register(new dev.femboyware.module.combat.AutoWebEscapeModule());
 		register(new LegitAnchorModule());
 		register(new LegitTotemModule());
 		register(new LegitPotModule());
