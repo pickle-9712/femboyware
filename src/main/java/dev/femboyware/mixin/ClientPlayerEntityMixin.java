@@ -24,6 +24,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class ClientPlayerEntityMixin {
 	@Inject(method = "tick", at = @At("HEAD"))
 	private void femboyware$preMotion(CallbackInfo ci) {
+		dev.femboyware.util.FreeLook.tick();
 		FemboyWare.getModules().onPreMotion();
 		FemboyWare.getRotations().prepare();
 	}
@@ -35,7 +36,11 @@ public class ClientPlayerEntityMixin {
 	@Inject(method = "aiStep", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/ClientInput;tick()V", shift = At.Shift.AFTER))
 	private void femboyware$fixMovementInput(CallbackInfo ci) {
 		FemboyWare.getModules().onInput();
-		if (FemboyWare.getRotations().isMoveFixActive() && !FemboyWare.isEnabled(FreeCamModule.class)) {
+		if (dev.femboyware.util.FreeLook.active()) {
+			// Real Look: the head faces the build, WASD still walks where the camera points
+			LocalPlayer self = (LocalPlayer) (Object) this;
+			MoveFix.fixInput(self, dev.femboyware.util.FreeLook.yaw(), self.getYRot());
+		} else if (FemboyWare.getRotations().isMoveFixActive() && !FemboyWare.isEnabled(FreeCamModule.class)) {
 			MoveFix.fixInput((LocalPlayer) (Object) this, FemboyWare.getRotations().getServerYaw());
 		}
 	}

@@ -116,6 +116,8 @@ public class ScaffoldModule extends Module {
 	// Rotations
 	private final BoolSetting rotate = add(new BoolSetting("Rotate", "Aim at each placement (needed on most servers)", true)).visibleWhen(() -> page.is(Page.ROTATIONS));
 	private final RotationSettings rotations = new RotationSettings(s -> add(s), () -> page.is(Page.ROTATIONS) && rotate.get(), 180f);
+	private final BoolSetting realLook = add(new BoolSetting("Real Look", "Really turn your head to where you build (no silent rotation), with free look so you can still look anywhere", false)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
+	private final BoolSetting realLookThirdPerson = add(new BoolSetting("Real Look Third Person", "Switch to third person while Real Look turns your head", true)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get() && realLook.get());
 	private final EnumSetting<Timing> timing = add(new EnumSetting<>("Rotation Timing", "Normal turns before placing; On Tick turns on the tick it places; Snap also keeps it", Timing.NORMAL)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final EnumSetting<AimMode> aimMode = add(new EnumSetting<>("Aim Mode", "Which point on the face to aim at (Normal technique)", AimMode.STABILIZED)).visibleWhen(() -> page.is(Page.ROTATIONS));
 	private final BoolSetting requiresSight = add(new BoolSetting("Requires Sight", "Only aim at faces you can see (Normal technique)", false)).visibleWhen(() -> page.is(Page.ROTATIONS));
@@ -305,6 +307,15 @@ public class ScaffoldModule extends Module {
 		return isTowering() ? Technique.NORMAL : technique.get();
 	}
 
+	/** The way you mean to face: the camera's, which Real Look's free look keeps apart from your head. */
+	private static float cameraYaw() {
+		return dev.femboyware.util.FreeLook.yaw();
+	}
+
+	private boolean usesRealLook() {
+		return rotate.get() && realLook.get();
+	}
+
 	private boolean rawMoving() {
 		return mc.options.keyUp.isDown() || mc.options.keyDown.isDown() || mc.options.keyLeft.isDown() || mc.options.keyRight.isDown();
 	}
@@ -315,7 +326,7 @@ public class ScaffoldModule extends Module {
 
 	/** The way the given keys walk you, in degrees of yaw, as LiquidBounce's getMovementDirectionOfInput. */
 	private float movementYaw(boolean forward, boolean back, boolean left, boolean right) {
-		float yaw = mc.player.getYRot();
+		float yaw = cameraYaw();
 		float f = 1f;
 		if (back) {
 			yaw += 180f;
@@ -394,7 +405,7 @@ public class ScaffoldModule extends Module {
 			case EXPAND -> {
 				TargetFinding.Options options = new TargetFinding.Options(TargetFinding.NO_OFFSET, TargetFinding.leastBlockDistanceToPos(mc.player.position()),
 					TargetFinding.factory(AimMode.CENTER, null), true, stack, location);
-				float yaw = (float) Math.toRadians(mc.player.getYRot());
+				float yaw = (float) Math.toRadians(cameraYaw());
 				for (int i = 0; i <= expandLength.getInt(); i++) {
 					BlockPos ahead = feet.offset((int) (-Math.sin(yaw) * i), 0, (int) (Math.cos(yaw) * i));
 					PlacementTarget found = TargetFinding.findBest(targetedPosition(ahead), options);
@@ -469,7 +480,7 @@ public class ScaffoldModule extends Module {
 		// Normal
 		if (tellyDoNotAim()) {
 			if (tellyReset.is(TellyReset.RESET)) return null;
-			return new Rotation(Math.round(mc.player.getYRot() / 45f) * 45f, Math.max(45f, mc.player.getXRot()));
+			return new Rotation(Math.round(cameraYaw() / 45f) * 45f, Math.max(45f, dev.femboyware.util.FreeLook.pitch()));
 		}
 		if (target == null) return null;
 		if (requiresSight.get()) {
@@ -600,7 +611,8 @@ public class ScaffoldModule extends Module {
 		if (!rotate.get()) return;
 		if (timing.is(Timing.NORMAL)) {
 			Rotation rotation = rotationFor(target);
-			if (rotation != null) FemboyWare.getRotations().request(rotation, ROTATION_PRIORITY, rotations, false);
+			if (usesRealLook()) dev.femboyware.util.FreeLook.hold(realLookThirdPerson.get());
+			if (rotation != null) FemboyWare.getRotations().request(rotation, ROTATION_PRIORITY, rotations, usesRealLook());
 		} else if (timing.is(Timing.ON_TICK_SNAP) && snapRotation != null) {
 			FemboyWare.getRotations().request(snapRotation, ROTATION_PRIORITY, 180f, false);
 		}
@@ -615,7 +627,7 @@ public class ScaffoldModule extends Module {
 		}
 		Rotation server = FemboyWare.getRotations().getServerRotation();
 		Rotation rotation = server;
-		if (rotate.get() && !timing.is(Timing.NORMAL) && !dev.femboyware.util.Grim.on() && target != null) {
+		if (rotate.get() && !timing.is(Timing.NORMAL) && !dev.femboyware.util.Grim.on() && !usesRealLook() && target != null) {
 			Rotation wanted = rotationFor(target);
 			if (wanted != null) rotation = wanted;
 		}
@@ -633,7 +645,7 @@ public class ScaffoldModule extends Module {
 		}
 		InteractionHand hand = mainHand || slot >= 0 ? InteractionHand.MAIN_HAND : InteractionHand.OFF_HAND;
 
-		boolean onTick = rotate.get() && !timing.is(Timing.NORMAL) && !dev.femboyware.util.Grim.on();
+		boolean onTick = rotate.get() && !timing.is(Timing.NORMAL) && !dev.femboyware.util.Grim.on() && !usesRealLook();
 		if (onTick && server.distanceTo(rotation) > 0.01f) FemboyWare.getRotations().sendPacketRotation(rotation);
 		if (!rotate.get() && server.distanceTo(rotation) > 0.01f) FemboyWare.getRotations().sendPacketRotation(rotation);
 
@@ -748,7 +760,7 @@ public class ScaffoldModule extends Module {
 				double modX = mc.player.getX() - Math.floor(mc.player.getX()), modZ = mc.player.getZ() - Math.floor(mc.player.getZ());
 				double ma = 1 - edgeRandom;
 				float sideways = 0;
-				switch (Direction.fromYRot(mc.player.getYRot())) {
+				switch (Direction.fromYRot(cameraYaw())) {
 					case SOUTH -> { if (modX > ma) sideways = 1; if (modX < edgeRandom) sideways = -1; }
 					case NORTH -> { if (modX > ma) sideways = -1; if (modX < edgeRandom) sideways = 1; }
 					case EAST -> { if (modZ > ma) sideways = -1; if (modZ < edgeRandom) sideways = 1; }

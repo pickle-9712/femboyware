@@ -21,12 +21,17 @@ public final class MoveFix {
 
 	/** Call right after {@code Input.tick()}, before anything reads the keys. */
 	public static void fixInput(LocalPlayer player, float serverYaw) {
+		fixInput(player, player.getYRot(), serverYaw);
+	}
+
+	/** Remaps keys meant relative to {@code wantedYaw} so that, moving relative to {@code serverYaw}, you go the same way. */
+	public static void fixInput(LocalPlayer player, float wantedYaw, float serverYaw) {
 		Input keys = player.input.keyPresses;
 		int forward = (keys.forward() ? 1 : 0) - (keys.backward() ? 1 : 0);
 		int strafe = (keys.left() ? 1 : 0) - (keys.right() ? 1 : 0);
 		if (forward == 0 && strafe == 0) return;
 
-		double[] wanted = direction(forward, strafe, player.getYRot());
+		double[] wanted = direction(forward, strafe, wantedYaw);
 		int bestForward = 0;
 		int bestStrafe = 0;
 		double bestDot = -2;
@@ -46,6 +51,25 @@ public final class MoveFix {
 		player.input.keyPresses = new Input(bestForward > 0, bestForward < 0, bestStrafe > 0, bestStrafe < 0,
 			keys.jump(), keys.shift(), keys.sprint());
 		((InputAccessor) player.input).femboyware$setMovementVector(new Vec2(bestStrafe, bestForward).normalized());
+	}
+
+	/** The key combination ({forward, strafe}, each -1..1) that, read relative to {@code frameYaw}, walks closest to {@code worldYaw}. */
+	public static int[] keysToward(float frameYaw, float worldYaw) {
+		double[] wanted = direction(1, 0, worldYaw);
+		int[] best = {1, 0};
+		double bestDot = -2;
+		for (int f = -1; f <= 1; f++) {
+			for (int s = -1; s <= 1; s++) {
+				if (f == 0 && s == 0) continue;
+				double[] candidate = direction(f, s, frameYaw);
+				double dot = candidate[0] * wanted[0] + candidate[1] * wanted[1];
+				if (dot > bestDot) {
+					bestDot = dot;
+					best = new int[]{f, s};
+				}
+			}
+		}
+		return best;
 	}
 
 	/** Normalised world-space XZ direction of a key combination, matching vanilla's input-to-velocity maths. */

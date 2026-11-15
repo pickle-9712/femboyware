@@ -78,6 +78,11 @@ public class EntityMixin {
 			ci.cancel();
 			return;
 		}
+		if (dev.femboyware.util.FreeLook.active()) {
+			dev.femboyware.util.FreeLook.turn(cursorDeltaX, cursorDeltaY);
+			ci.cancel();
+			return;
+		}
 		FreeLookModule freeLook = FemboyWare.getModules().get(FreeLookModule.class);
 		if (freeLook.isEnabled()) {
 			freeLook.changeLook(cursorDeltaX, cursorDeltaY);
