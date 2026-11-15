@@ -10,3 +10,5 @@ what was changed. Ported files:
   src/main/java/dev/femboyware/lb/TargetFinding.java
   src/main/java/dev/femboyware/lb/ScaffoldMovementPlanner.java
   src/main/java/dev/femboyware/module/movement/ScaffoldModule.java
+  src/main/java/dev/femboyware/lb/RotationSettings.java
+  src/main/java/dev/femboyware/module/movement/ClutchModule.java

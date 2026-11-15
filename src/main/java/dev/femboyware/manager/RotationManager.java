@@ -1,6 +1,7 @@
 package dev.femboyware.manager;
 
 import dev.femboyware.FemboyWare;
+import dev.femboyware.lb.RotationSettings;
 import dev.femboyware.mixin.ClientPlayerEntityAccessor;
 import dev.femboyware.module.client.MoveFixModule;
 import dev.femboyware.util.Rotation;
@@ -22,6 +23,11 @@ public class RotationManager {
 	private float requestedStep;
 	private boolean requestedClientLook;
 	private boolean requestedMoveFix;
+	private RotationSettings requestedSettings;
+	/** Smoothing of the last request, kept to turn back to the camera with once requests stop. */
+	private RotationSettings resetSettings;
+	private boolean resetMoveFix;
+	private int resetTicks;
 
 	private Rotation serverRotation;
 	/** A silent rotation is in effect for this tick. */
@@ -51,6 +57,21 @@ public class RotationManager {
 		requestedStep = maxStep;
 		requestedClientLook = clientLook;
 		requestedMoveFix = moveFix;
+		requestedSettings = null;
+	}
+
+	/**
+	 * Requests a rotation turned by LiquidBounce's smoothing in {@code settings} (angle smooth,
+	 * short stop, fail), handing back to the camera smoothly once requests stop if they say so.
+	 */
+	public void request(Rotation rotation, int priority, RotationSettings settings, boolean clientLook) {
+		if (priority < requestedPriority) return;
+		requested = rotation;
+		requestedPriority = priority;
+		requestedStep = 180f;
+		requestedClientLook = clientLook;
+		requestedMoveFix = true;
+		requestedSettings = settings;
 	}
 
 	/** The rotation the server currently believes we have. */
@@ -78,12 +99,31 @@ public class RotationManager {
 	public void prepare() {
 		silent = false;
 		if (requested == null) {
+			if (serverRotation != null && resetSettings != null && resetSettings.smoothReset()) {
+				// LiquidBounce's reset: turn back to the camera instead of snapping to it
+				Rotation camera = new Rotation(mc.player.getYRot(), mc.player.getXRot());
+				Rotation from = serverRotation;
+				if (from.distanceTo(camera) > resetSettings.resetThreshold() && resetTicks++ < 40) {
+					serverRotation = resetSettings.process(from, camera, false).applyGcd(from, mc.options.sensitivity().get());
+					silent = true;
+					silentMoveFix = resetMoveFix;
+					return;
+				}
+			}
+			if (resetSettings != null) resetSettings.reset();
+			resetSettings = null;
 			serverRotation = null;
 			return;
 		}
 		Rotation from = getServerRotation();
-		Rotation next = from.stepTowards(requested, requestedStep, requestedStep);
+		Rotation next = requestedSettings != null
+			? requestedSettings.process(from, requested, true)
+			: from.stepTowards(requested, requestedStep, requestedStep);
 		next = next.applyGcd(from, mc.options.sensitivity().get());
+		if (resetSettings != null && resetSettings != requestedSettings) resetSettings.reset();
+		resetSettings = requestedClientLook ? null : requestedSettings;
+		resetTicks = 0;
+		resetMoveFix = requestedMoveFix;
 		serverRotation = next;
 
 		if (requestedClientLook) {
@@ -94,6 +134,7 @@ public class RotationManager {
 			silentMoveFix = requestedMoveFix;
 		}
 		requested = null;
+		requestedSettings = null;
 		requestedPriority = Integer.MIN_VALUE;
 	}
 

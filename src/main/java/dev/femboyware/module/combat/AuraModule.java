@@ -4,6 +4,7 @@ import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
+import dev.femboyware.lb.RotationSettings;
 import dev.femboyware.module.utility.FriendsModule;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
@@ -37,6 +38,7 @@ public class AuraModule extends Module {
 	public enum Distribution { FLAT, NORMAL }
 	public enum Jitter { NONE, RANDOM, SINE, NOISE }
 	public enum HoldTiming { AFTER_ATTACK, AFTER_CRIT }
+	public enum Engine { FEMBOYWARE, LIQUIDBOUNCE }
 
 	private final EnumSetting<Page> page = add(new EnumSetting<>("Page", "Settings page", Page.GENERAL));
 
@@ -60,11 +62,13 @@ public class AuraModule extends Module {
 	private final NumberSetting pointVFreq = add(new NumberSetting("Point V Freq", "Vertical oscillation frequency", 3, 1, 30, 0.5)).visibleWhen(() -> page.is(Page.POINT));
 
 	// Rotation
-	private final EnumSetting<Distribution> speedDistribution = add(new EnumSetting<>("Speed Distribution", "How speeds are sampled between min and max", Distribution.NORMAL)).visibleWhen(() -> page.is(Page.ROTATION));
-	private final NumberSetting minYawSpeed = add(new NumberSetting("Min Yaw Speed", "Degrees per tick", 25, 0.1, 180, 0.1)).visibleWhen(() -> page.is(Page.ROTATION));
-	private final NumberSetting maxYawSpeed = add(new NumberSetting("Max Yaw Speed", "Degrees per tick", 45, 0.1, 180, 0.1)).visibleWhen(() -> page.is(Page.ROTATION));
-	private final NumberSetting minPitchSpeed = add(new NumberSetting("Min Pitch Speed", "Degrees per tick", 10, 0.1, 180, 0.1)).visibleWhen(() -> page.is(Page.ROTATION));
-	private final NumberSetting maxPitchSpeed = add(new NumberSetting("Max Pitch Speed", "Degrees per tick", 25, 0.1, 180, 0.1)).visibleWhen(() -> page.is(Page.ROTATION));
+	private final EnumSetting<Engine> engine = add(new EnumSetting<>("Engine", "femboyware's own smoothing, or LiquidBounce's angle smoothing", Engine.FEMBOYWARE)).visibleWhen(() -> page.is(Page.ROTATION));
+	private final RotationSettings lbRotations = new RotationSettings(s -> add(s), () -> page.is(Page.ROTATION) && engine.is(Engine.LIQUIDBOUNCE), 180f);
+	private final EnumSetting<Distribution> speedDistribution = add(new EnumSetting<>("Speed Distribution", "How speeds are sampled between min and max", Distribution.NORMAL)).visibleWhen(() -> page.is(Page.ROTATION) && engine.is(Engine.FEMBOYWARE));
+	private final NumberSetting minYawSpeed = add(new NumberSetting("Min Yaw Speed", "Degrees per tick", 25, 0.1, 180, 0.1)).visibleWhen(() -> page.is(Page.ROTATION) && engine.is(Engine.FEMBOYWARE));
+	private final NumberSetting maxYawSpeed = add(new NumberSetting("Max Yaw Speed", "Degrees per tick", 45, 0.1, 180, 0.1)).visibleWhen(() -> page.is(Page.ROTATION) && engine.is(Engine.FEMBOYWARE));
+	private final NumberSetting minPitchSpeed = add(new NumberSetting("Min Pitch Speed", "Degrees per tick", 10, 0.1, 180, 0.1)).visibleWhen(() -> page.is(Page.ROTATION) && engine.is(Engine.FEMBOYWARE));
+	private final NumberSetting maxPitchSpeed = add(new NumberSetting("Max Pitch Speed", "Degrees per tick", 25, 0.1, 180, 0.1)).visibleWhen(() -> page.is(Page.ROTATION) && engine.is(Engine.FEMBOYWARE));
 
 	// Jitter
 	private final EnumSetting<Distribution> jitterDistribution = add(new EnumSetting<>("Jitter Distribution", "How random jitter is sampled", Distribution.NORMAL)).visibleWhen(() -> page.is(Page.JITTER));
@@ -212,6 +216,16 @@ public class AuraModule extends Module {
 		Rotation desired = Rotation.between(eyes, computeAimPoint(target, eyes));
 		desired = new Rotation(desired.yaw(), desired.pitch() - headUpOffset);
 		desired = applyOvershoot(desired);
+
+		if (engine.is(Engine.LIQUIDBOUNCE)) {
+			// LiquidBounce's angle smooth does the turning; the jitter and pitch limits still apply to the aim
+			float yaw = desired.yaw() + jitter(yawJitter.get(), yawAmpl.get(), yawFreq.get(), true);
+			float pitch = desired.pitch() + jitter(pitchJitter.get(), pitchAmpl.get(), pitchFreq.get(), false);
+			pitch = Mth.clamp(pitch, Math.min(pitchMin.getFloat(), pitchMax.getFloat()), Math.max(pitchMin.getFloat(), pitchMax.getFloat()));
+			FemboyWare.getRotations().request(new Rotation(Mth.wrapDegrees(yaw), Mth.clamp(pitch, -90f, 90f)), ROTATION_PRIORITY, lbRotations, clientLook.get());
+			current = FemboyWare.getRotations().getServerRotation();
+			return;
+		}
 
 		float yawDelta = Mth.wrapDegrees(desired.yaw() - current.yaw());
 		float pitchDelta = desired.pitch() - current.pitch();

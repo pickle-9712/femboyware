@@ -31,6 +31,7 @@ package dev.femboyware.module.movement;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.lb.Geometry;
+import dev.femboyware.lb.RotationSettings;
 import dev.femboyware.lb.ScaffoldMovementPlanner;
 import dev.femboyware.lb.TargetFinding;
 import dev.femboyware.lb.TargetFinding.AimMode;
@@ -113,7 +114,7 @@ public class ScaffoldModule extends Module {
 
 	// Rotations
 	private final BoolSetting rotate = add(new BoolSetting("Rotate", "Aim at each placement (needed on most servers)", true)).visibleWhen(() -> page.is(Page.ROTATIONS));
-	private final NumberSetting rotationSpeed = add(new NumberSetting("Rotation Speed", "Most degrees turned per tick", 180, 10, 180, 1)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
+	private final RotationSettings rotations = new RotationSettings(s -> add(s), () -> page.is(Page.ROTATIONS) && rotate.get(), 180f);
 	private final EnumSetting<Timing> timing = add(new EnumSetting<>("Rotation Timing", "Normal turns before placing; On Tick turns on the tick it places; Snap also keeps it", Timing.NORMAL)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final EnumSetting<AimMode> aimMode = add(new EnumSetting<>("Aim Mode", "Which point on the face to aim at (Normal technique)", AimMode.STABILIZED)).visibleWhen(() -> page.is(Page.ROTATIONS));
 	private final BoolSetting requiresSight = add(new BoolSetting("Requires Sight", "Only aim at faces you can see (Normal technique)", false)).visibleWhen(() -> page.is(Page.ROTATIONS));
@@ -231,7 +232,7 @@ public class ScaffoldModule extends Module {
 
 	// ---------------------------------------------------------------- blocks
 
-	private static boolean isValidBlock(ItemStack stack) {
+	public static boolean isValidBlock(ItemStack stack) {
 		if (stack == null || !(stack.getItem() instanceof BlockItem item)) return false;
 		Block block = item.getBlock();
 		if (block instanceof FallingBlock || DISALLOWED.contains(block)) return false;
@@ -259,7 +260,7 @@ public class ScaffoldModule extends Module {
 		.thenComparingInt(ItemStack::getCount)
 		.thenComparing(s -> -Math.abs(hardness(s) - 1.25f));
 
-	private int bestHotbarSlot() {
+	public int bestHotbarSlot() {
 		int best = -1, fallback = -1;
 		for (int i = 0; i < 9; i++) {
 			ItemStack stack = mc.player.getInventory().getItem(i);
@@ -363,8 +364,7 @@ public class ScaffoldModule extends Module {
 	/** Ticks until the server rotation reaches {@code rotation} at the turn speed. */
 	private int ticksUntil(Rotation rotation) {
 		if (!rotate.get()) return 0;
-		float distance = FemboyWare.getRotations().getServerRotation().distanceTo(rotation);
-		return Math.max(0, (int) Math.ceil(distance / rotationSpeed.getFloat()) - 1);
+		return Math.max(0, rotations.estimateTicks(FemboyWare.getRotations().getServerRotation(), rotation) - 1);
 	}
 
 	private BlockPos targetedPosition(BlockPos pos) {
@@ -599,7 +599,7 @@ public class ScaffoldModule extends Module {
 		if (!rotate.get()) return;
 		if (timing.is(Timing.NORMAL)) {
 			Rotation rotation = rotationFor(target);
-			if (rotation != null) FemboyWare.getRotations().request(rotation, ROTATION_PRIORITY, rotationSpeed.getFloat(), false);
+			if (rotation != null) FemboyWare.getRotations().request(rotation, ROTATION_PRIORITY, rotations, false);
 		} else if (timing.is(Timing.ON_TICK_SNAP) && snapRotation != null) {
 			FemboyWare.getRotations().request(snapRotation, ROTATION_PRIORITY, 180f, false);
 		}

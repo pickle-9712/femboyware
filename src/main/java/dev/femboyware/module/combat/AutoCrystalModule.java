@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.lb.RotationSettings;
 import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.event.PacketEvent;
@@ -95,7 +96,7 @@ public class AutoCrystalModule extends Module {
 	private final BoolSetting soundSync = add(new BoolSetting("Sound Sync", "Treat crystals near an explosion sound as dead and place again immediately", true)).visibleWhen(() -> page.is(Page.MAIN));
 	private final EnumSetting<RotateMode> rotate = add(new EnumSetting<>("Rotate Mode", "Look at what we place on and hit. Packet is instant, Tick waits for the movement packet and is slower", RotateMode.PACKET)).visibleWhen(() -> page.is(Page.MAIN));
 	private final BoolSetting rayTrace = add(new BoolSetting("Ray Trace", "Don't place or break through walls", false)).visibleWhen(() -> page.is(Page.MAIN));
-	private final NumberSetting degreesPerTick = add(new NumberSetting("Degrees Per Tick", "Rotation speed limit", 180, 10, 180, 5)).visibleWhen(() -> page.is(Page.MAIN) && rotate.is(RotateMode.TICK));
+	private final RotationSettings rotations = new RotationSettings(s -> add(s), () -> page.is(Page.MAIN) && rotate.is(RotateMode.TICK), 180f);
 	private final EnumSetting<TargetSort> targetSort = add(new EnumSetting<>("Target Sort", "How targets are prioritised", TargetSort.DAMAGE)).visibleWhen(() -> page.is(Page.MAIN));
 	private final NumberSetting extrapolation = add(new NumberSetting("Extrapolation", "Ticks ahead to predict where moving targets will be", 0, 0, 20, 1)).visibleWhen(() -> page.is(Page.MAIN));
 
@@ -308,7 +309,7 @@ public class AutoCrystalModule extends Module {
 		if (rotate.is(RotateMode.OFF)) return;
 		Rotation wanted = pendingBreak != null ? pendingBreak.rotation : pendingBase != null ? pendingBase.rotation
 			: pendingPlace != null ? pendingPlace.rotation : null;
-		if (wanted != null) FemboyWare.getRotations().request(wanted, ROTATION_PRIORITY, degreesPerTick.getFloat(), false);
+		if (wanted != null) FemboyWare.getRotations().request(wanted, ROTATION_PRIORITY, rotations, false);
 	}
 
 	@Override

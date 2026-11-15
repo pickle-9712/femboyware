@@ -104,6 +104,7 @@ import dev.femboyware.module.movement.PhaseModule;
 import dev.femboyware.module.movement.ReverseStepModule;
 import dev.femboyware.module.movement.SafeWalkModule;
 import dev.femboyware.module.movement.ScaffoldModule;
+import dev.femboyware.module.movement.ClutchModule;
 import dev.femboyware.module.movement.SneakModule;
 import dev.femboyware.module.movement.SpeedModule;
 import dev.femboyware.module.movement.SpiderModule;
@@ -314,6 +315,7 @@ public class ModuleManager {
 		register(new PhaseModule());
 		register(new ReverseStepModule());
 		register(new ScaffoldModule());
+		register(new ClutchModule());
 		register(new SpeedModule());
 		register(new SpiderModule());
 		register(new StepModule());
