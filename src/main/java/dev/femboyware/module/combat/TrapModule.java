@@ -77,6 +77,7 @@ public class TrapModule extends Module {
 	private final NumberSetting escapeWebs = add(new NumberSetting("Escape Webs", "How many of the open sides next to them get a web, nearest (or the one they're heading for) first", 1, 0, 4, 1)).visibleWhen(webFirst::get);
 	private final EnumSetting<Fill> fill = add(new EnumSetting<>("Fill", "Put a cobweb or lava at their feet before closing the walls", Fill.NONE)).visibleWhen(() -> !webFirst.get());
 	private final BoolSetting hitGap = add(new BoolSetting("Hit Gap", "While fighting with Legit Aura (or Aura), leave the head-height block on your side open: their feet stay boxed in so they can't get out, and your hits still land through the gap", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
+	private final BoolSetting crystalGap = add(new BoolSetting("Crystal Gap", "With end crystals on you: leave the head-height block on your side open (and the one above it), with obsidian under it in their feet ring, so a crystal sits right against them. The feet ring and roof still hold them, and Auto DTap crystals that spot", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
 	private final BoolSetting jump = add(new BoolSetting("Jump", "Jump while trapping, to reach the high blocks and look the part", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
 	private final BoolSetting realLook = add(new BoolSetting("Real Look", "Really turn your head to each block (no silent rotation), with free look so you can still look anywhere", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
 	private final BoolSetting thirdPerson = add(new BoolSetting("Third Person", "Switch to third person while Real Look turns your head", true)).visibleWhen(() -> mode.is(Mode.LEGIT) && realLook.get());
@@ -135,6 +136,8 @@ public class TrapModule extends Module {
 	private int offhandStep;
 	/** The head-height block left open to hit through, picked once on your side. */
 	private BlockPos gap;
+	/** Crystal Gap: the feet-ring obsidian a crystal goes on, under the open head-height block, or null. */
+	private BlockPos crystalBase;
 	/** Ticks the trap has gone without a block while blocks are missing, to walk round for a better view. */
 	private int stuckTicks;
 	/** Where to walk to see the blocks on the far side, or null. */
@@ -496,6 +499,7 @@ public class TrapModule extends Module {
 			// walked out of the last one, and the knockback hit's done again once they're well away.
 			trappedAt = feetPos;
 			gap = null;
+			crystalBase = null;
 			if (!mc.level.getBlockState(feetPos).is(Blocks.COBWEB)) filled = false;
 			fillWait = 0;
 			escapesPlaced = 0;
@@ -507,7 +511,8 @@ public class TrapModule extends Module {
 		}
 		positions = withRoofSupport(trapPositions(box, box.minY, feet.get(), roof.get()));
 		boolean fighting = fighting();
-		if (fighting && hitGap.get()) positions = withHitGap(positions);
+		positions = withCrystalGap(positions);
+		if (crystalBase == null && fighting && hitGap.get()) positions = withHitGap(positions);
 		List<BlockPos> missing = new ArrayList<>();
 		for (BlockPos pos : positions) if (mc.level.getBlockState(pos).canBeReplaced()) missing.add(pos);
 		List<BlockPos> back = backPositions(missing);
@@ -705,6 +710,66 @@ public class TrapModule extends Module {
 		return result;
 	}
 
+	private boolean hasCrystals() {
+		return mc.player.getOffhandItem().is(Items.END_CRYSTAL) || InventoryUtil.findHotbar(stack -> stack.is(Items.END_CRYSTAL)) >= 0;
+	}
+
+	/**
+	 * Crystal Gap: on your side, the head-height block and the one above it stay open, over a feet-ring
+	 * block that goes in as obsidian, so a crystal fits on it right against them. It doubles as the
+	 * hit gap. Kept once picked, unless that side stops working (a block other than obsidian there).
+	 */
+	private Set<BlockPos> withCrystalGap(Set<BlockPos> trap) {
+		if (!crystalGap.get() || !mode.is(Mode.LEGIT) || !hasCrystals() || trappedAt == null) {
+			crystalBase = null;
+			return trap;
+		}
+		int y = trappedAt.getY();
+		if (crystalBase != null && !(trap.contains(crystalBase) && gapWorks(crystalBase, trap))) crystalBase = null;
+		if (crystalBase == null) {
+			Vec3 eyes = mc.player.getEyePosition();
+			double best = Double.MAX_VALUE;
+			for (BlockPos pos : trap) {
+				if (pos.getY() != y || !trap.contains(pos.above()) || !gapWorks(pos, trap)) continue;
+				double d = Vec3.atCenterOf(pos.above()).distanceToSqr(eyes);
+				if (d < best) {
+					best = d;
+					crystalBase = pos;
+				}
+			}
+		}
+		if (crystalBase == null) return trap;
+		gap = crystalBase.above();
+		Set<BlockPos> result = new LinkedHashSet<>(trap);
+		result.remove(crystalBase.above());
+		result.remove(crystalBase.above(2));
+		return result;
+	}
+
+	/** {@code base} can hold a crystal: obsidian or bedrock there (or nothing yet), the two blocks above clear or about to be. */
+	private boolean gapWorks(BlockPos base, Set<BlockPos> trap) {
+		var state = mc.level.getBlockState(base);
+		if (!state.canBeReplaced() && !state.is(Blocks.OBSIDIAN) && !state.is(Blocks.BEDROCK)) return false;
+		// Still to place: only with obsidian to place it with
+		if (state.canBeReplaced() && !mc.player.getOffhandItem().is(Items.OBSIDIAN) && InventoryUtil.findHotbar(stack -> stack.is(Items.OBSIDIAN)) < 0) return false;
+		for (int up = 1; up <= 2; up++) {
+			BlockPos above = base.above(up);
+			if (!mc.level.getBlockState(above).isAir() && !mc.level.getBlockState(above).canBeReplaced()) return false;
+		}
+		return true;
+	}
+
+	/**
+	 * The obsidian Trap left open for a crystal against {@code entity}, once it's in and the gap above
+	 * is clear, or null: Auto DTap crystals there.
+	 */
+	public BlockPos crystalSpot(LivingEntity entity) {
+		if (!isEnabled() || entity == null || entity != target || crystalBase == null) return null;
+		var state = mc.level.getBlockState(crystalBase);
+		if (!state.is(Blocks.OBSIDIAN) && !state.is(Blocks.BEDROCK)) return null;
+		return crystalBase;
+	}
+
 	/** Aura has someone in reach to hit; when it doesn't, Trap needn't wait for a swing. */
 	private boolean auraCanHit() {
 		// Legit Aura keeps its target through Trap's turns, but drops it behind walls
@@ -747,6 +812,7 @@ public class TrapModule extends Module {
 	private void resetStages() {
 		committed = null;
 		gap = null;
+		crystalBase = null;
 		stuckTicks = 0;
 		hitDone = false;
 		filled = false;
@@ -809,7 +875,7 @@ public class TrapModule extends Module {
 				BlockHitResult planned = visiblePlacement(committed);
 				if (planned != null) {
 					aimingAt = committed;
-					boolean placed = placeAimed(planned, item);
+					boolean placed = placeAimed(planned, committed.equals(crystalBase) ? stack -> stack.is(Items.OBSIDIAN) : item);
 					if (placed) committed = null;
 					return placed;
 				}
@@ -835,7 +901,8 @@ public class TrapModule extends Module {
 				continue;
 			}
 			aimingAt = pos;
-			boolean placed = placeAimed(planned, item);
+			// The crystal's base has to be obsidian, whatever the rest is made of
+			boolean placed = placeAimed(planned, pos.equals(crystalBase) ? stack -> stack.is(Items.OBSIDIAN) : item);
 			committed = placed ? null : pos;
 			return placed;
 		}

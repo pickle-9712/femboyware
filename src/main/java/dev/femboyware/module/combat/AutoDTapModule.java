@@ -113,6 +113,8 @@ public class AutoDTapModule extends Module {
 			stepTicks = 0;
 		}
 		if (target == null || Mc.screen() != null || mc.player.isUsingItem()) return;
+		// Trap's putting a block in: the view's its for now
+		if (FemboyWare.getModules().get(TrapModule.class).isBusy()) return;
 		if (InventoryUtil.findHotbar(stack -> stack.is(Items.END_CRYSTAL)) < 0 && !mc.player.getOffhandItem().is(Items.END_CRYSTAL)) return;
 
 		// A step that can't get done in time is given up, back to the sword
@@ -132,7 +134,18 @@ public class AutoDTapModule extends Module {
 
 	// ---------------------------------------------------------------- the steps
 
+	/** Trap's Crystal Gap on this target, ready (obsidian in, room above): the crystals go there. */
+	private BlockPos trapSpot() {
+		BlockPos spot = FemboyWare.getModules().get(TrapModule.class).crystalSpot(target);
+		return spot != null && (crystalFits(spot) || crystalOn(spot) != null) && topVisible(spot) ? spot : null;
+	}
+
 	private void hitStep(boolean swungNow) {
+		// Trapped with a crystal gap: no hit first, straight to the crystals
+		if (trapSpot() != null) {
+			startCrystal();
+			return;
+		}
 		if (!hitFirst.get()) {
 			startCrystal();
 			return;
@@ -154,6 +167,11 @@ public class AutoDTapModule extends Module {
 	/** Picks where the crystal goes: the best obsidian there is, or a spot for new obsidian. */
 	private void startCrystal() {
 		popped = 0;
+		base = trapSpot();
+		if (base != null) {
+			next(crystalOn(base) != null ? Step.POP : Step.CRYSTAL);
+			return;
+		}
 		base = bestBase();
 		if (base != null) {
 			next(Step.CRYSTAL);
@@ -220,7 +238,10 @@ public class AutoDTapModule extends Module {
 	 * worth it, and the sword's not nearly charged (it's the hit's turn then).
 	 */
 	private boolean again() {
-		if (!spam.get() || popped >= maxCrystals.getInt() || target == null || !TargetUtil.isValid(target)) return false;
+		if (target == null || !TargetUtil.isValid(target)) return false;
+		// Trapped: no sword hits to make room for, so it just keeps crystalling the gap
+		if (base != null && base.equals(trapSpot())) return true;
+		if (!spam.get() || popped >= maxCrystals.getInt()) return false;
 		if (hitFirst.get() && ticksToCharged() <= (legitAuraOn() ? 3 : 2)) return false;
 		return worth(base) > minDamage.getFloat();
 	}
@@ -235,6 +256,8 @@ public class AutoDTapModule extends Module {
 	 * obsidian when not, and the clicks alternate without the view moving.
 	 */
 	private Vec3 crystalAim(BlockPos base) {
+		Vec3 picked = topSpots.get(base);
+		if (picked != null) return picked;
 		Vec3 top = Vec3.atCenterOf(base).add(0, 0.5, 0);
 		Vec3 toward = mc.player.getEyePosition().subtract(top).multiply(1, 0, 1);
 		if (toward.lengthSqr() > 1e-4) top = top.add(toward.normalize().scale(0.2));
@@ -311,14 +334,29 @@ public class AutoDTapModule extends Module {
 		return null;
 	}
 
-	/** The top of {@code pos} can be seen and reached, so the crosshair can land on it. */
+	/** The spot on top of each base the view goes to: the one picked as seen from where you are. */
+	private final java.util.Map<BlockPos, Vec3> topSpots = new java.util.HashMap<>();
+
+	/**
+	 * Some spot on top of {@code pos} can be seen and reached, so the crosshair can land on it: the
+	 * one a little towards you first, then others across the top (their body or a wall hides some).
+	 */
 	private boolean topVisible(BlockPos pos) {
 		Vec3 eyes = mc.player.getEyePosition();
-		Vec3 top = Vec3.atCenterOf(pos).add(0, 0.5, 0);
-		if (eyes.distanceTo(top) > mc.player.blockInteractionRange() - 0.3) return false;
-		top = crystalAim(pos);
-		BlockHitResult hit = mc.level.clip(new ClipContext(eyes, top.add(0, -0.05, 0), ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, mc.player));
-		return hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos) && clearOfEntities(eyes, top);
+		Vec3 middle = Vec3.atCenterOf(pos).add(0, 0.5, 0);
+		Vec3 toward = eyes.subtract(middle).multiply(1, 0, 1);
+		toward = toward.lengthSqr() > 1e-4 ? toward.normalize() : Vec3.ZERO;
+		Vec3 side = new Vec3(-toward.z, 0, toward.x);
+		for (double[] o : new double[][]{{0.2, 0}, {0, 0}, {0.35, 0}, {0.2, 0.25}, {0.2, -0.25}, {0, 0.3}, {0, -0.3}, {-0.2, 0}, {0.35, 0.35}, {0.35, -0.35}}) {
+			Vec3 point = middle.add(toward.scale(o[0])).add(side.scale(o[1]));
+			if (eyes.distanceTo(point) > mc.player.blockInteractionRange() - 0.3) continue;
+			BlockHitResult hit = mc.level.clip(new ClipContext(eyes, point.add(0, -0.05, 0), ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, mc.player));
+			if (hit.getType() != HitResult.Type.BLOCK || !hit.getBlockPos().equals(pos) || hit.getDirection() != Direction.UP) continue;
+			if (!clearOfEntities(eyes, point)) continue;
+			topSpots.put(pos.immutable(), point);
+			return true;
+		}
+		return false;
 	}
 
 	/** A face next to {@code pos} that can be seen and reached, clicked to put a block there. */
