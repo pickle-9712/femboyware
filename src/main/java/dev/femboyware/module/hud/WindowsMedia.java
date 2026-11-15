@@ -113,6 +113,7 @@ final class WindowsMedia implements MediaPlayer {
 	/** The current track, or null when nothing is playing. */
 	@Override
 	public Track track() {
+		if (app == null) pickSession();
 		Pointer session = session();
 		if (session == null) return null;
 		Pointer props = null, timeline = null, playback = null;
@@ -193,10 +194,62 @@ final class WindowsMedia implements MediaPlayer {
 		release(session);
 	}
 
+	/** With no app picked: the id of the session being followed, chosen by {@link #pickSession()}. */
+	private String picked;
+
+	/**
+	 * Picks which session to follow. Windows' "current" one is often an app with nothing to show
+	 * (Clipchamp, a paused video tab) while Spotify plays in another, so every session is looked at:
+	 * one playing with a title wins, then one with a title, Windows' current one breaking ties.
+	 */
+	private void pickSession() {
+		picked = null;
+		if (manager == null) return;
+		String current = null;
+		Pointer currentSession = get(manager, 6); // GetCurrentSession
+		if (currentSession != null) {
+			current = hstring(currentSession, 6);
+			release(currentSession);
+		}
+		Pointer sessions = get(manager, 7); // GetSessions
+		if (sessions == null) return;
+		int bestScore = -1;
+		try {
+			IntByReference size = new IntByReference();
+			if (call(sessions, 7, size) < 0) return; // get_Size
+			for (int i = 0; i < size.getValue(); i++) {
+				PointerByReference out = new PointerByReference();
+				if (call(sessions, 6, i, out) < 0 || out.getValue() == null) continue; // GetAt
+				Pointer session = out.getValue();
+				Pointer props = null, playback = null;
+				try {
+					String id = hstring(session, 6);
+					props = await(get(session, 7)); // TryGetMediaPropertiesAsync
+					playback = get(session, 9); // GetPlaybackInfo
+					boolean titled = props != null && !hstring(props, 6).isBlank();
+					IntByReference status = new IntByReference();
+					boolean playing = playback != null && call(playback, 7, status) >= 0 && status.getValue() == 4;
+					int score = (titled ? 4 : 0) + (playing ? 2 : 0) + (id.equals(current) ? 1 : 0);
+					if (score > bestScore) {
+						bestScore = score;
+						picked = id;
+					}
+				} finally {
+					release(props);
+					release(playback);
+					release(session);
+				}
+			}
+		} finally {
+			release(sessions);
+		}
+	}
+
 	private Pointer session() {
 		if (manager == null) return null;
-		if (app == null) return get(manager, 6); // GetCurrentSession
-		// The app's own session, wherever it is in the list
+		if (app == null && picked == null) return get(manager, 6); // GetCurrentSession
+		String want = app != null ? app : picked.toLowerCase();
+		// The app's own session (or the picked one), wherever it is in the list
 		Pointer sessions = get(manager, 7); // GetSessions
 		if (sessions == null) return null;
 		try {
@@ -206,7 +259,8 @@ final class WindowsMedia implements MediaPlayer {
 				PointerByReference out = new PointerByReference();
 				if (call(sessions, 6, i, out) < 0 || out.getValue() == null) continue; // GetAt
 				Pointer session = out.getValue();
-				if (hstring(session, 6).toLowerCase().contains(app)) return session; // SourceAppUserModelId
+				String id = hstring(session, 6).toLowerCase(); // SourceAppUserModelId
+				if (app != null ? id.contains(want) : id.equals(want)) return session;
 				release(session);
 			}
 			return null;
