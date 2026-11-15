@@ -204,6 +204,14 @@ public class LegitAuraModule extends Module {
 		boolean shielded = target != null && shielded(target);
 		if (wasShielded && !shielded && under != null) fresh = true;
 		wasShielded = shielded;
+		if (trapTurn()) {
+			// Trap's placing a block between hits: no swinging, switching or blocking till it's done
+			if (blocking) KeyUtil.sync(mc.options.keyUse);
+			blocking = false;
+			critWait = 0;
+			reactionWait = -1;
+			return;
+		}
 		updateShield();
 		// Legit Pot has the camera and hotbar while it throws a potion
 		boolean idle = target == null || Mc.screen() != null || potting();
@@ -473,6 +481,11 @@ public class LegitAuraModule extends Module {
 		return player.isBlocking() && TargetUtil.isFacing(player, mc.player.getEyePosition());
 	}
 
+	/** Trap has your look and hands for a block, between your hits. */
+	private static boolean trapTurn() {
+		return FemboyWare.getModules().get(TrapModule.class).isBusy();
+	}
+
 	private boolean potting() {
 		return FemboyWare.getModules().get(LegitPotModule.class).isBusy();
 	}
@@ -606,7 +619,9 @@ public class LegitAuraModule extends Module {
 		// While flanking a shield (even with Strafe off), keep going one way so we actually get round it
 		strafeAge++;
 		boolean flanking = flank.get() && shielded(target);
-		if ((strafe.get() || flanking) && !left && !right && distance < 4.5 + extra) {
+		// Someone Trap has pinned can't dodge: stay at the gap rather than circling round the walls
+		boolean pinned = FemboyWare.getModules().get(TrapModule.class).isPinned(target);
+		if ((strafe.get() || flanking) && !pinned && !left && !right && distance < 4.5 + extra) {
 			if ((--strafeSwitch <= 0 && !flanking) || (mc.player.horizontalCollision && strafeAge > 5)) {
 				strafeLeft = !strafeLeft;
 				strafeSwitch = 10 + random.nextInt(21);
@@ -636,7 +651,7 @@ public class LegitAuraModule extends Module {
 		long now = System.nanoTime();
 		float seconds = lastFrame == 0 ? 0 : Math.min(0.25f, (now - lastFrame) / 1e9f);
 		lastFrame = now;
-		if (target == null || Mc.screen() != null || seconds <= 0 || potting()) return;
+		if (target == null || Mc.screen() != null || seconds <= 0 || potting() || trapTurn()) return;
 
 		float tickDelta = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
 		boolean aimingShot = ranged != Ranged.NONE && rangedAim != null;
