@@ -26,7 +26,7 @@ import java.util.Random;
 /**
  * While Server Larp is on, a dispenser or dropper that gets powered shoots out whatever you pick
  * here, whatever's really in it: items that land and can be picked up, arrows that fly, fireworks
- * that go up. All of it is only on your screen, like everything else while larping.
+ * that go up, shulker boxes placed in front. All of it is only on your screen, like everything else while larping.
  */
 public class ForceDispenserModule extends Module {
 	private final StringSetting item = add(new StringSetting("Item", "What dispensers shoot while larping, like diamond, gold_block or firework_rocket", "diamond"));
@@ -95,6 +95,13 @@ public class ForceDispenserModule extends Module {
 			for (int i = 0; i < n; i++) larp.spawnLocalRocket(stack.copyWithCount(1), at, dir);
 		} else if (what instanceof ArrowItem && !dropper) {
 			for (int i = 0; i < n; i++) larp.spawnLocalArrow(stack.copyWithCount(1), at, dir, (float) (1.1 * power));
+		} else if (!dropper && what instanceof net.minecraft.world.item.BlockItem block && block.getBlock() instanceof net.minecraft.world.level.block.ShulkerBoxBlock) {
+			// Shulker boxes are placed in front, as vanilla does; with no room it stays in and clicks
+			if (!larp.placeShulker(pos, facing, stack.copyWithCount(1))) {
+				larp.returnToDispenser(pos, stack.copyWithCount(1));
+				mc.level.levelEvent(1001, pos, 0);
+				return;
+			}
 		} else {
 			// Like DefaultDispenseItemBehavior: out the front with a little scatter
 			double push = (0.1 + random.nextDouble() * 0.2) * power;

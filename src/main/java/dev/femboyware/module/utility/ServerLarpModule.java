@@ -424,6 +424,13 @@ public class ServerLarpModule extends Module {
 		larping = true;
 		boolean resumed = saved != null && saved.world().equals(worldKey());
 		if (resumed) resume(saved);
+		// Real dispensers come in with what's really in them, even over what a resumed larp had
+		for (BlockPos pos : new ArrayList<>(containers.keySet())) {
+			if (!(mc.level.getBlockState(pos).getBlock() instanceof net.minecraft.world.level.block.DispenserBlock)) continue;
+			List<ItemStack> real = realDispenser(pos);
+			if (real != null) containers.put(pos, filled(real));
+		}
+		snapshotRealDispensers();
 		ChatUtil.info(resumed ? "Larping again, right where you left off (" + CommandManager.PREFIX + "larp reset starts fresh)"
 			: "Larping: the server sees you standing still here. Give yourself items with " + CommandManager.PREFIX + "larp give <item> [count]");
 	}
@@ -628,6 +635,7 @@ public class ServerLarpModule extends Module {
 			});
 		}
 		if (openPos != null && (mc.player == null || mc.player.containerMenu != openMenu)) closeAnimation();
+		if (!larping) seeDispenser();
 	}
 
 	@Override
@@ -791,7 +799,11 @@ public class ServerLarpModule extends Module {
 
 	/** Called from ClientPlayerInteractionManagerMixin: opens chests and the like locally; true if it did. */
 	public boolean onUseItemOn(LocalPlayer player, InteractionHand hand, BlockHitResult hit) {
-		if (!larping) return false;
+		if (!larping) {
+			// Remember which real dispenser is being opened, to note what's in it (see seeDispenser)
+			if (mc.level.getBlockState(hit.getBlockPos()).getBlock() instanceof net.minecraft.world.level.block.DispenserBlock) openedDispenser = hit.getBlockPos().immutable();
+			return false;
+		}
 		if (player.getItemInHand(hand).is(Items.END_CRYSTAL)) {
 			BlockState base = mc.level.getBlockState(hit.getBlockPos());
 			if (base.is(Blocks.OBSIDIAN) || base.is(Blocks.BEDROCK)) return placeCrystal(player, hand, hit.getBlockPos());
@@ -834,7 +846,7 @@ public class ServerLarpModule extends Module {
 		}
 		if (state.getBlock() instanceof net.minecraft.world.level.block.DispenserBlock) {
 			// Dispensers and droppers too: fill them here, and powering them shoots it out (see Force Dispenser)
-			SimpleContainer container = containers.computeIfAbsent(pos.immutable(), k -> new SimpleContainer(9));
+			SimpleContainer container = dispenser(pos, true);
 			var menu = new net.minecraft.world.inventory.DispenserMenu(FAKE_CONTAINER_ID, inventory, container);
 			boolean dropper = state.getBlock() instanceof net.minecraft.world.level.block.DropperBlock;
 			open(menu, new net.minecraft.client.gui.screens.inventory.DispenserScreen(menu, inventory,
@@ -1255,9 +1267,117 @@ public class ServerLarpModule extends Module {
 		if (larping) redstone.changed(pos, state);
 	}
 
+	/** The real dispenser last clicked while not larping, and what real dispensers held when last seen open (on servers, where only the server knows). */
+	private BlockPos openedDispenser;
+	private final Map<String, List<ItemStack>> seenDispensers = new HashMap<>();
+
+	/** While a real dispenser's open, notes what's in it, so larping on a server starts with that. */
+	private void seeDispenser() {
+		if (mc.player == null || mc.level == null || openedDispenser == null) return;
+		if (!(mc.player.containerMenu instanceof net.minecraft.world.inventory.DispenserMenu menu)) return;
+		List<ItemStack> items = new ArrayList<>();
+		for (int i = 0; i < 9; i++) items.add(menu.getSlot(i).getItem().copy());
+		seenDispensers.put(worldKey() + "|" + openedDispenser.asLong(), items);
+	}
+
+	/**
+	 * What's really in the dispenser at {@code pos}: in singleplayer what it had when the larp started,
+	 * on a server what it had when you last opened it; null if that isn't known (or there isn't a real one).
+	 */
+	private List<ItemStack> realDispenser(BlockPos pos) {
+		if (mc.level == null) return null;
+		if (mc.getSingleplayerServer() != null) return realSnapshot.get(pos);
+		return seenDispensers.get(worldKey() + "|" + pos.asLong());
+	}
+
+	/** Singleplayer: what the real dispensers around you held when the larp started. */
+	private final Map<BlockPos, List<ItemStack>> realSnapshot = new java.util.concurrent.ConcurrentHashMap<>();
+
+	/**
+	 * Singleplayer: reads every real dispenser and dropper in the loaded chunks around you on the
+	 * server's thread (the only one allowed to), then fills the larp's copies with it.
+	 */
+	private void snapshotRealDispensers() {
+		realSnapshot.clear();
+		var server = mc.getSingleplayerServer();
+		if (server == null || mc.level == null || mc.player == null) return;
+		var dimension = mc.level.dimension();
+		int cx = mc.player.getBlockX() >> 4, cz = mc.player.getBlockZ() >> 4, radius = mc.options.renderDistance().get() + 1;
+		server.execute(() -> {
+			var level = server.getLevel(dimension);
+			if (level == null) return;
+			Map<BlockPos, List<ItemStack>> found = new HashMap<>();
+			for (int x = cx - radius; x <= cx + radius; x++) {
+				for (int z = cz - radius; z <= cz + radius; z++) {
+					var chunk = level.getChunkSource().getChunkNow(x, z);
+					if (chunk == null) continue;
+					for (var entity : chunk.getBlockEntities().values()) {
+						if (!(entity instanceof net.minecraft.world.level.block.entity.DispenserBlockEntity real)) continue;
+						List<ItemStack> items = new ArrayList<>();
+						for (int i = 0; i < real.getContainerSize(); i++) items.add(real.getItem(i).copy());
+						found.put(real.getBlockPos().immutable(), items);
+					}
+				}
+			}
+			mc.execute(() -> {
+				if (!larping) return;
+				realSnapshot.putAll(found);
+				found.forEach((pos, items) -> containers.put(pos, filled(items)));
+			});
+		});
+	}
+
+	private static SimpleContainer filled(List<ItemStack> items) {
+		SimpleContainer container = new SimpleContainer(9);
+		for (int i = 0; i < 9 && i < items.size(); i++) container.setItem(i, items.get(i).copy());
+		return container;
+	}
+
+	/** The larp's copy of a dispenser, starting with what's really in it; null when {@code create} is off and there's nothing to go on. */
+	private SimpleContainer dispenser(BlockPos pos, boolean create) {
+		SimpleContainer container = containers.get(pos);
+		if (container != null || !larping) return container;
+		List<ItemStack> real = realDispenser(pos);
+		if (real == null && !create) return null;
+		container = real == null ? new SimpleContainer(9) : filled(real);
+		containers.put(pos.immutable(), container);
+		return container;
+	}
+
+	/** Puts something back in a dispenser that couldn't fire it. */
+	public void returnToDispenser(BlockPos pos, ItemStack stack) {
+		SimpleContainer container = dispenser(pos, true);
+		if (container != null) container.addItem(stack);
+	}
+
+	/**
+	 * A dispenser firing a shulker box places it in front, like vanilla: facing out of the dispenser,
+	 * or up when there's ground under it, with whatever was packed in it inside. False if it's not a
+	 * shulker box or there's no room.
+	 */
+	public boolean placeShulker(BlockPos pos, net.minecraft.core.Direction facing, ItemStack stack) {
+		if (!larping || mc.level == null || !(stack.getItem() instanceof net.minecraft.world.item.BlockItem item) || !(item.getBlock() instanceof ShulkerBoxBlock)) return false;
+		BlockPos target = pos.relative(facing);
+		if (!mc.level.getBlockState(target).canBeReplaced()) return false;
+		net.minecraft.core.Direction face = mc.level.isEmptyBlock(target.below()) ? facing : net.minecraft.core.Direction.UP;
+		BlockState state = item.getBlock().defaultBlockState().setValue(ShulkerBoxBlock.FACING, face);
+		var handler = ((dev.femboyware.mixin.ClientLevelAccessor) mc.level).femboyware$getPredictionHandler();
+		try (var predicting = handler.startPredicting()) {
+			mc.level.setBlock(target, state, 3);
+		}
+		SimpleContainer box = new SimpleContainer(27);
+		ItemContainerContents contents = stack.get(DataComponents.CONTAINER);
+		if (contents != null) contents.copyInto(box.getItems());
+		containers.put(target.immutable(), box);
+		var sound = state.getSoundType();
+		mc.level.playLocalSound(target.getX() + 0.5, target.getY() + 0.5, target.getZ() + 0.5, sound.getPlaceSound(), SoundSource.BLOCKS,
+			(sound.getVolume() + 1) / 2, sound.getPitch() * 0.8f, false);
+		return true;
+	}
+
 	/** The filled slots (0 to 8) of a dispenser you've filled while larping, lowest first. */
 	public List<Integer> filledDispenserSlots(BlockPos pos) {
-		SimpleContainer container = containers.get(pos);
+		SimpleContainer container = dispenser(pos, false);
 		List<Integer> filled = new ArrayList<>();
 		if (container == null) return filled;
 		for (int i = 0; i < container.getContainerSize(); i++) if (!container.getItem(i).isEmpty()) filled.add(i);
@@ -1266,13 +1386,13 @@ public class ServerLarpModule extends Module {
 
 	/** What's in one slot of a dispenser you've filled while larping, without taking it. */
 	public ItemStack dispenserItem(BlockPos pos, int slot) {
-		SimpleContainer container = containers.get(pos);
+		SimpleContainer container = dispenser(pos, false);
 		return container == null || slot < 0 || slot >= container.getContainerSize() ? ItemStack.EMPTY : container.getItem(slot);
 	}
 
 	/** One item out of one slot of a dispenser you've filled while larping; empty if there's nothing there. */
 	public ItemStack takeFromDispenserSlot(BlockPos pos, int slot) {
-		SimpleContainer container = containers.get(pos);
+		SimpleContainer container = dispenser(pos, false);
 		if (container == null || slot < 0 || slot >= container.getContainerSize()) return ItemStack.EMPTY;
 		ItemStack one = container.getItem(slot).split(1);
 		container.setChanged();
@@ -1281,7 +1401,7 @@ public class ServerLarpModule extends Module {
 
 	/** One item out of a random filled slot of a dispenser you've filled while larping, as vanilla picks; empty if it has none. */
 	public ItemStack takeForDispenser(BlockPos pos) {
-		SimpleContainer container = containers.get(pos);
+		SimpleContainer container = dispenser(pos, false);
 		if (container == null) return ItemStack.EMPTY;
 		List<Integer> filled = new ArrayList<>();
 		for (int i = 0; i < container.getContainerSize(); i++) if (!container.getItem(i).isEmpty()) filled.add(i);
