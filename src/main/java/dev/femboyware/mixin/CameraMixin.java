@@ -50,8 +50,9 @@ public abstract class CameraMixin {
 	@ModifyExpressionValue(method = "setup", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;getViewYRot(F)F"), require = 0)
 	private float femboyware$freeLookYaw(float yaw, @Local(argsOnly = true) Entity focusedEntity) {
 	//?}
-		if (isFreeLook(focusedEntity)) return FemboyWare.getModules().get(FreeLookModule.class).getYaw();
+		// Real Look's free look first: it has the mouse while it's on, Free Look module or not
 		if (focusedEntity == Minecraft.getInstance().player && dev.femboyware.util.FreeLook.active()) return dev.femboyware.util.FreeLook.yaw();
+		if (isFreeLook(focusedEntity)) return FemboyWare.getModules().get(FreeLookModule.class).getYaw();
 		// Legit Aura's side view: turned a quarter round, the third person camera sits beside you instead of behind
 		return isSideView(focusedEntity) ? yaw - 90 : yaw;
 	}
@@ -64,8 +65,8 @@ public abstract class CameraMixin {
 	@ModifyExpressionValue(method = "setup", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;getViewXRot(F)F"), require = 0)
 	private float femboyware$freeLookPitch(float pitch, @Local(argsOnly = true) Entity focusedEntity) {
 	//?}
-		if (isFreeLook(focusedEntity)) return FemboyWare.getModules().get(FreeLookModule.class).getPitch();
 		if (focusedEntity == Minecraft.getInstance().player && dev.femboyware.util.FreeLook.active()) return dev.femboyware.util.FreeLook.pitch();
+		if (isFreeLook(focusedEntity)) return FemboyWare.getModules().get(FreeLookModule.class).getPitch();
 		// From the side, a steady slight downward look keeps both of you in view whichever way you aim
 		return isSideView(focusedEntity) ? 12 : pitch;
 	}

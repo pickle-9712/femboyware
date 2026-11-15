@@ -35,6 +35,12 @@ public final class FreeLook {
 			active = true;
 			yaw = mc.player.getYRot();
 			pitch = mc.player.getXRot();
+			// Already free looking with the Free Look module: carry on from where that camera points
+			dev.femboyware.module.render.FreeLookModule module = FemboyWare.getModules().get(dev.femboyware.module.render.FreeLookModule.class);
+			if (module.isEnabled()) {
+				yaw = module.getYaw();
+				pitch = module.getPitch();
+			}
 			previousCamera = null;
 		}
 		if (thirdPerson && previousCamera == null && mc.options.getCameraType().isFirstPerson()) {

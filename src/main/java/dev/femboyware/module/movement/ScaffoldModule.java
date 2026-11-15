@@ -101,7 +101,7 @@ public class ScaffoldModule extends Module {
 
 	private final EnumSetting<Page> page = add(new EnumSetting<>("Page", "Settings page", Page.GENERAL));
 	private final dev.femboyware.setting.ButtonSetting hypixelPreset = add(new dev.femboyware.setting.ButtonSetting("Hypixel Preset",
-		"Sets everything here to LiquidBounce's Hypixel config (Normal technique, faces you can see, 120 degree turns, no safe walk, stays on your blocks) and turns on Move Fix and Legit Sprint", this::applyHypixelPreset));
+		"Sets everything here to LiquidBounce's Hypixel config (Normal technique, faces you can see, 120 degree turns, no safe walk, stays on your blocks, Real Look) and turns on Move Fix and Legit Sprint", this::applyHypixelPreset));
 
 	// General
 	private final NumberSetting delayMin = add(new NumberSetting("Delay Min", "Fewest ticks to wait after a placement", 0, 0, 40, 1)).visibleWhen(() -> page.is(Page.GENERAL));
@@ -314,7 +314,7 @@ public class ScaffoldModule extends Module {
 		for (String turn : new String[]{"Turn H Min", "Turn H Max", "Turn V Min", "Turn V Max"}) values.put(turn, 120.0);
 		values.put("Short Stop", false);
 		values.put("Fail", false);
-		values.put("Real Look", false);
+		values.put("Real Look", true);
 		values.put("Rotation Timing", Timing.NORMAL);
 		values.put("Aim Mode", AimMode.STABILIZED);
 		values.put("Requires Sight", true);
@@ -333,7 +333,7 @@ public class ScaffoldModule extends Module {
 		Module sprint = FemboyWare.getModules().get(SprintModule.class);
 		applyValues(sprint, java.util.Map.of("Mode", SprintModule.Mode.LEGIT));
 		FemboyWare.getConfig().save();
-		dev.femboyware.util.ChatUtil.info("Scaffold set to the Hypixel config, with Move Fix on and Legit Sprint");
+		dev.femboyware.util.ChatUtil.info("Scaffold set to the Hypixel config with Real Look, plus Move Fix on and Legit Sprint");
 	}
 
 	@SuppressWarnings({"unchecked", "rawtypes"})
@@ -395,6 +395,23 @@ public class ScaffoldModule extends Module {
 
 	private float rawMovementYaw() {
 		return movementYaw(mc.options.keyUp.isDown(), mc.options.keyDown.isDown(), mc.options.keyLeft.isDown(), mc.options.keyRight.isDown());
+	}
+
+	/** Where vanilla's movement this tick will put you: your motion plus this tick's push from the keys. */
+	private Vec3 nextPosition() {
+		Vec3 v = mc.player.getDeltaMovement();
+		Vec3 push = Vec3.ZERO;
+		if (rawMoving()) {
+			double accel = mc.player.onGround() ? mc.player.getSpeed() * 1.327 * 0.98 : (mc.player.isSprinting() ? 0.026 : 0.02) * 0.98;
+			if (mc.player.isShiftKeyDown()) accel *= 0.3;
+			push = Vec3.directionFromRotation(0, rawMovementYaw()).scale(accel);
+		}
+		double dy = mc.player.onGround() ? 0 : v.y;
+		return mc.player.position().add(v.x + push.x, dy, v.z + push.z);
+	}
+
+	private Vec3 nextEyes() {
+		return nextPosition().add(0, mc.player.getEyeHeight(), 0);
 	}
 
 	private boolean isBlockBelow() {
@@ -551,11 +568,40 @@ public class ScaffoldModule extends Module {
 			return new Rotation(Math.round(cameraYaw() / 45f) * 45f, Math.max(45f, dev.femboyware.util.FreeLook.pitch()));
 		}
 		if (target == null) return null;
-		if (requiresSight.get()) {
-			BlockHitResult hit = TargetFinding.traceFromPlayer(target.rotation(), mc.player.blockInteractionRange());
-			if (hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(target.interactedBlockPos())) return target.rotation();
+		if (rawMoving() && !isTowering()) {
+			Rotation aligned = keyAlignedRotation(target);
+			if (aligned != null) return aligned;
 		}
 		return target.rotation();
+	}
+
+	/**
+	 * femboyware: a rotation that still lands the click on {@code target} with its yaw on one of the 8
+	 * headings your keys walk exactly, measured from the camera. Movement is remapped onto your
+	 * (server or Real Look) head with whole key presses, so any other yaw walks you up to 22 degrees
+	 * off where the camera points, which drifts you off the bridge. Null when none of them reaches.
+	 */
+	private Rotation keyAlignedRotation(PlacementTarget target) {
+		float base = target.rotation().yaw();
+		float camera = cameraYaw();
+		float best = Float.NaN;
+		for (int k = 0; k < 8; k++) {
+			float heading = camera + k * 45f;
+			if (Float.isNaN(best) || Math.abs(Mth.wrapDegrees(heading - base)) < Math.abs(Mth.wrapDegrees(best - base))) best = heading;
+		}
+		float yaw = base + Mth.wrapDegrees(best - base);
+		if (Math.abs(Mth.wrapDegrees(yaw - base)) > 23f) return null;
+		float pitch0 = target.rotation().pitch();
+		for (int i = 0; i <= 80; i++) {
+			float pitch = pitch0 + ((i & 1) == 0 ? 1 : -1) * (i / 2) * 0.5f;
+			if (pitch < -90f || pitch > 90f) continue;
+			Rotation candidate = new Rotation(yaw, pitch);
+			BlockHitResult hit = TargetFinding.traceFromPoint(nextEyes(), candidate.toVector(), mc.player.blockInteractionRange());
+			if (!target.matches(hit) || !validCrosshair(hit)) continue;
+			if (requiresSight.get() && !hit.getBlockPos().equals(target.interactedBlockPos())) continue;
+			return candidate;
+		}
+		return null;
 	}
 
 	/** femboyware: whether either God Bridge diagonal lands on {@code target} from where you stand. */
@@ -750,7 +796,20 @@ public class ScaffoldModule extends Module {
 		ItemStack stack = slot < 0 ? new ItemStack(Items.SANDSTONE, 64) : mc.player.getInventory().getItem(slot);
 		optimalLine = rawMoving() ? planner.optimalLine(rawMovementYaw()) : null;
 		Pose pose = eagle.get() && technique.is(Technique.NORMAL) && shouldEagle(mc.player.input.keyPresses) ? Pose.CROUCHING : Pose.STANDING;
-		target = findTarget(mc.player.position(), pose, stack);
+		// femboyware: aim from where you'll be when the look goes out (after this tick's movement), as
+		// LiquidBounce's Prediction does; aimed from where you are now, it's a step stale and misses the face
+		Vec3 next = nextPosition();
+		target = findTarget(next, pose, stack);
+		// femboyware: LiquidBounce's Prediction: nothing to place yet, so find the block you're about to
+		// need from where you'll be in a few ticks, and turn to it now; it's placed the moment you get there
+		if (target == null && rawMoving() && mc.player.onGround() && !isTowering()) {
+			Vec3 dir = Vec3.directionFromRotation(0, rawMovementYaw());
+			double speed = Math.max(mc.player.getDeltaMovement().horizontalDistance(), mc.player.isSprinting() ? 0.28 : 0.21);
+			for (int ahead = 1; ahead <= 4 && target == null; ahead++) {
+				Vec3 predicted = next.add(dir.scale(speed * ahead));
+				if (mc.level.getBlockState(BlockPos.containing(predicted).below()).canBeReplaced()) target = findTarget(predicted, pose, stack);
+			}
+		}
 
 		if (!rotate.get()) return;
 		if (timing.is(Timing.NORMAL)) {
@@ -899,7 +958,13 @@ public class ScaffoldModule extends Module {
 			boolean ledgeJump = false, stop = false, stepBack = false;
 			if (closeToEdge(keys, 0.1)) {
 				int ticks = target != null ? ticksUntil(rotationFor(target) != null ? rotationFor(target) : rotation) : 0;
-				if (blockCount() <= 0 || ticks >= 1) sneakTime = Math.max(1, ticks);
+				// femboyware: also while the aim's there but the click can't land from here yet (or there's
+				// nothing to click), so you never walk off before the block's in
+				// From where this tick's movement leaves you, which is where the click goes out from
+				BlockHitResult now = target != null ? TargetFinding.traceFromPoint(nextEyes(), rotation.toVector(), mc.player.blockInteractionRange()) : null;
+				boolean placeable = now != null && target.matches(now) && validCrosshair(now);
+				boolean needsBlock = mc.level.getBlockState(BlockPos.containing(mc.player.position().add(Vec3.directionFromRotation(0, movementYaw(keys.forward(), keys.backward(), keys.left(), keys.right())).scale(0.4))).below()).canBeReplaced();
+				if (blockCount() <= 0 || ticks >= 1 || needsBlock && !placeable) sneakTime = Math.max(1, ticks);
 			}
 			if (sneakTime == 0 && active == Technique.GOD_BRIDGE && target != null) {
 				// Held at the edge (the walk would take you off it): if the aim can't place from here, act
