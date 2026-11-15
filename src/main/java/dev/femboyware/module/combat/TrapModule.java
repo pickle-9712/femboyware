@@ -97,6 +97,17 @@ public class TrapModule extends Module {
 	/** Legit: the slot you had before the trap took over, to go back to after; -1 when nothing to restore. */
 	private int originalSlot = -1;
 	private int lastSlot = -1, sinceSwitch;
+	/**
+	 * Fighting alongside Aura: ticks into the current turn Trap has taken from it (0 = Aura's turn).
+	 * A turn starts just after a swing, while the cooldown refills, and ends after one block.
+	 */
+	private int turnTicks;
+	private boolean restoreNext, turnEndedThisTick;
+	/** Where the knockback hit went in, so it's only done again once they've got well away. */
+	private BlockPos hitAt;
+	private static final int TURN_TICKS = 8;
+	/** How many ticks ahead to put the trap around someone on the move. */
+	private static final int LEAD_TICKS = 2;
 
 	public TrapModule() {
 		super("Trap", "Traps your target in blocks: back wall, knockback hit, web or lava, then the rest", Category.ATTACK);
@@ -121,7 +132,42 @@ public class TrapModule extends Module {
 	 * never fight over your look or do two things in one tick.
 	 */
 	public boolean isBusy() {
-		return isEnabled() && working && mode.is(Mode.LEGIT);
+		return isEnabled() && working && mode.is(Mode.LEGIT) && (!fighting() || turnTicks > 0 || turnEndedThisTick);
+	}
+
+	/** Aura's on too: it does the fighting and Trap takes turns between its swings. */
+	private boolean fighting() {
+		return mode.is(Mode.LEGIT) && FemboyWare.getModules().get(AuraModule.class).isEnabled();
+	}
+
+	/** How far they moved in the last tick, sideways. */
+	private Vec3 velocity() {
+		return new Vec3(target.getX() - target.xo, 0, target.getZ() - target.zo);
+	}
+
+	private boolean moving() {
+		return velocity().lengthSqr() > 0.06 * 0.06;
+	}
+
+	/** Their box a couple of ticks ahead when they're on the move: blocks go where they're about to be. */
+	private AABB predictedBox() {
+		if (!moving()) return target.getBoundingBox();
+		Vec3 ahead = velocity().scale(LEAD_TICKS);
+		AABB moved = target.getBoundingBox().move(ahead);
+		// Not into a wall: they'd stop there
+		for (BlockPos pos : BlockPos.betweenClosed(BlockPos.containing(moved.minX, moved.minY + 0.2, moved.minZ), BlockPos.containing(moved.maxX - 1e-4, moved.minY + 0.2, moved.maxZ - 1e-4))) {
+			if (!mc.level.getBlockState(pos).getCollisionShape(mc.level, pos).isEmpty()) return target.getBoundingBox();
+		}
+		return moved;
+	}
+
+	/** Ends Trap's turn: Aura gets the look back and, next tick, your weapon. */
+	private void endTurn() {
+		if (turnTicks == 0) return;
+		turnTicks = 0;
+		restoreNext = true;
+		// Still this tick: Aura swinging now would be two actions in one tick
+		turnEndedThisTick = true;
 	}
 
 	/** Legit: back to the slot you had before the trap, like switching back to your sword. */
@@ -200,8 +246,13 @@ public class TrapModule extends Module {
 	@Override
 	public void onTick() {
 		working = false;
+		turnEndedThisTick = false;
 		aimingAt = null;
 		needJump = needApproach = needBackOff = false;
+		if (restoreNext) {
+			restoreNext = false;
+			restoreSlot();
+		}
 		int selected = mc.player.getInventory().getSelectedSlot();
 		if (selected != lastSlot) {
 			lastSlot = selected;
@@ -216,43 +267,93 @@ public class TrapModule extends Module {
 		}
 		if (target == null) {
 			positions = Set.of();
+			turnTicks = 0;
 			restoreSlot();
 			return;
 		}
-		BlockPos feetPos = BlockPos.containing(target.getX(), target.getY() + 0.2, target.getZ());
+		AABB box = predictedBox();
+		Vec3 feetAt = box.getBottomCenter();
+		BlockPos feetPos = BlockPos.containing(feetAt.x, box.minY + 0.2, feetAt.z);
 		// Knocked up or jumping: the trap stays around where they'll land
 		for (int i = 0; i < 2 && !target.onGround() && mc.level.getBlockState(feetPos.below()).canBeReplaced(); i++) feetPos = feetPos.below();
 		if (!feetPos.equals(trappedAt)) {
-			// They moved out: the trap starts over around where they are now
+			// They moved: the trap carries on around where they are now. A new web goes down if they
+			// walked out of the last one, and the knockback hit's done again once they're well away.
 			trappedAt = feetPos;
-			resetStages();
+			if (!mc.level.getBlockState(feetPos).is(Blocks.COBWEB)) filled = false;
+			fillWait = 0;
+			if (hitAt != null && hitAt.distSqr(feetPos) > 9) {
+				hitDone = false;
+				hitTicks = 0;
+				hitAt = null;
+			}
 		}
-		positions = withRoofSupport(trapPositions(target, feet.get(), roof.get()));
+		positions = withRoofSupport(trapPositions(box, box.minY, feet.get(), roof.get()));
 		List<BlockPos> missing = new ArrayList<>();
 		for (BlockPos pos : positions) if (mc.level.getBlockState(pos).canBeReplaced()) missing.add(pos);
 		List<BlockPos> back = backPositions(missing);
 
-		if (backFirst.get() && !back.isEmpty()) stage = Stage.BACK;
-		else if (knockback.get() && !hitDone) stage = Stage.HIT;
+		boolean fighting = fighting();
+		// The back wall first, while any of it can be clicked (a web in front of it can hide it)
+		if (backFirst.get() && !back.isEmpty() && (mode.is(Mode.PACKET) || anyVisible(back))) stage = Stage.BACK;
+		// With Aura on, its sprint hits are the knockback
+		else if (knockback.get() && !hitDone && !fighting) stage = Stage.HIT;
 		else if (!fill.is(Fill.NONE) && !filled) stage = Stage.FILL;
 		else stage = missing.isEmpty() ? Stage.DONE : Stage.WALLS;
 
 		if (stage == Stage.DONE) {
+			turnTicks = 0;
 			restoreSlot();
 			return;
 		}
 		working = true;
+		if (fighting) {
+			// Take a turn only just after a swing, while Aura's cooldown fills anyway, and give the
+			// look back in time for its next hit
+			if (turnTicks == 0) {
+				if (mc.player.getAttackStrengthScale(0.5f) > 0.45f && auraCanHit()) return;
+				turnTicks = 1;
+			} else if (++turnTicks > TURN_TICKS) {
+				endTurn();
+				return;
+			}
+		}
 		if (mode.is(Mode.LEGIT) && realLook.get()) FreeLook.hold(thirdPerson.get());
 		// Eating, blocking or in a menu: a player can't place or hit then, so neither does Legit
 		if (mode.is(Mode.LEGIT) && (mc.player.isUsingItem() || Mc.screen() != null)) return;
-		switch (stage) {
+		boolean placed = switch (stage) {
 			case BACK -> placeAll(back);
-			case HIT -> hit();
+			case HIT -> {
+				hit();
+				yield false;
+			}
 			case FILL -> fill(feetPos);
 			case WALLS -> placeAll(missing);
-			default -> {
+			default -> false;
+		};
+		// One block a turn, then back to the fight
+		if (fighting && placed) endTurn();
+	}
+
+	private boolean anyVisible(List<BlockPos> list) {
+		boolean jumpBefore = needJump, approachBefore = needApproach;
+		boolean any = false;
+		for (BlockPos pos : list) {
+			if (BlockUtil.hasBlockingEntity(pos, false)) continue;
+			if (visiblePlacement(pos) != null) {
+				any = true;
+				break;
 			}
 		}
+		needJump = jumpBefore;
+		needApproach = approachBefore;
+		return any;
+	}
+
+	/** Aura has someone in reach to hit; when it doesn't, Trap needn't wait for a swing. */
+	private boolean auraCanHit() {
+		// Its own target goes quiet while Trap has the turn, so go by Trap's
+		return mc.player.distanceTo(target) < 3.6;
 	}
 
 	/**
@@ -278,6 +379,8 @@ public class TrapModule extends Module {
 		filled = false;
 		hitTicks = 0;
 		fillWait = 0;
+		hitAt = null;
+		turnTicks = 0;
 	}
 
 	/** The missing blocks on the far side of the target from you: the wall they get knocked into. */
@@ -295,9 +398,9 @@ public class TrapModule extends Module {
 		return back;
 	}
 
-	private void placeAll(List<BlockPos> list) {
+	private boolean placeAll(List<BlockPos> list) {
 		ItemStack block = bestBlock();
-		if (block == null) return;
+		if (block == null) return false;
 		Predicate<ItemStack> item = stack -> stack.is(block.getItem());
 		if (mode.is(Mode.PACKET)) {
 			int placed = 0;
@@ -305,12 +408,22 @@ public class TrapModule extends Module {
 				if (placed >= blocksPerTick.getInt()) break;
 				if (PlaceUtil.place(pos, item, switchMode.get(), rotate.get(), strict.get())) placed++;
 			}
-			return;
+			return placed > 0;
 		}
-		// Furthest first: the near blocks would stand between your eyes and the far ones
+		// On the move: the side they're heading for first, to cut them off. Otherwise furthest
+		// first, as the near blocks would stand between your eyes and the far ones.
 		Vec3 eyes = mc.player.getEyePosition();
+		Vec3 heading = moving() ? velocity().normalize() : null;
+		Vec3 centre = target.position();
 		List<BlockPos> ordered = new ArrayList<>(list);
-		ordered.sort((a, b) -> Double.compare(Vec3.atCenterOf(b).distanceToSqr(eyes), Vec3.atCenterOf(a).distanceToSqr(eyes)));
+		ordered.sort((a, b) -> {
+			if (heading != null) {
+				double da = heading.dot(Vec3.atCenterOf(a).subtract(centre).multiply(1, 0, 1).normalize());
+				double db = heading.dot(Vec3.atCenterOf(b).subtract(centre).multiply(1, 0, 1).normalize());
+				if (Math.abs(da - db) > 0.3) return Double.compare(db, da);
+			}
+			return Double.compare(Vec3.atCenterOf(b).distanceToSqr(eyes), Vec3.atCenterOf(a).distanceToSqr(eyes));
+		});
 		Vec3 lookAt = null;
 		for (BlockPos pos : ordered) {
 			if (!mc.level.getBlockState(pos).canBeReplaced()) continue;
@@ -325,11 +438,11 @@ public class TrapModule extends Module {
 				continue;
 			}
 			aimingAt = pos;
-			placeAimed(planned, item);
-			return;
+			return placeAimed(planned, item);
 		}
 		// Nothing to click from here yet: look at the next block while jumping or walking to it
 		if (lookAt != null) aim(lookAt);
+		return false;
 	}
 
 	/**
@@ -338,7 +451,8 @@ public class TrapModule extends Module {
 	 */
 	private BlockHitResult visiblePlacement(BlockPos pos) {
 		Vec3 eyes = mc.player.getEyePosition();
-		double reach = mc.player.blockInteractionRange();
+		// A little inside reach: the look gets rounded to mouse steps, which can push the ray past the edge
+		double reach = mc.player.blockInteractionRange() - 0.3;
 		boolean inReach = false, anyNeighbour = false;
 		BlockHitResult best = null;
 		double bestDistance = Double.MAX_VALUE;
@@ -396,7 +510,9 @@ public class TrapModule extends Module {
 	/** Clicks {@code planned} once the server rotation looks at it; turns there otherwise. */
 	private boolean placeAimed(BlockHitResult planned, Predicate<ItemStack> item) {
 		BlockHitResult seen = seen();
-		if (seen == null || !seen.getBlockPos().equals(planned.getBlockPos()) || seen.getDirection() != planned.getDirection()) {
+		// Any face your look is on that puts the block in the same spot will do, as a real click would
+		BlockPos wanted = planned.getBlockPos().relative(planned.getDirection());
+		if (seen == null || !seen.getBlockPos().relative(seen.getDirection()).equals(wanted)) {
 			aim(planned.getLocation());
 			return false;
 		}
@@ -450,46 +566,50 @@ public class TrapModule extends Module {
 		if (legit) attack.run();
 		else InventoryUtil.withSlot(slot, SwitchMode.SILENT, attack);
 		hitDone = true;
+		hitAt = trappedAt;
 	}
 
 	// ---------------------------------------------------------------- fill
 
-	private void fill(BlockPos feetPos) {
+	private boolean fill(BlockPos feetPos) {
 		boolean done = fill.is(Fill.COBWEB) ? mc.level.getBlockState(feetPos).is(Blocks.COBWEB)
 			: mc.level.getFluidState(feetPos).is(net.minecraft.tags.FluidTags.LAVA);
 		Predicate<ItemStack> item = fill.is(Fill.COBWEB) ? stack -> stack.is(Items.COBWEB) : stack -> stack.is(Items.LAVA_BUCKET);
 		boolean have = item.test(mc.player.getOffhandItem()) || InventoryUtil.findHotbar(item) >= 0;
 		if (done || !have) {
 			filled = true;
-			return;
+			return false;
 		}
-		// Wait for them to land after the knockback, or the web holds them up in the air with their head where the roof goes
-		if ((!target.onGround() || target.getY() - feetPos.getY() > 0.05) && ++fillWait < 40) {
+		// Standing still after the knockback: wait for them to land, or the web holds them up in the
+		// air with their head where the roof goes. Someone on the move gets it straight away.
+		if (!moving() && (!target.onGround() || target.getY() - feetPos.getY() > 0.05) && ++fillWait < 40) {
 			if (mode.is(Mode.LEGIT)) aim(new Vec3(feetPos.getX() + 0.5, feetPos.getY(), feetPos.getZ() + 0.5));
-			return;
+			return false;
 		}
 		BlockPos ground = feetPos.below();
 		if (mc.level.getBlockState(ground).canBeReplaced()) {
 			// Nothing under them to click on
 			filled = true;
-			return;
+			return false;
 		}
 		BlockHitResult planned = new BlockHitResult(new Vec3(feetPos.getX() + 0.5, feetPos.getY(), feetPos.getZ() + 0.5), Direction.UP, ground, false);
 		if (fill.is(Fill.COBWEB)) {
 			aimingAt = feetPos;
 			if (mode.is(Mode.PACKET)) {
 				PlaceUtil.placeInside(feetPos, item, switchMode.get(), rotate.get(), strict.get());
-				return;
+				return true;
 			}
 			BlockHitResult visible = visiblePlacement(feetPos);
-			if (visible != null) placeAimed(visible, item);
-			return;
+			if (visible == null) return false;
+			boolean placed = placeAimed(visible, item);
+			if (placed) filled = true;
+			return placed;
 		}
 		// Lava: the bucket pours where your look meets the ground under their feet
 		BlockHitResult seen = seen();
 		if (seen == null || !seen.getBlockPos().equals(ground) || seen.getDirection() != Direction.UP) {
 			aim(planned.getLocation());
-			if (mode.is(Mode.LEGIT)) return;
+			if (mode.is(Mode.LEGIT)) return false;
 		}
 		Rotation server = FemboyWare.getRotations().getServerRotation();
 		Rotation pour = mode.is(Mode.PACKET) ? Rotation.between(mc.player.getEyePosition(), planned.getLocation()) : server;
@@ -504,12 +624,13 @@ public class TrapModule extends Module {
 			mc.player.setXRot(pitch);
 		};
 		if (mode.is(Mode.LEGIT)) {
-			if (!ready(item)) return;
+			if (!ready(item)) return false;
 			InteractionHand held = item.test(mc.player.getMainHandItem()) ? InteractionHand.MAIN_HAND : InteractionHand.OFF_HAND;
 			if (mc.gameMode.useItem(mc.player, held).consumesAction()) mc.player.swing(held);
 		} else if (hand == InteractionHand.OFF_HAND) action.run();
 		else InventoryUtil.withSlot(InventoryUtil.findHotbar(item), switchMode.get(), action);
 		filled = true;
+		return true;
 	}
 
 	// ---------------------------------------------------------------- movement
@@ -520,6 +641,12 @@ public class TrapModule extends Module {
 		Input keys = mc.player.input.keyPresses;
 		// Jump when a jump would show you a block you can't see from the ground
 		boolean doJump = jump.get() && mc.player.onGround() && needJump && aimingAt == null;
+		// Hands off WASD and it walks in, steps back or runs at them as usual
+		if (fighting() && (keys.forward() || keys.backward() || keys.left() || keys.right())) {
+			// Mid-fight your own WASD stays yours (strafing, chasing); only the jump helps out
+			if (doJump && turnTicks > 0) mc.player.input.keyPresses = new Input(keys.forward(), keys.backward(), keys.left(), keys.right(), true, keys.shift(), keys.sprint());
+			return;
+		}
 		if (needBackOff && aimingAt == null && stage != Stage.HIT) {
 			// Your own body is in a spot the trap needs: back away from them
 			float frame = FreeLook.active() ? FreeLook.yaw() : mc.player.getYRot();
@@ -557,8 +684,12 @@ public class TrapModule extends Module {
 
 	/** Feet ring, head ring and roof around every block column {@code entity} stands in, bottom up. */
 	public static Set<BlockPos> trapPositions(LivingEntity entity, boolean includeFeet, boolean includeRoof) {
-		AABB box = entity.getBoundingBox();
-		int y = Mth.floor(entity.getY() + 0.2);
+		return trapPositions(entity.getBoundingBox(), entity.getY(), includeFeet, includeRoof);
+	}
+
+	/** {@link #trapPositions(LivingEntity, boolean, boolean)} for a box standing at {@code feetY}. */
+	public static Set<BlockPos> trapPositions(AABB box, double feetY, boolean includeFeet, boolean includeRoof) {
+		int y = Mth.floor(feetY + 0.2);
 		Set<BlockPos> columns = new LinkedHashSet<>();
 		for (int x = Mth.floor(box.minX); x <= Mth.floor(box.maxX - 1e-4); x++) {
 			for (int z = Mth.floor(box.minZ); z <= Mth.floor(box.maxZ - 1e-4); z++) {
