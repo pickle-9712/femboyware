@@ -109,6 +109,10 @@ public class TrapModule extends Module {
 	private boolean restoreNext, turnEndedThisTick;
 	/** Where the knockback hit went in, so it's only done again once they've got well away. */
 	private BlockPos hitAt;
+	/** First tick of a turn: look only, so a click never lands in the same tick as the swing before it. */
+	private boolean clickBlocked;
+	/** Trapped but Legit Aura can't see them: walk round to stand at the gap. */
+	private boolean toGap;
 	/** The block this turn is going for: kept till it's in, so the look doesn't chase a new one every tick. */
 	private BlockPos committed;
 	/** Where the view is flicking to this tick (frame turning), or null. */
@@ -386,10 +390,16 @@ public class TrapModule extends Module {
 		for (BlockPos pos : positions) if (mc.level.getBlockState(pos).canBeReplaced()) missing.add(pos);
 		List<BlockPos> back = backPositions(missing);
 
+		if (fighting) {
+			// Mid-fight you go where the fight takes you, so it's whatever can be placed from here:
+			// the back wall if any of it is in reach, then the web, then any other block in reach
+			if (backFirst.get() && reachNow(back) > 0) stage = Stage.BACK;
+			else if (!fill.is(Fill.NONE) && !filled && fillReachable(feetPos)) stage = Stage.FILL;
+			else stage = missing.isEmpty() ? Stage.DONE : Stage.WALLS;
+		}
 		// The back wall first, while any of it can be clicked (a web in front of it can hide it)
-		if (backFirst.get() && !back.isEmpty() && (mode.is(Mode.PACKET) || anyVisible(back))) stage = Stage.BACK;
-		// With Aura on, its sprint hits are the knockback
-		else if (knockback.get() && !hitDone && !fighting) stage = Stage.HIT;
+		else if (backFirst.get() && !back.isEmpty() && (mode.is(Mode.PACKET) || anyVisible(back))) stage = Stage.BACK;
+		else if (knockback.get() && !hitDone) stage = Stage.HIT;
 		else if (!fill.is(Fill.NONE) && !filled) stage = Stage.FILL;
 		else stage = missing.isEmpty() ? Stage.DONE : Stage.WALLS;
 
@@ -397,8 +407,12 @@ public class TrapModule extends Module {
 			walkTo = null;
 			turnTicks = 0;
 			restoreSlot();
+			// Boxed in, but you're standing where the gap doesn't line up: look their way and walk round to it
+			toGap = legitFighting() && hitGap.get() && gap != null && legitTarget() == null && mc.level.getBlockState(gap).canBeReplaced();
+			if (toGap) aimPoint = target.getEyePosition();
 			return;
 		}
+		toGap = false;
 		working = true;
 		if (fighting) {
 			// Take a turn only just after a swing, while Aura's cooldown fills anyway, and give the
@@ -409,12 +423,20 @@ public class TrapModule extends Module {
 				boolean offhand = offhandBlocks() && stage != Stage.FILL;
 				float window = offhand ? 0.6f : legit ? 0.35f : 0.45f;
 				if (mc.player.getAttackStrengthScale(0.5f) > window && auraCanHit()) return;
+				// Nothing it could place from here (all out of reach, or hidden with no jump to show it):
+				// no turn, and the fight carries on undisturbed
+				int chance = stage == Stage.FILL ? (fillReachable(feetPos) ? 2 : 0) : reachNow(stage == Stage.BACK ? back : missing);
+				if (chance == 0 || chance == 1 && !(jump.get() && mc.player.onGround())) return;
 				turnTicks = 1;
-			} else if (++turnTicks > (offhandBlocks() && stage != Stage.FILL ? OFFHAND_TURN_TICKS : legit ? LEGIT_TURN_TICKS : TURN_TICKS)) {
-				endTurn();
-				return;
+				clickBlocked = true;
+			} else {
+				clickBlocked = false;
+				if (++turnTicks > (offhandBlocks() && stage != Stage.FILL ? OFFHAND_TURN_TICKS : legit ? LEGIT_TURN_TICKS : TURN_TICKS)) {
+					endTurn();
+					return;
+				}
 			}
-		}
+		} else clickBlocked = false;
 		if (mode.is(Mode.LEGIT) && realLook.get() && !legitFighting()) FreeLook.hold(thirdPerson.get());
 		// Eating, blocking or in a menu: a player can't place or hit then, so neither does Legit
 		if (mode.is(Mode.LEGIT) && (mc.player.isUsingItem() || Mc.screen() != null)) return;
@@ -441,6 +463,39 @@ public class TrapModule extends Module {
 		}
 	}
 
+	/**
+	 * What can be done about {@code list} from where you stand: 2 = a block can be clicked now,
+	 * 1 = one's in reach but hidden (a jump might show it), 0 = nothing in reach.
+	 */
+	private int reachNow(List<BlockPos> list) {
+		boolean jumpBefore = needJump, approachBefore = needApproach;
+		int best = 0;
+		for (BlockPos pos : list) {
+			if (!mc.level.getBlockState(pos).canBeReplaced() || BlockUtil.hasBlockingEntity(pos, false)) continue;
+			needJump = false;
+			if (visiblePlacement(pos) != null) {
+				best = 2;
+				break;
+			}
+			if (needJump) best = 1;
+		}
+		needJump = jumpBefore;
+		needApproach = approachBefore;
+		return best;
+	}
+
+	/** The web or lava can go in from here: you have it, and the ground under their feet can be clicked. */
+	private boolean fillReachable(BlockPos feetPos) {
+		Predicate<ItemStack> item = fill.is(Fill.COBWEB) ? stack -> stack.is(Items.COBWEB) : stack -> stack.is(Items.LAVA_BUCKET);
+		if (!item.test(mc.player.getOffhandItem()) && InventoryUtil.findHotbar(item) < 0) return false;
+		if (fill.is(Fill.COBWEB) && mc.level.getBlockState(feetPos).is(Blocks.COBWEB)) return false;
+		boolean jumpBefore = needJump, approachBefore = needApproach;
+		boolean ok = visiblePlacement(feetPos) != null;
+		needJump = jumpBefore;
+		needApproach = approachBefore;
+		return ok;
+	}
+
 	/** Some of {@code list} can be clicked, or is only out of reach for now (walking in will do); false when it's all hidden. */
 	private boolean anyVisible(List<BlockPos> list) {
 		boolean jumpBefore = needJump, approachBefore = needApproach;
@@ -463,9 +518,13 @@ public class TrapModule extends Module {
 	 * they can't walk out through it, and you can still hit them through it.
 	 */
 	private Set<BlockPos> withHitGap(Set<BlockPos> trap) {
-		// Picked once and kept, so circling them doesn't close it behind you
+		// The head-height block nearest you stays open, so it ends up on your side; once it's the only
+		// one left it stays put (Legit Aura doesn't circle someone pinned)
 		if (gap != null && (!trap.contains(gap) || !mc.level.getBlockState(gap).canBeReplaced())) gap = null;
-		if (gap == null) {
+		int open = 0;
+		for (BlockPos pos : trap) if (pos.getY() == trappedAt.getY() + 1 && mc.level.getBlockState(pos).canBeReplaced()) open++;
+		if (gap == null || open > 1) {
+			gap = null;
 			Vec3 eyes = mc.player.getEyePosition();
 			double best = Double.MAX_VALUE;
 			for (BlockPos pos : trap) {
@@ -595,9 +654,14 @@ public class TrapModule extends Module {
 				if (mc.player.getBoundingBox().intersects(new AABB(pos))) needBackOff = true;
 				continue;
 			}
+			boolean jumpBefore = needJump;
+			needJump = false;
 			BlockHitResult planned = visiblePlacement(pos);
+			boolean hiddenInReach = needJump;
+			needJump |= jumpBefore;
 			if (planned == null) {
-				if (lookAt == null) lookAt = Vec3.atCenterOf(pos);
+				// Only a block in reach is worth looking at; nobody stares at one they can't get to
+				if (lookAt == null && hiddenInReach) lookAt = Vec3.atCenterOf(pos);
 				continue;
 			}
 			aimingAt = pos;
@@ -647,6 +711,18 @@ public class TrapModule extends Module {
 			else needApproach = true;
 		}
 		return best;
+	}
+
+	/** Stands you a step out from the gap, facing in, so the crosshair can find them through it. */
+	private void walkToGap() {
+		Input keys = mc.player.input.keyPresses;
+		if (keys.forward() || keys.backward() || keys.left() || keys.right()) return;
+		Vec3 out = Vec3.atCenterOf(gap).subtract(Vec3.atCenterOf(trappedAt)).multiply(1, 0, 1).normalize();
+		Vec3 spot = Vec3.atBottomCenterOf(gap).add(out.scale(1.2));
+		if (mc.player.position().multiply(1, 0, 1).distanceTo(spot.multiply(1, 0, 1)) < 0.35) return;
+		int[] k = MoveFix.keysToward(mc.player.getYRot(), Rotation.between(mc.player.position(), around(spot)).yaw());
+		mc.player.input.keyPresses = new Input(k[0] > 0, k[0] < 0, k[1] > 0, k[1] < 0, mc.player.horizontalCollision && mc.player.onGround(), false, false);
+		((InputAccessor) mc.player.input).femboyware$setMovementVector(new Vec2(k[1], k[0]).normalized());
 	}
 
 	/** The next point on the way to {@code goal}: round the side of the trap if the straight line goes through it. */
@@ -761,7 +837,7 @@ public class TrapModule extends Module {
 			aim(planned.getLocation());
 			return false;
 		}
-		if (!ready(item)) return false;
+		if (clickBlocked || !ready(item)) return false;
 		BlockHitResult click = new BlockHitResult(seen.getLocation(), seen.getDirection(), seen.getBlockPos(), false);
 		InteractionHand hand = item.test(mc.player.getMainHandItem()) ? InteractionHand.MAIN_HAND : InteractionHand.OFF_HAND;
 		// A right click tries the main hand first and only then the offhand, as vanilla does
@@ -875,7 +951,7 @@ public class TrapModule extends Module {
 			mc.player.setXRot(pitch);
 		};
 		if (mode.is(Mode.LEGIT)) {
-			if (!ready(item)) return false;
+			if (clickBlocked || !ready(item)) return false;
 			InteractionHand held = item.test(mc.player.getMainHandItem()) ? InteractionHand.MAIN_HAND : InteractionHand.OFF_HAND;
 			if (mc.gameMode.useItem(mc.player, held).consumesAction()) mc.player.swing(held);
 		} else if (hand == InteractionHand.OFF_HAND) action.run();
@@ -888,6 +964,10 @@ public class TrapModule extends Module {
 
 	@Override
 	public void onInput() {
+		if (toGap && target != null && gap != null) {
+			walkToGap();
+			return;
+		}
 		if (!working || target == null || !mode.is(Mode.LEGIT)) return;
 		Input keys = mc.player.input.keyPresses;
 		// Jump when a jump would show you a block you can't see from the ground
