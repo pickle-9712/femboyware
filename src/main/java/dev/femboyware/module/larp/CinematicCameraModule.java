@@ -109,7 +109,14 @@ public class CinematicCameraModule extends Module {
 			HitResult hit = mc.level.clip(new ClipContext(target, pos, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, mc.player));
 			if (hit.getType() != HitResult.Type.MISS) pos = hit.getLocation().add(target.subtract(pos).normalize().scale(0.2));
 		}
-		Vec3 look = (current == Shot.LOW_ANGLE ? target.add(0, 0.5, 0) : target).subtract(pos);
+		Vec3 aimAt = current == Shot.LOW_ANGLE ? target.add(0, 0.5, 0) : target;
+		// A jet flying over a kill: the shot swings round to film it going past, then back to you
+		var flyby = dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.effects.KillAnimationsModule.class).flybyShot();
+		if (flyby != null && flyby.weight() > 0) {
+			Vec3 toYou = aimAt.subtract(pos).normalize(), toJet = flyby.at().subtract(pos).normalize();
+			aimAt = pos.add(toYou.scale(1 - flyby.weight()).add(toJet.scale(flyby.weight())));
+		}
+		Vec3 look = aimAt.subtract(pos);
 		float yaw = (float) Math.toDegrees(Math.atan2(-look.x, look.z));
 		float pitch = (float) Math.toDegrees(-Math.atan2(look.y, Math.sqrt(look.x * look.x + look.z * look.z)));
 		return new View(pos, yaw, pitch);

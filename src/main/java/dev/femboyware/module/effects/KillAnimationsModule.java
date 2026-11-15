@@ -206,13 +206,61 @@ public class KillAnimationsModule extends TargetFxModule {
 		}
 		while (kills.size() > 8) kills.remove(0);
 		if (jetFlyby.get() && flybys.size() < 3) {
-			// Crossing left to right a way behind them, so the whole jet's in view past their body
-			double away = Math.max(1e-3, Math.sqrt(toYou.x * toYou.x + toYou.z * toYou.z));
-			Vec3 over = entity.position().add(-toYou.x / away * 25, 0, -toYou.z / away * 25);
-			flybys.add(new Flyby(over, Math.cos(yaw), -Math.sin(yaw), System.currentTimeMillis()));
+			Flyby flyby = flybyInView(entity);
+			Vec3 over = flyby.over();
+			flybys.add(flyby);
 			if (sounds.get()) mc.level.playLocalSound(over.x, over.y + 6, over.z, SoundEvents.ELYTRA_FLYING, SoundSource.PLAYERS, 1.2f, 0.55f, false);
 		}
 	}
+
+	/**
+	 * A pass across the middle of whatever you're looking at, from wherever the camera is (first or
+	 * third person, Cinematic Camera, free cam): left to right a way past the body if it's on screen,
+	 * otherwise straight ahead of the camera, at a height that keeps it in the shot.
+	 */
+	private Flyby flybyInView(LivingEntity entity) {
+		var camera = dev.femboyware.util.Mc.camera();
+		Vec3 eye = camera.position();
+		double yawRad = Math.toRadians(camera.yRot()), pitchRad = Math.toRadians(camera.xRot());
+		// Which way the camera faces, flat
+		double lookX = -Math.sin(yawRad), lookZ = Math.cos(yawRad);
+		Vec3 toBody = entity.position().subtract(eye);
+		double flat = Math.sqrt(toBody.x * toBody.x + toBody.z * toBody.z);
+		double distance = 30;
+		double centreX = lookX, centreZ = lookZ;
+		if (flat > 1e-3) {
+			double cos = (toBody.x * lookX + toBody.z * lookZ) / flat;
+			// The body's on screen: cross a way behind it, along the line the camera sees it on
+			if (cos > Math.cos(Math.toRadians(40))) {
+				centreX = toBody.x / flat;
+				centreZ = toBody.z / flat;
+				distance = flat + 25;
+			}
+		}
+		double x = eye.x + centreX * distance, z = eye.z + centreZ * distance;
+		// Its lowest point where the camera's looking up or down to, never into the ground round them
+		double lowest = eye.y - Math.tan(pitchRad) * distance;
+		lowest = Math.max(Math.min(lowest, eye.y + distance * 0.5), entity.getY() + 5);
+		Vec3 over = new Vec3(x, lowest - Flyby.LOWEST, z);
+		// Left to right across the view
+		return new Flyby(over, -centreZ, centreX, System.currentTimeMillis());
+	}
+
+	/**
+	 * For Cinematic Camera: where the newest jet flying by is this frame, so the shot turns to follow
+	 * it, and how much (0 to 1, easing in as it comes and out as it goes); null with none.
+	 */
+	public FlybyShot flybyShot() {
+		if (!isEnabled() || flybys.isEmpty()) return null;
+		Flyby flyby = flybys.get(flybys.size() - 1);
+		float t = flyby.age();
+		if (t > Flyby.LENGTH) return null;
+		float in = Math.min(1, t / 0.5f), out = Math.min(1, (Flyby.LENGTH - t) / 0.7f);
+		float weight = Math.max(0, Math.min(in, out));
+		return new FlybyShot(flyby.at(t), weight * weight * (3 - 2 * weight));
+	}
+
+	public record FlybyShot(Vec3 at, float weight) {}
 
 	/** Sounds at the right moments of each animation. */
 	private void cues(Kill kill) {
