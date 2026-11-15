@@ -109,6 +109,7 @@ public class ScaffoldModule extends Module {
 	private final BoolSetting autoBlock = add(new BoolSetting("Auto Block", "Pick the best blocks from your hotbar", true)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final EnumSetting<SwitchMode> switchMode = add(new EnumSetting<>("Switch", "How to switch to blocks", SwitchMode.SILENT)).visibleWhen(() -> page.is(Page.GENERAL) && autoBlock.get());
 	private final NumberSetting keepBelow = add(new NumberSetting("Save Last", "Avoid stacks with this many or fewer blocks while others are left", 1, 0, 64, 1)).visibleWhen(() -> page.is(Page.GENERAL) && autoBlock.get());
+	private final BoolSetting grim = addGrim(() -> page.is(Page.GENERAL));
 	private final EnumSetting<Swing> swing = add(new EnumSetting<>("Swing", "How to swing when placing", Swing.NORMAL)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting autoSpeed = add(new BoolSetting("Auto Speed", "Turn Speed on while scaffolding", false)).visibleWhen(() -> page.is(Page.GENERAL));
 
@@ -614,7 +615,7 @@ public class ScaffoldModule extends Module {
 		}
 		Rotation server = FemboyWare.getRotations().getServerRotation();
 		Rotation rotation = server;
-		if (rotate.get() && !timing.is(Timing.NORMAL) && target != null) {
+		if (rotate.get() && !timing.is(Timing.NORMAL) && !dev.femboyware.util.Grim.on() && target != null) {
 			Rotation wanted = rotationFor(target);
 			if (wanted != null) rotation = wanted;
 		}
@@ -632,7 +633,7 @@ public class ScaffoldModule extends Module {
 		}
 		InteractionHand hand = mainHand || slot >= 0 ? InteractionHand.MAIN_HAND : InteractionHand.OFF_HAND;
 
-		boolean onTick = rotate.get() && !timing.is(Timing.NORMAL);
+		boolean onTick = rotate.get() && !timing.is(Timing.NORMAL) && !dev.femboyware.util.Grim.on();
 		if (onTick && server.distanceTo(rotation) > 0.01f) FemboyWare.getRotations().sendPacketRotation(rotation);
 		if (!rotate.get() && server.distanceTo(rotation) > 0.01f) FemboyWare.getRotations().sendPacketRotation(rotation);
 

@@ -49,7 +49,11 @@ public class FemboyWare implements ClientModInitializer {
 		config = new ConfigManager();
 		config.load();
 
-		ClientTickEvents.START_CLIENT_TICK.register(client -> modules.onTick());
+		ClientTickEvents.START_CLIENT_TICK.register(client -> {
+			// Grim: clicks after the movement packet are impossible for a vanilla client, so those go now
+			modules.runDeferredPostMotion();
+			modules.onTick();
+		});
 		HudElementRegistry.addLast(Identifier.fromNamespaceAndPath(NAME, "hud"), (context, tickCounter) ->
 			modules.onRender2D(context, tickCounter.getGameTimeDeltaPartialTick(true)));
 		//? if >=26.1 {

@@ -55,6 +55,7 @@ public class SurroundModule extends Module {
 	private final BoolSetting render = add(new BoolSetting("Render", "Highlight surround positions", true));
 	private final ColorSetting safeColor = add(new ColorSetting("Safe", "Colour of filled positions", 0x3055FF99)).visibleWhen(render::get);
 	private final ColorSetting unsafeColor = add(new ColorSetting("Unsafe", "Colour of missing positions", 0x60FF5577)).visibleWhen(render::get);
+	private final dev.femboyware.setting.BoolSetting grim = addGrim();
 
 	private double startY;
 	private int placedThisTick;
@@ -166,12 +167,12 @@ public class SurroundModule extends Module {
 		// The server handles our attack before the place packet, so attacked crystals don't block it
 		if (BlockUtil.hasBlockingEntity(pos, breakCrystals.get())) return;
 
-		BlockHitResult hit = BlockUtil.getPlacement(pos, strict.get());
+		BlockHitResult hit = BlockUtil.getPlacement(pos, strict.get() || dev.femboyware.util.Grim.on());
 		if (hit == null) {
 			// Nothing to click on: build a support block underneath first
 			BlockPos below = pos.below();
 			if (mc.level.getBlockState(below).canBeReplaced() && !BlockUtil.hasBlockingEntity(below, false)) {
-				BlockHitResult support = BlockUtil.getPlacement(below, strict.get());
+				BlockHitResult support = BlockUtil.getPlacement(below, strict.get() || dev.femboyware.util.Grim.on());
 				if (support != null) place(below, support);
 			}
 			return;
@@ -179,11 +180,16 @@ public class SurroundModule extends Module {
 		place(pos, hit);
 	}
 
-	private void place(BlockPos pos, BlockHitResult hit) {
+	private void place(BlockPos pos, BlockHitResult planned) {
 		int slot = InventoryUtil.findHotbar(SurroundModule::isSurroundBlock);
 		InteractionHand hand = isSurroundBlock(mc.player.getOffhandItem()) ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
+		boolean grim = dev.femboyware.util.Grim.on();
+		if (grim && slot < 0 && hand == InteractionHand.MAIN_HAND) return;
+		// Grim: only where the server rotation already looks, without a look packet of its own
+		BlockHitResult hit = grim ? dev.femboyware.util.Grim.placement(planned) : planned;
+		if (hit == null) return;
 		Runnable action = () -> {
-			if (rotate.get()) {
+			if (rotate.get() && !grim) {
 				Rotation rotation = Rotation.between(mc.player.getEyePosition(), hit.getLocation());
 				mc.getConnection().send(new ServerboundMovePlayerPacket.Rot(
 					rotation.yaw(), rotation.pitch(), mc.player.onGround(), mc.player.horizontalCollision));

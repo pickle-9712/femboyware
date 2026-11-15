@@ -61,6 +61,7 @@ public class ClutchModule extends Module {
 	private final NumberSetting minFallDistance = add(new NumberSetting("Min Fall Distance", "Falls that end before this are left alone (one into the void never ends)", 5, 2, 50, 0.5));
 	private final EnumSetting<Timing> timing = add(new EnumSetting<>("Timing", "Normal aims a tick ahead; On Tick sends the aim with the click (catches more, extra packet)", Timing.NORMAL));
 	private final EnumSetting<SwitchMode> switchMode = add(new EnumSetting<>("Switch", "How to switch to blocks", SwitchMode.SILENT));
+	private final dev.femboyware.setting.BoolSetting grim = addGrim();
 	private final RotationSettings rotations = new RotationSettings(s -> add(s), () -> true, 180f);
 
 	private List<Vec3> fall;
@@ -97,7 +98,7 @@ public class ClutchModule extends Module {
 		int slot = scaffold().bestHotbarSlot();
 		if (slot < 0) return;
 		ItemStack stack = mc.player.getInventory().getItem(slot);
-		if (timing.is(Timing.ON_TICK)) {
+		if (timing.is(Timing.ON_TICK) && !dev.femboyware.util.Grim.on()) {
 			// Aimed and clicked after the move, from where the player is then (onPostMotion)
 			return;
 		} else {
@@ -157,7 +158,7 @@ public class ClutchModule extends Module {
 	@Override
 	public void onPostMotion() {
 		if (nullCheck()) return;
-		boolean onTick = timing.is(Timing.ON_TICK);
+		boolean onTick = timing.is(Timing.ON_TICK) && !dev.femboyware.util.Grim.on();
 		if (onTick && fall != null && fall.size() > 1) {
 			int s = scaffold().bestHotbarSlot();
 			if (s >= 0) target = target(mc.player.position(), fall.subList(1, fall.size()), mc.player.getInventory().getItem(s));

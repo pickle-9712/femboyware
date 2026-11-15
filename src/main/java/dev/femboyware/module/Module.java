@@ -25,6 +25,7 @@ public abstract class Module {
 	private final String description;
 	private final Category category;
 	private final List<Setting<?>> settings = new ArrayList<>();
+	private dev.femboyware.setting.BoolSetting grim;
 	private boolean enabled;
 	private int key;
 
@@ -37,6 +38,24 @@ public abstract class Module {
 		this.description = description;
 		this.category = category;
 		this.key = defaultKey;
+	}
+
+	/**
+	 * Adds this module's Grim setting: while it's on, the module acts the way Grim expects (see
+	 * {@link dev.femboyware.util.Grim}). Call it where the setting should sit in the list.
+	 */
+	protected dev.femboyware.setting.BoolSetting addGrim(java.util.function.BooleanSupplier visible) {
+		grim = add(new dev.femboyware.setting.BoolSetting("Grim", "Act the way Grim accepts: aim before placing, no look packets of its own, clicks before the movement packet, one block a tick, vanilla reach", false));
+		grim.visibleWhen(visible);
+		return grim;
+	}
+
+	protected dev.femboyware.setting.BoolSetting addGrim() {
+		return addGrim(() -> true);
+	}
+
+	public boolean isGrim() {
+		return grim != null && grim.get();
 	}
 
 	protected <S extends Setting<?>> S add(S setting) {

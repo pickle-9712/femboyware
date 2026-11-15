@@ -36,7 +36,7 @@ public final class PlaceUtil {
 
 	private static boolean place(BlockPos pos, Predicate<ItemStack> item, SwitchMode switchMode, boolean rotate, boolean strict, boolean checkEntities) {
 		if (!canPlace(pos, checkEntities)) return false;
-		BlockHitResult hit = BlockUtil.getPlacement(pos, strict);
+		BlockHitResult hit = BlockUtil.getPlacement(pos, strict || dev.femboyware.util.Grim.on());
 		if (hit == null) return false;
 		return interact(hit, item, switchMode, rotate);
 	}
@@ -49,11 +49,21 @@ public final class PlaceUtil {
 	}
 
 	/** Right clicks {@code hit} while holding a stack matching {@code item}. */
-	public static boolean interact(BlockHitResult hit, Predicate<ItemStack> item, SwitchMode switchMode, boolean rotate) {
+	public static boolean interact(BlockHitResult planned, Predicate<ItemStack> item, SwitchMode switchMode, boolean rotate) {
+		BlockHitResult hit = planned;
+		if (dev.femboyware.util.Grim.on()) {
+			// Grim: place only where the rotation the server already has looks, no look packet of its own
+			if (InventoryUtil.findHotbar(item) < 0 && !item.test(mc.player.getOffhandItem())) return false;
+			hit = dev.femboyware.util.Grim.placement(planned);
+			if (hit == null) return false;
+			rotate = false;
+		}
+		BlockHitResult click = hit;
+		boolean look = rotate;
 		InteractionHand hand = item.test(mc.player.getOffhandItem()) ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
 		Runnable action = () -> {
-			if (rotate) lookAt(hit.getLocation());
-			mc.gameMode.useItemOn(mc.player, hand, hit);
+			if (look) lookAt(click.getLocation());
+			mc.gameMode.useItemOn(mc.player, hand, click);
 			mc.player.swing(hand);
 		};
 		if (hand == InteractionHand.OFF_HAND) {
@@ -82,6 +92,11 @@ public final class PlaceUtil {
 
 	/** Sends a one-off rotation packet facing {@code point}. */
 	public static void lookAt(Vec3 point) {
+		if (dev.femboyware.util.Grim.on()) {
+			// Grim counts a look packet of its own towards its Timer check: turn in the next movement packet instead
+			dev.femboyware.util.Grim.turnTo(point);
+			return;
+		}
 		Rotation rotation = Rotation.between(mc.player.getEyePosition(), point);
 		mc.getConnection().send(new ServerboundMovePlayerPacket.Rot(
 			rotation.yaw(), rotation.pitch(), mc.player.onGround(), mc.player.horizontalCollision));

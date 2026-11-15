@@ -25,6 +25,7 @@ public class SelfTrapModule extends Module {
 	private final BoolSetting disableOnMove = add(new BoolSetting("Disable On Y Change", "Turn off when you jump or fall", true));
 	private final BoolSetting render = add(new BoolSetting("Render", "Highlight missing positions", true));
 	private final ColorSetting color = add(new ColorSetting("Color", "Highlight colour", 0x4055FF99)).visibleWhen(render::get);
+	private final dev.femboyware.setting.BoolSetting grim = addGrim();
 
 	private Set<BlockPos> positions = Set.of();
 	private double startY;

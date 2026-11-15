@@ -72,6 +72,7 @@ public class AutoAnchorModule extends Module {
 
 	// Main
 	private final EnumSetting<RotateMode> rotate = add(new EnumSetting<>("Rotate Mode", "Look at the anchor. Packet is instant, Tick waits for the movement packet", RotateMode.PACKET)).visibleWhen(() -> page.is(Page.MAIN));
+	private final BoolSetting grim = addGrim(() -> page.is(Page.MAIN));
 	private final RotationSettings rotations = new RotationSettings(s -> add(s), () -> page.is(Page.MAIN) && rotate.is(RotateMode.TICK), 180f);
 	private final NumberSetting delay = add(new NumberSetting("Delay", "Milliseconds between anchors", 0, 0, 1000, 10)).visibleWhen(() -> page.is(Page.MAIN));
 	private final NumberSetting targetRange = add(new NumberSetting("Target Range", "How far away targets can be", 12, 2, 16, 0.5)).visibleWhen(() -> page.is(Page.MAIN));

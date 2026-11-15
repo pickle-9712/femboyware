@@ -36,6 +36,7 @@ public class HoleFillerModule extends Module {
 	private final EnumSetting<SwitchMode> switchMode = add(new EnumSetting<>("Switch", "How to switch to the fill block", SwitchMode.SILENT));
 	private final BoolSetting render = add(new BoolSetting("Render", "Highlight holes about to be filled", true));
 	private final ColorSetting color = add(new ColorSetting("Color", "Hole highlight colour", 0x40FF5577)).visibleWhen(render::get);
+	private final dev.femboyware.setting.BoolSetting grim = addGrim();
 
 	private List<BlockPos> holes = List.of();
 

@@ -150,6 +150,7 @@ public class AuraModule extends Module {
 	// Bypass
 	private final BoolSetting noMultiActions = add(new BoolSetting("No Multi Actions", "Don't attack while using an item or with a container open, which Grim flags", true)).visibleWhen(() -> page.is(Page.BYPASS));
 	private final NumberSetting switchDelay = add(new NumberSetting("Switch Delay", "Ticks to wait after changing hotbar slot before attacking", 0, 0, 10, 1)).visibleWhen(() -> page.is(Page.BYPASS));
+	private final BoolSetting grim = addGrim(() -> page.is(Page.BYPASS));
 	private final BoolSetting packetRotate = add(new BoolSetting("Packet Rotate", "If the aim isn't on the target when the swing is ready, send the exact rotation in its own packet and hit anyway (can trip Grim's timer)", false)).visibleWhen(() -> page.is(Page.BYPASS));
 
 	private final Random random = new Random();
@@ -303,20 +304,22 @@ public class AuraModule extends Module {
 			// LiquidBounce unblocks to hit
 			mc.gameMode.releaseUsingItem(mc.player);
 			blocking = false;
-			if (pauseOnUnblock.getInt() > 0) {
-				pauseTicks = pauseOnUnblock.getInt();
+			// Grim: vanilla can't lower a shield and swing in the same tick
+			int pause = dev.femboyware.util.Grim.on() ? Math.max(1, pauseOnUnblock.getInt()) : pauseOnUnblock.getInt();
+			if (pause > 0) {
+				pauseTicks = pause;
 				return;
 			}
 		}
 		if (weaponOnly.get() && !(mc.player.getMainHandItem().is(ItemTags.SWORDS) || mc.player.getMainHandItem().is(ItemTags.AXES))) return;
 
-		if (noMultiActions.get() && (mc.player.isUsingItem() || Mc.screen() instanceof AbstractContainerScreen<?>)) return;
+		if ((noMultiActions.get() || dev.femboyware.util.Grim.on()) && (mc.player.isUsingItem() || Mc.screen() instanceof AbstractContainerScreen<?>)) return;
 		if (ticksSinceSwitch < switchDelay.getInt()) return;
 		if (!throughWalls.get() && !isVisible(target, mc.player.getEyePosition())) return;
 
 		AABB box = target.getBoundingBox();
-		if (!rayHits(FemboyWare.getRotations().getServerRotation(), box, range.get())) {
-			if (!packetRotate.get()) {
+		if (!rayHits(FemboyWare.getRotations().getServerRotation(), box, dev.femboyware.util.Grim.reach(range.get()))) {
+			if (!packetRotate.get() || dev.femboyware.util.Grim.on()) {
 				failSwing();
 				return;
 			}
@@ -328,7 +331,7 @@ public class AuraModule extends Module {
 			FemboyWare.getRotations().sendPacketRotation(Rotation.between(eyes, BlockUtil.closestPoint(box.deflate(0.05), eyes)));
 			// Carry on smoothing from where the server now thinks we look
 			current = FemboyWare.getRotations().getServerRotation();
-			if (!rayHits(FemboyWare.getRotations().getServerRotation(), box, range.get())) return;
+			if (!rayHits(FemboyWare.getRotations().getServerRotation(), box, dev.femboyware.util.Grim.reach(range.get()))) return;
 		}
 
 		boolean crit = mc.player.fallDistance > 0 && !mc.player.onGround();

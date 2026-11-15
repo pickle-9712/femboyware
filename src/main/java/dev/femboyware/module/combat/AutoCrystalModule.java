@@ -148,6 +148,7 @@ public class AutoCrystalModule extends Module {
 	private final EnumSetting<SwitchMode> antiWeakness = add(new EnumSetting<>("Anti Weakness", "Switch to a weapon to break crystals while weakened", SwitchMode.SILENT)).visibleWhen(() -> page.is(Page.SWAP));
 
 	// Bypass
+	private final BoolSetting grim = addGrim(() -> page.is(Page.BYPASS));
 	private final BoolSetting noMultiActions = add(new BoolSetting("No Multi Actions", "Don't place or break while using any item, which Grim flags", false)).visibleWhen(() -> page.is(Page.BYPASS));
 
 	// ID predict

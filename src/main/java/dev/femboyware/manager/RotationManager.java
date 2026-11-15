@@ -144,6 +144,12 @@ public class RotationManager {
 	 * timer check, so modules only do this when the user asks for it.
 	 */
 	public void sendPacketRotation(Rotation target) {
+		if (dev.femboyware.util.Grim.on()) {
+			// Grim counts the extra packet towards its Timer check: it goes in the next movement packet instead,
+			// and the caller, finding the server rotation not there yet, tries again next tick
+			request(target, 100, 180f, false);
+			return;
+		}
 		Rotation from = getServerRotation();
 		Rotation next = from.stepTowards(target, 180f, 180f).applyGcd(from, mc.options.sensitivity().get());
 		mc.getConnection().send(new ServerboundMovePlayerPacket.Rot(next.yaw(), next.pitch(), mc.player.onGround(), mc.player.horizontalCollision));

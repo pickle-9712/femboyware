@@ -30,6 +30,7 @@ public class TrapModule extends Module {
 	private final EnumSetting<SwitchMode> switchMode = add(new EnumSetting<>("Switch", "How to switch to obsidian", SwitchMode.SILENT));
 	private final BoolSetting render = add(new BoolSetting("Render", "Highlight trap positions", true));
 	private final ColorSetting color = add(new ColorSetting("Color", "Highlight colour", 0x40FF5577)).visibleWhen(render::get);
+	private final dev.femboyware.setting.BoolSetting grim = addGrim();
 
 	private Set<BlockPos> positions = Set.of();
 

@@ -617,8 +617,25 @@ public class ModuleManager {
 		dispatch(Module::onPreMotion);
 	}
 
+	private final java.util.List<Module> deferredPostMotion = new java.util.ArrayList<>();
+
+	/** Modules with Grim on act at the start of the next tick instead, before its movement packet. */
 	public void onPostMotion() {
-		dispatch(Module::onPostMotion);
+		deferredPostMotion.clear();
+		dispatch(module -> {
+			if (module.isGrim()) deferredPostMotion.add(module);
+			else module.onPostMotion();
+		});
+	}
+
+	/** Start of the tick: the post-motion of the modules that held it back for Grim. */
+	public void runDeferredPostMotion() {
+		if (deferredPostMotion.isEmpty()) return;
+		java.util.List<Module> due = new java.util.ArrayList<>(deferredPostMotion);
+		deferredPostMotion.clear();
+		dispatch(module -> {
+			if (due.contains(module)) module.onPostMotion();
+		});
 	}
 
 	public void onMovementInput() {
@@ -695,11 +712,15 @@ public class ModuleManager {
 		if (Module.nullCheck()) return;
 		for (Module module : modules) {
 			if (!module.isEnabled()) continue;
+			// Dispatches nest (a module's click fires the packet events), so put back whoever was running
+			Module outer = dev.femboyware.util.Grim.running(module);
 			try {
 				action.accept(module);
 			} catch (Exception e) {
 				// A broken module must never take the game down with it
 				FemboyWare.LOGGER.error("Module {} threw an exception", module.getName(), e);
+			} finally {
+				dev.femboyware.util.Grim.running(outer);
 			}
 		}
 	}

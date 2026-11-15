@@ -25,6 +25,7 @@ public class AutoWebModule extends Module {
 	private final NumberSetting delay = add(new NumberSetting("Delay", "Milliseconds between placements", 150, 0, 1000, 10));
 	private final BoolSetting rotate = add(new BoolSetting("Rotate", "Send a rotation packet before placing", true));
 	private final BoolSetting strict = add(new BoolSetting("Strict", "Only click faces you can see", false));
+	private final dev.femboyware.setting.BoolSetting grim = addGrim();
 	private final EnumSetting<SwitchMode> switchMode = add(new EnumSetting<>("Switch", "How to switch to cobwebs", SwitchMode.SILENT));
 
 	private final Timer timer = new Timer();
