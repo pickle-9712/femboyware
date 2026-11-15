@@ -418,6 +418,9 @@ public class ServerLarpModule extends Module {
 		enderChest = new SimpleContainer(54);
 		held.clear();
 		selfId = player.getId();
+		// The server already counts the armour you have on now
+		worn.clear();
+		for (EquipmentSlot slot : ARMOR_SLOTS) worn.put(slot, player.getItemBySlot(slot).copy());
 		larping = true;
 		boolean resumed = saved != null && saved.world().equals(worldKey());
 		if (resumed) resume(saved);
@@ -534,6 +537,9 @@ public class ServerLarpModule extends Module {
 		for (int i = 0; i < startInventory.size() && i < inventory.getContainerSize(); i++) inventory.setItem(i, startInventory.get(i));
 		inventory.setSelectedSlot(startSlot);
 		player.inventoryMenu.setCarried(startCursor);
+		// Back to the armour the server counts
+		syncArmor(player);
+		worn.clear();
 		player.stopFallFlying();
 		player.resetFallDistance();
 		player.setDeltaMovement(Vec3.ZERO);
@@ -548,6 +554,32 @@ public class ServerLarpModule extends Module {
 		for (Packet<?> packet : replay) handle(packet, connection);
 		reset();
 		ChatUtil.info("Back to where you were; the server never saw a thing");
+	}
+
+	private static final EquipmentSlot[] ARMOR_SLOTS = {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
+	/** The armour whose points (and toughness, knockback resistance...) are counted on you right now. */
+	private final Map<EquipmentSlot, ItemStack> worn = new java.util.EnumMap<>(EquipmentSlot.class);
+
+	/**
+	 * Only the server adds up what your armour gives you, and it never sees the armour you put on while
+	 * larping, so your armour bar stayed empty. This does it here instead: when a piece changes, the old
+	 * one's attributes come off you and the new one's go on.
+	 */
+	private void syncArmor(LocalPlayer player) {
+		for (EquipmentSlot slot : ARMOR_SLOTS) {
+			ItemStack now = player.getItemBySlot(slot);
+			ItemStack before = worn.getOrDefault(slot, ItemStack.EMPTY);
+			if (ItemStack.matches(now, before)) continue;
+			before.forEachModifier(slot, (attribute, modifier) -> {
+				var instance = player.getAttribute(attribute);
+				if (instance != null) instance.removeModifier(modifier.id());
+			});
+			now.forEachModifier(slot, (attribute, modifier) -> {
+				var instance = player.getAttribute(attribute);
+				if (instance != null) instance.addOrUpdateTransientModifier(modifier);
+			});
+			worn.put(slot, now.copy());
+		}
 	}
 
 	@SuppressWarnings("unchecked")
@@ -582,6 +614,7 @@ public class ServerLarpModule extends Module {
 		crystals.removeIf(Entity::isRemoved);
 		if (larping && mc.player != null) {
 			stopGlidingIfNeeded(mc.player);
+			syncArmor(mc.player);
 			tickDrops(mc.player);
 			tickHealth(mc.player);
 			tickArrows(mc.player);
@@ -741,6 +774,7 @@ public class ServerLarpModule extends Module {
 			|| packet instanceof ClientboundSetPlayerInventoryPacket
 			|| packet instanceof ClientboundSetHeldSlotPacket
 			|| packet instanceof ClientboundSetHealthPacket
+			|| packet instanceof net.minecraft.network.protocol.game.ClientboundUpdateAttributesPacket attributes && attributes.getEntityId() == self
 			|| packet instanceof ClientboundSetExperiencePacket
 			|| packet instanceof ClientboundPlayerAbilitiesPacket
 			|| packet instanceof ClientboundSetEntityDataPacket data && data.id() == self
