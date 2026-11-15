@@ -17,6 +17,7 @@ import dev.femboyware.util.InventoryUtil;
 import dev.femboyware.util.Mc;
 import dev.femboyware.util.InventoryUtil.SwitchMode;
 import dev.femboyware.util.MoveFix;
+import dev.femboyware.util.Pathfinder;
 import dev.femboyware.util.PlaceUtil;
 import dev.femboyware.util.RenderUtil;
 import dev.femboyware.util.Rotation;
@@ -133,6 +134,9 @@ public class TrapModule extends Module {
 	private int stuckTicks;
 	/** Where to walk to see the blocks on the far side, or null. */
 	private Vec3 walkTo;
+	/** The way there, round the trap's own blocks and webs, or null to head straight for it. */
+	private List<Vec3> path;
+	private int pathIndex, walkTicks;
 	private static final int TURN_TICKS = 8;
 	/** Legit Aura's eased mouse needs a few ticks to come back onto them before the next hit. */
 	private static final int LEGIT_TURN_TICKS = 8;
@@ -473,6 +477,7 @@ public class TrapModule extends Module {
 
 		if (stage == Stage.DONE) {
 			walkTo = null;
+			path = null;
 			turnTicks = 0;
 			restoreSlot();
 			// Boxed in, but you're standing where the gap doesn't line up: look their way and walk round to it
@@ -528,12 +533,11 @@ public class TrapModule extends Module {
 		if (placed) {
 			stuckTicks = 0;
 			walkTo = null;
-		} else if (++stuckTicks > (aimingAt != null ? 50 : 20) && walkTo == null && !missing.isEmpty()) {
-			// Nothing can be seen from here (or only a glimpse at the top of a jump, behind a web):
-			// walk round to the side the missing block is on
-			BlockPos want = missing.get(0);
-			Vec3 out = Vec3.atCenterOf(want).subtract(target.position()).multiply(1, 0, 1);
-			if (out.lengthSqr() > 1e-4) walkTo = Vec3.atBottomCenterOf(want).add(out.normalize().scale(2));
+			path = null;
+		} else if (++stuckTicks > (aimingAt != null ? 30 : 8) && walkTo == null && !missing.isEmpty()) {
+			// Nothing can be placed from here (or only glimpsed at the top of a jump, behind a web or
+			// round your own blocks): find where most of what's left can be, and pathfind there
+			planWalk(missing);
 		}
 	}
 
@@ -757,7 +761,10 @@ public class TrapModule extends Module {
 	 * and reach, or null; sets {@link #needJump} or {@link #needApproach} when there's none.
 	 */
 	private BlockHitResult visiblePlacement(BlockPos pos) {
-		Vec3 eyes = mc.player.getEyePosition();
+		return visiblePlacement(pos, mc.player.getEyePosition());
+	}
+
+	private BlockHitResult visiblePlacement(BlockPos pos, Vec3 eyes) {
 		// A little inside reach: the look gets rounded to mouse steps, which can push the ray past the edge
 		double reach = mc.player.blockInteractionRange() - 0.3;
 		boolean inReach = false, anyNeighbour = false;
@@ -789,6 +796,55 @@ public class TrapModule extends Module {
 			else needApproach = true;
 		}
 		return best;
+	}
+
+	/**
+	 * Picks the spot round them to stand on that the most missing blocks can be placed from (seen and
+	 * in reach), nearest you on a tie, and the way to walk there round the trap's blocks and webs.
+	 */
+	private void planWalk(List<BlockPos> missing) {
+		boolean jumpBefore = needJump, approachBefore = needApproach;
+		BlockPos centre = trappedAt;
+		BlockPos best = null;
+		int bestCount = 0;
+		double bestDistance = Double.MAX_VALUE;
+		Vec3 me = mc.player.position();
+		for (BlockPos spot : BlockPos.betweenClosed(centre.offset(-4, -1, -4), centre.offset(4, 1, 4))) {
+			if (positions.contains(spot) || !standable(spot)) continue;
+			Vec3 feet = Vec3.atBottomCenterOf(spot);
+			if (feet.multiply(1, 0, 1).distanceTo(target.position().multiply(1, 0, 1)) < 1.3) continue;
+			Vec3 eyes = feet.add(0, mc.player.getEyeHeight(), 0);
+			int count = 0;
+			for (BlockPos pos : missing) if (visiblePlacement(pos, eyes) != null) count++;
+			double distance = feet.distanceTo(me);
+			if (count > bestCount || count == bestCount && count > 0 && distance < bestDistance) {
+				bestCount = count;
+				bestDistance = distance;
+				best = spot.immutable();
+			}
+		}
+		needJump = jumpBefore;
+		needApproach = approachBefore;
+		walkTicks = 0;
+		pathIndex = 0;
+		if (best == null) {
+			// Nowhere better found: round to the side the first missing block is on
+			path = null;
+			BlockPos want = missing.get(0);
+			Vec3 out = Vec3.atCenterOf(want).subtract(target.position()).multiply(1, 0, 1);
+			if (out.lengthSqr() > 1e-4) walkTo = Vec3.atBottomCenterOf(want).add(out.normalize().scale(2));
+			return;
+		}
+		walkTo = Vec3.atBottomCenterOf(best);
+		path = Pathfinder.find(mc.level, BlockPos.containing(me.add(0, 0.2, 0)), best, 3000);
+	}
+
+	/** Room to stand here: nothing solid (or webbed) at the feet or head, and ground under them. */
+	private boolean standable(BlockPos pos) {
+		net.minecraft.world.level.block.state.BlockState low = mc.level.getBlockState(pos), head = mc.level.getBlockState(pos.above());
+		if (!low.getCollisionShape(mc.level, pos).isEmpty() || !head.getCollisionShape(mc.level, pos.above()).isEmpty()) return false;
+		if (low.is(Blocks.COBWEB) || head.is(Blocks.COBWEB) || !low.getFluidState().isEmpty()) return false;
+		return !mc.level.getBlockState(pos.below()).getCollisionShape(mc.level, pos.below()).isEmpty();
 	}
 
 	/** Stands you a step out from the gap, facing in, so the crosshair can find them through it. */
@@ -987,7 +1043,9 @@ public class TrapModule extends Module {
 		}
 		// Standing still after the knockback: wait for them to land, or the web holds them up in the
 		// air with their head where the roof goes. Someone on the move gets it straight away.
-		if (!moving() && (!target.onGround() || target.getY() - feetPos.getY() > 0.05) && ++fillWait < 40) {
+		BlockPos under = feetPos.below();
+		boolean standing = target.onGround() || target.getY() - feetPos.getY() < 0.05 && !mc.level.getBlockState(under).getCollisionShape(mc.level, under).isEmpty();
+		if (!moving() && !standing && ++fillWait < 40) {
 			if (mode.is(Mode.LEGIT)) aim(new Vec3(feetPos.getX() + 0.5, feetPos.getY(), feetPos.getZ() + 0.5));
 			return false;
 		}
@@ -1064,13 +1122,21 @@ public class TrapModule extends Module {
 			return;
 		}
 		if (walkTo != null && !(keys.forward() || keys.backward() || keys.left() || keys.right())) {
-			if (mc.player.position().multiply(1, 0, 1).distanceTo(walkTo.multiply(1, 0, 1)) < 0.5) {
+			Vec3 me = mc.player.position();
+			if (me.multiply(1, 0, 1).distanceTo(walkTo.multiply(1, 0, 1)) < 0.4 || ++walkTicks > 120) {
+				// There (or it's taking too long: plan again from here)
 				walkTo = null;
+				path = null;
 				stuckTicks = 0;
 				return;
 			}
+			Vec3 next = walkTo;
+			if (path != null) {
+				while (pathIndex < path.size() && Math.hypot(path.get(pathIndex).x - me.x, path.get(pathIndex).z - me.z) < 0.45) pathIndex++;
+				if (pathIndex < path.size()) next = path.get(pathIndex);
+			} else next = around(walkTo);
 			float frame = FreeLook.active() ? FreeLook.yaw() : mc.player.getYRot();
-			int[] k = MoveFix.keysToward(frame, Rotation.between(mc.player.position(), around(walkTo)).yaw());
+			int[] k = MoveFix.keysToward(frame, Rotation.between(me, next).yaw());
 			mc.player.input.keyPresses = new Input(k[0] > 0, k[0] < 0, k[1] > 0, k[1] < 0, mc.player.horizontalCollision && mc.player.onGround(), false, false);
 			((InputAccessor) mc.player.input).femboyware$setMovementVector(new Vec2(k[1], k[0]).normalized());
 			return;
