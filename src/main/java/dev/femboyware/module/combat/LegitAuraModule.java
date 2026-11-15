@@ -483,7 +483,7 @@ public class LegitAuraModule extends Module {
 
 	/** Trap has your look and hands for a block, between your hits. */
 	private static boolean trapTurn() {
-		return FemboyWare.getModules().get(TrapModule.class).isBusy();
+		return FemboyWare.getModules().get(TrapModule.class).isBusy() || FemboyWare.getModules().get(AutoDTapModule.class).isBusy();
 	}
 
 	private boolean potting() {
