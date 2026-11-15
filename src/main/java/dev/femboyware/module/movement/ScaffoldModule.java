@@ -100,6 +100,8 @@ public class ScaffoldModule extends Module {
 	public enum TellyReset { RESET, REVERSE }
 
 	private final EnumSetting<Page> page = add(new EnumSetting<>("Page", "Settings page", Page.GENERAL));
+	private final dev.femboyware.setting.ButtonSetting hypixelPreset = add(new dev.femboyware.setting.ButtonSetting("Hypixel Preset",
+		"Sets everything here to LiquidBounce's Hypixel config (Normal technique, faces you can see, 120 degree turns, no safe walk, stays on your blocks) and turns on Move Fix and Legit Sprint", this::applyHypixelPreset));
 
 	// General
 	private final NumberSetting delayMin = add(new NumberSetting("Delay Min", "Fewest ticks to wait after a placement", 0, 0, 40, 1)).visibleWhen(() -> page.is(Page.GENERAL));
@@ -109,19 +111,19 @@ public class ScaffoldModule extends Module {
 	private final EnumSetting<SameY> sameY = add(new EnumSetting<>("Same Y", "Keep placing at the height you started on, so you can jump while bridging", SameY.OFF)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting autoBlock = add(new BoolSetting("Auto Block", "Pick the best blocks from your hotbar", true)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final EnumSetting<SwitchMode> switchMode = add(new EnumSetting<>("Switch", "How to switch to blocks. Normal stays on your blocks while you build, as LiquidBounce does; Silent flips to them and back for every block, which Hypixel flags", SwitchMode.NORMAL)).visibleWhen(() -> page.is(Page.GENERAL) && autoBlock.get());
-	private final NumberSetting keepBelow = add(new NumberSetting("Save Last", "Avoid stacks with this many or fewer blocks while others are left", 1, 0, 64, 1)).visibleWhen(() -> page.is(Page.GENERAL) && autoBlock.get());
+	private final NumberSetting keepBelow = add(new NumberSetting("Save Last", "Avoid stacks with this many or fewer blocks while others are left", 5, 0, 64, 1)).visibleWhen(() -> page.is(Page.GENERAL) && autoBlock.get());
 	private final BoolSetting grim = addGrim(() -> page.is(Page.GENERAL));
-	private final EnumSetting<Swing> swing = add(new EnumSetting<>("Swing", "How to swing when placing", Swing.NORMAL)).visibleWhen(() -> page.is(Page.GENERAL));
+	private final EnumSetting<Swing> swing = add(new EnumSetting<>("Swing", "How to swing when placing", Swing.PACKET)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting autoSpeed = add(new BoolSetting("Auto Speed", "Turn Speed on while scaffolding", false)).visibleWhen(() -> page.is(Page.GENERAL));
 
 	// Rotations
 	private final BoolSetting rotate = add(new BoolSetting("Rotate", "Aim at each placement (needed on most servers)", true)).visibleWhen(() -> page.is(Page.ROTATIONS));
-	private final RotationSettings rotations = new RotationSettings(s -> add(s), () -> page.is(Page.ROTATIONS) && rotate.get(), 180f);
+	private final RotationSettings rotations = new RotationSettings(s -> add(s), () -> page.is(Page.ROTATIONS) && rotate.get(), 120f);
 	private final BoolSetting realLook = add(new BoolSetting("Real Look", "Really turn your head to where you build (no silent rotation), with free look so you can still look anywhere", false)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final BoolSetting realLookThirdPerson = add(new BoolSetting("Real Look Third Person", "Switch to third person while Real Look turns your head", true)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get() && realLook.get());
 	private final EnumSetting<Timing> timing = add(new EnumSetting<>("Rotation Timing", "Normal turns before placing; On Tick turns on the tick it places; Snap also keeps it", Timing.NORMAL)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final EnumSetting<AimMode> aimMode = add(new EnumSetting<>("Aim Mode", "Which point on the face to aim at (Normal technique)", AimMode.STABILIZED)).visibleWhen(() -> page.is(Page.ROTATIONS));
-	private final BoolSetting requiresSight = add(new BoolSetting("Requires Sight", "Only aim at faces you can see (Normal technique)", false)).visibleWhen(() -> page.is(Page.ROTATIONS));
+	private final BoolSetting requiresSight = add(new BoolSetting("Requires Sight", "Only aim at faces you can see (Normal technique); Hypixel checks you could see what you clicked", true)).visibleWhen(() -> page.is(Page.ROTATIONS));
 
 	// Technique
 	private final EnumSetting<Technique> technique = add(new EnumSetting<>("Technique", "How to bridge", Technique.NORMAL)).visibleWhen(() -> page.is(Page.TECHNIQUE));
@@ -154,7 +156,7 @@ public class ScaffoldModule extends Module {
 
 	// Movement
 	private final BoolSetting ledge = add(new BoolSetting("Ledge", "Sneak at an edge until the aim is ready, or when out of blocks", true)).visibleWhen(() -> page.is(Page.MOVEMENT));
-	private final BoolSetting safeWalk = add(new BoolSetting("Safe Walk", "Never walk off the edge", true)).visibleWhen(() -> page.is(Page.MOVEMENT));
+	private final BoolSetting safeWalk = add(new BoolSetting("Safe Walk", "Never walk off the edge (Ledge already sneaks you at edges till the block's in; LiquidBounce's Hypixel config has this off)", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting noSprint = add(new BoolSetting("No Sprint", "Don't sprint while scaffolding", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
 
 	// Render
@@ -289,6 +291,56 @@ public class ScaffoldModule extends Module {
 			count += mc.player.getMainHandItem().getCount();
 		}
 		return count;
+	}
+
+	// ---------------------------------------------------------------- presets
+
+	/** LiquidBounce's Hypixel config (LiquidCloud nextgen/hypixel.json, 09/03/2026, "Bypassing"), on femboyware's settings. */
+	private void applyHypixelPreset() {
+		java.util.Map<String, Object> values = new java.util.LinkedHashMap<>();
+		values.put("Delay Min", 0.0);
+		values.put("Delay Max", 0.0);
+		values.put("Min Dist", 0.0);
+		values.put("Timer", 1.0);
+		values.put("Same Y", SameY.OFF);
+		values.put("Auto Block", true);
+		values.put("Switch", SwitchMode.NORMAL);
+		values.put("Save Last", 5.0);
+		values.put("Grim", false);
+		values.put("Swing", Swing.PACKET);
+		values.put("Auto Speed", false);
+		values.put("Rotate", true);
+		values.put("Angle Smooth", RotationSettings.Smooth.LINEAR);
+		for (String turn : new String[]{"Turn H Min", "Turn H Max", "Turn V Min", "Turn V Max"}) values.put(turn, 120.0);
+		values.put("Short Stop", false);
+		values.put("Fail", false);
+		values.put("Real Look", false);
+		values.put("Rotation Timing", Timing.NORMAL);
+		values.put("Aim Mode", AimMode.STABILIZED);
+		values.put("Requires Sight", true);
+		values.put("Technique", Technique.NORMAL);
+		values.put("Eagle", false);
+		values.put("Telly", false);
+		values.put("Down", false);
+		values.put("Ceiling", false);
+		values.put("Head Hitter", false);
+		values.put("Tower", Tower.HYPIXEL);
+		values.put("Ledge", true);
+		values.put("Safe Walk", false);
+		values.put("No Sprint", false);
+		applyValues(this, values);
+		FemboyWare.getModules().get(dev.femboyware.module.client.MoveFixModule.class).setEnabled(true);
+		Module sprint = FemboyWare.getModules().get(SprintModule.class);
+		applyValues(sprint, java.util.Map.of("Mode", SprintModule.Mode.LEGIT));
+		FemboyWare.getConfig().save();
+		dev.femboyware.util.ChatUtil.info("Scaffold set to the Hypixel config, with Move Fix on and Legit Sprint");
+	}
+
+	@SuppressWarnings({"unchecked", "rawtypes"})
+	private static void applyValues(Module module, java.util.Map<String, Object> values) {
+		for (dev.femboyware.setting.Setting setting : module.getSettings()) {
+			if (values.containsKey(setting.getName())) setting.set(values.get(setting.getName()));
+		}
 	}
 
 	// ---------------------------------------------------------------- state helpers
