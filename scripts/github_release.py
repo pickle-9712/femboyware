@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 REPO = "pickle-9712/femboyware"
@@ -59,12 +60,13 @@ def main():
     if release is None:
         release = call("POST", f"https://api.github.com/repos/{REPO}/releases", auth, {
             "tag_name": tag, "target_commitish": commit, "name": f"femboyware {version}", "body": subject, "make_latest": "true"})
-    existing = {asset["name"]: asset["id"] for asset in release.get("assets", [])}
+    # Re-releasing a version replaces whatever jars it had
+    for asset in release.get("assets", []):
+        call("DELETE", f"https://api.github.com/repos/{REPO}/releases/assets/{asset['id']}", auth)
     upload = release["upload_url"].split("{")[0]
     for jar in jars:
-        if jar.name in existing:
-            call("DELETE", f"https://api.github.com/repos/{REPO}/releases/assets/{existing[jar.name]}", auth)
-        call("POST", f"{upload}?name={jar.name}", auth, data=jar.read_bytes(), content_type="application/java-archive")
+        # Encoded, or GitHub reads the + as a space and renames the jar
+        call("POST", f"{upload}?name={urllib.parse.quote(jar.name)}", auth, data=jar.read_bytes(), content_type="application/java-archive")
         print("uploaded", jar.name)
     print("released", tag, release["html_url"])
 
