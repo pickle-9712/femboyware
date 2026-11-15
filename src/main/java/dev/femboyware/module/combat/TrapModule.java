@@ -62,7 +62,7 @@ public class TrapModule extends Module {
 
 	public enum Mode { LEGIT, PACKET }
 	public enum Fill { NONE, COBWEB, LAVA }
-	public enum Stage { BACK, HIT, FILL, WALLS, DONE }
+	public enum Stage { BACK, HIT, FILL, ESCAPE, WALLS, DONE }
 
 	private final EnumSetting<Mode> mode = add(new EnumSetting<>("Mode", "Legit aims at every block (and can turn your real head); Packet places several a tick with look packets", Mode.LEGIT));
 	private final NumberSetting targetRange = add(new NumberSetting("Target Range", "How far away targets can be", 6, 2, 10, 0.5));
@@ -72,7 +72,9 @@ public class TrapModule extends Module {
 	private final BoolSetting roof = add(new BoolSetting("Roof", "Place a block above the target's head", true));
 	private final BoolSetting backFirst = add(new BoolSetting("Back First", "Wall them in from behind before anything else", true));
 	private final BoolSetting knockback = add(new BoolSetting("Knockback Hit", "After the back wall, a sprint hit with your best knockback weapon pins them against it", true));
-	private final EnumSetting<Fill> fill = add(new EnumSetting<>("Fill", "Put a cobweb or lava at their feet before closing the walls", Fill.NONE));
+	private final BoolSetting webFirst = add(new BoolSetting("Web First", "Web them before anything else: a cobweb at their feet, then on the side they're nearest to getting out of, then the walls go up round them", true));
+	private final NumberSetting escapeWebs = add(new NumberSetting("Escape Webs", "How many of the open sides next to them get a web, nearest (or the one they're heading for) first", 1, 0, 4, 1)).visibleWhen(webFirst::get);
+	private final EnumSetting<Fill> fill = add(new EnumSetting<>("Fill", "Put a cobweb or lava at their feet before closing the walls", Fill.NONE)).visibleWhen(() -> !webFirst.get());
 	private final BoolSetting hitGap = add(new BoolSetting("Hit Gap", "While fighting with Legit Aura (or Aura), leave the head-height block on your side open: their feet stay boxed in so they can't get out, and your hits still land through the gap", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
 	private final BoolSetting jump = add(new BoolSetting("Jump", "Jump while trapping, to reach the high blocks and look the part", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
 	private final BoolSetting realLook = add(new BoolSetting("Real Look", "Really turn your head to each block (no silent rotation), with free look so you can still look anywhere", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
@@ -94,6 +96,10 @@ public class TrapModule extends Module {
 	private Stage stage = Stage.DONE;
 	private boolean hitDone, filled, working;
 	private int hitTicks, fillWait;
+	/** This tick's escape web spots: a web has nothing solid, so someone half in one doesn't stop it. */
+	private List<BlockPos> webSpots = List.of();
+	/** Web First: escape webs placed round them where they are now. */
+	private int escapesPlaced;
 	/** What the legit placement is aiming at this tick. */
 	private BlockPos aimingAt;
 	/** Nothing left to place can be seen from here: a jump might show it, or it's too far and you walk closer. */
@@ -136,7 +142,7 @@ public class TrapModule extends Module {
 	private static final int LEAD_TICKS = 2;
 
 	public TrapModule() {
-		super("Trap", "Traps your target in blocks: back wall, knockback hit, web or lava, then the rest", Category.ATTACK);
+		super("Trap", "Traps your target: webs them and their nearest way out, then the back wall and the rest", Category.ATTACK);
 	}
 
 	@Override
@@ -159,6 +165,44 @@ public class TrapModule extends Module {
 	 */
 	public boolean isBusy() {
 		return isEnabled() && mode.is(Mode.LEGIT) && (offhandStep > 0 || working && (!fighting() || turnTicks > 0 || turnEndedThisTick));
+	}
+
+	/** Something's in the way of placing there: anyone for a block, only you for an escape web. */
+	private boolean blocked(BlockPos pos) {
+		if (webSpots.contains(pos)) return mc.player.getBoundingBox().intersects(new AABB(pos));
+		return BlockUtil.hasBlockingEntity(pos, false);
+	}
+
+	/** Web First always webs; otherwise whatever Fill says. */
+	private boolean fillOn() {
+		return webFirst.get() || !fill.is(Fill.NONE);
+	}
+
+	private boolean webFill() {
+		return webFirst.get() || fill.is(Fill.COBWEB);
+	}
+
+	/**
+	 * Web First: the open sides at their feet they could walk out through, the one they're closest to
+	 * (or heading for) first, as many as Escape Webs still has to place. Empty once those are in.
+	 */
+	private List<BlockPos> escapePositions(AABB box) {
+		List<BlockPos> open = new ArrayList<>();
+		if (!webFirst.get() || escapesPlaced >= escapeWebs.getInt() || trappedAt == null) return open;
+		if (!mc.player.getOffhandItem().is(Items.COBWEB) && InventoryUtil.findHotbar(stack -> stack.is(Items.COBWEB)) < 0) return open;
+		for (Direction side : Direction.Plane.HORIZONTAL) {
+			BlockPos pos = trappedAt.relative(side);
+			// Somewhere to walk to: open at the feet and the head, and they'd have ground to land on
+			if (!mc.level.getBlockState(pos).canBeReplaced() || !mc.level.getBlockState(pos.above()).canBeReplaced()) continue;
+			// A web has nothing solid, so it goes in even where they're half standing; just not on you
+			if (mc.player.getBoundingBox().intersects(new AABB(pos))) continue;
+			open.add(pos);
+		}
+		Vec3 at = box.getCenter();
+		open.sort((a, b) -> Double.compare(Vec3.atCenterOf(a).multiply(1, 0, 1).distanceToSqr(at.x, 0, at.z),
+			Vec3.atCenterOf(b).multiply(1, 0, 1).distanceToSqr(at.x, 0, at.z)));
+		// Only the nearest: it's the way out they're about to take, and a web elsewhere first would waste the time
+		return open.isEmpty() ? open : new ArrayList<>(open.subList(0, 1));
 	}
 
 	/** Aura's on too: it does the fighting and Trap takes turns between its swings. */
@@ -221,7 +265,21 @@ public class TrapModule extends Module {
 	 * player scrolling to it; true once it's ready.
 	 */
 	private boolean ready(Predicate<ItemStack> item) {
-		if (item.test(mc.player.getOffhandItem()) && !item.test(mc.player.getMainHandItem())) return true;
+		if (item.test(mc.player.getOffhandItem()) && !item.test(mc.player.getMainHandItem())) {
+			// A right click tries the main hand first: holding another block (the webs) would put that
+			// down instead, so back to what you had (your sword) first, as you would
+			if (!(mc.player.getMainHandItem().getItem() instanceof BlockItem)) return sinceSwitch >= 1;
+			int back = -1;
+			if (originalSlot >= 0 && !(mc.player.getInventory().getItem(originalSlot).getItem() instanceof BlockItem)) back = originalSlot;
+			for (int i = 0; i < 9 && back < 0; i++) {
+				if (!(mc.player.getInventory().getItem(i).getItem() instanceof BlockItem)) back = i;
+			}
+			if (back >= 0) {
+				InventoryUtil.select(back);
+				originalSlot = -1;
+				return false;
+			}
+		}
 		int slot = InventoryUtil.findHotbar(item);
 		if (slot < 0) return false;
 		return readySlot(slot);
@@ -377,6 +435,7 @@ public class TrapModule extends Module {
 			gap = null;
 			if (!mc.level.getBlockState(feetPos).is(Blocks.COBWEB)) filled = false;
 			fillWait = 0;
+			escapesPlaced = 0;
 			if (hitAt != null && hitAt.distSqr(feetPos) > 9) {
 				hitDone = false;
 				hitTicks = 0;
@@ -389,18 +448,27 @@ public class TrapModule extends Module {
 		List<BlockPos> missing = new ArrayList<>();
 		for (BlockPos pos : positions) if (mc.level.getBlockState(pos).canBeReplaced()) missing.add(pos);
 		List<BlockPos> back = backPositions(missing);
+		// Web First: their feet, then the way out they're nearest to, once the feet web's in
+		List<BlockPos> escape = webFirst.get() && (filled || mc.level.getBlockState(feetPos).is(Blocks.COBWEB)) ? escapePositions(box) : List.of();
+		webSpots = escape;
 
 		if (fighting) {
 			// Mid-fight you go where the fight takes you, so it's whatever can be placed from here:
-			// the back wall if any of it is in reach, then the web, then any other block in reach
-			if (backFirst.get() && reachNow(back) > 0) stage = Stage.BACK;
-			else if (!fill.is(Fill.NONE) && !filled && fillReachable(feetPos)) stage = Stage.FILL;
+			// the webs first with Web First, the back wall if any of it is in reach, then the web,
+			// then any other block in reach
+			if (webFirst.get() && !filled && fillReachable(feetPos)) stage = Stage.FILL;
+			else if (!escape.isEmpty() && reachNow(escape) > 0) stage = Stage.ESCAPE;
+			else if (backFirst.get() && reachNow(back) > 0) stage = Stage.BACK;
+			else if (fillOn() && !filled && fillReachable(feetPos)) stage = Stage.FILL;
 			else stage = missing.isEmpty() ? Stage.DONE : Stage.WALLS;
 		}
+		// Web First: webbed before anything else, then the escape web; no knockback (it'd only pull them out)
+		else if (webFirst.get() && !filled) stage = Stage.FILL;
+		else if (!escape.isEmpty() && (mode.is(Mode.PACKET) || anyVisible(escape))) stage = Stage.ESCAPE;
 		// The back wall first, while any of it can be clicked (a web in front of it can hide it)
 		else if (backFirst.get() && !back.isEmpty() && (mode.is(Mode.PACKET) || anyVisible(back))) stage = Stage.BACK;
-		else if (knockback.get() && !hitDone) stage = Stage.HIT;
-		else if (!fill.is(Fill.NONE) && !filled) stage = Stage.FILL;
+		else if (knockback.get() && !hitDone && !webFirst.get()) stage = Stage.HIT;
+		else if (fillOn() && !filled) stage = Stage.FILL;
 		else stage = missing.isEmpty() ? Stage.DONE : Stage.WALLS;
 
 		if (stage == Stage.DONE) {
@@ -420,18 +488,18 @@ public class TrapModule extends Module {
 			boolean legit = legitFighting();
 			if (turnTicks == 0) {
 				// Blocks in the offhand: no switching, so a turn fits in more of the recharge
-				boolean offhand = offhandBlocks() && stage != Stage.FILL;
+				boolean offhand = offhandBlocks() && stage != Stage.FILL && stage != Stage.ESCAPE;
 				float window = offhand ? 0.6f : legit ? 0.35f : 0.45f;
 				if (mc.player.getAttackStrengthScale(0.5f) > window && auraCanHit()) return;
 				// Nothing it could place from here (all out of reach, or hidden with no jump to show it):
 				// no turn, and the fight carries on undisturbed
-				int chance = stage == Stage.FILL ? (fillReachable(feetPos) ? 2 : 0) : reachNow(stage == Stage.BACK ? back : missing);
+				int chance = stage == Stage.FILL ? (fillReachable(feetPos) ? 2 : 0) : reachNow(stage == Stage.BACK ? back : stage == Stage.ESCAPE ? escape : missing);
 				if (chance == 0 || chance == 1 && !(jump.get() && mc.player.onGround())) return;
 				turnTicks = 1;
 				clickBlocked = true;
 			} else {
 				clickBlocked = false;
-				if (++turnTicks > (offhandBlocks() && stage != Stage.FILL ? OFFHAND_TURN_TICKS : legit ? LEGIT_TURN_TICKS : TURN_TICKS)) {
+				if (++turnTicks > (offhandBlocks() && stage != Stage.FILL && stage != Stage.ESCAPE ? OFFHAND_TURN_TICKS : legit ? LEGIT_TURN_TICKS : TURN_TICKS)) {
 					endTurn();
 					return;
 				}
@@ -447,16 +515,22 @@ public class TrapModule extends Module {
 				yield false;
 			}
 			case FILL -> fill(feetPos);
+			case ESCAPE -> {
+				boolean in = placeAll(escape, stack -> stack.is(Items.COBWEB));
+				if (in) escapesPlaced++;
+				yield in;
+			}
 			case WALLS -> placeAll(missing);
 			default -> false;
 		};
 		// One block a turn, then back to the fight
 		if (fighting && placed) endTurn();
-		if (placed || aimingAt != null) {
+		if (placed) {
 			stuckTicks = 0;
 			walkTo = null;
-		} else if (++stuckTicks > 20 && walkTo == null && !missing.isEmpty()) {
-			// Nothing can be seen from here: walk round to the side the missing block is on
+		} else if (++stuckTicks > (aimingAt != null ? 50 : 20) && walkTo == null && !missing.isEmpty()) {
+			// Nothing can be seen from here (or only a glimpse at the top of a jump, behind a web):
+			// walk round to the side the missing block is on
 			BlockPos want = missing.get(0);
 			Vec3 out = Vec3.atCenterOf(want).subtract(target.position()).multiply(1, 0, 1);
 			if (out.lengthSqr() > 1e-4) walkTo = Vec3.atBottomCenterOf(want).add(out.normalize().scale(2));
@@ -471,7 +545,7 @@ public class TrapModule extends Module {
 		boolean jumpBefore = needJump, approachBefore = needApproach;
 		int best = 0;
 		for (BlockPos pos : list) {
-			if (!mc.level.getBlockState(pos).canBeReplaced() || BlockUtil.hasBlockingEntity(pos, false)) continue;
+			if (!mc.level.getBlockState(pos).canBeReplaced() || blocked(pos)) continue;
 			needJump = false;
 			if (visiblePlacement(pos) != null) {
 				best = 2;
@@ -486,9 +560,9 @@ public class TrapModule extends Module {
 
 	/** The web or lava can go in from here: you have it, and the ground under their feet can be clicked. */
 	private boolean fillReachable(BlockPos feetPos) {
-		Predicate<ItemStack> item = fill.is(Fill.COBWEB) ? stack -> stack.is(Items.COBWEB) : stack -> stack.is(Items.LAVA_BUCKET);
+		Predicate<ItemStack> item = webFill() ? stack -> stack.is(Items.COBWEB) : stack -> stack.is(Items.LAVA_BUCKET);
 		if (!item.test(mc.player.getOffhandItem()) && InventoryUtil.findHotbar(item) < 0) return false;
-		if (fill.is(Fill.COBWEB) && mc.level.getBlockState(feetPos).is(Blocks.COBWEB)) return false;
+		if (webFill() && mc.level.getBlockState(feetPos).is(Blocks.COBWEB)) return false;
 		boolean jumpBefore = needJump, approachBefore = needApproach;
 		boolean ok = visiblePlacement(feetPos) != null;
 		needJump = jumpBefore;
@@ -501,7 +575,7 @@ public class TrapModule extends Module {
 		boolean jumpBefore = needJump, approachBefore = needApproach;
 		boolean any = false;
 		for (BlockPos pos : list) {
-			if (BlockUtil.hasBlockingEntity(pos, false)) continue;
+			if (blocked(pos)) continue;
 			needApproach = false;
 			if (visiblePlacement(pos) != null || needApproach) {
 				any = true;
@@ -589,6 +663,7 @@ public class TrapModule extends Module {
 		filled = false;
 		hitTicks = 0;
 		fillWait = 0;
+		escapesPlaced = 0;
 		hitAt = null;
 		turnTicks = 0;
 	}
@@ -611,7 +686,10 @@ public class TrapModule extends Module {
 	private boolean placeAll(List<BlockPos> list) {
 		ItemStack block = bestBlock();
 		if (block == null) return false;
-		Predicate<ItemStack> item = stack -> stack.is(block.getItem());
+		return placeAll(list, stack -> stack.is(block.getItem()));
+	}
+
+	private boolean placeAll(List<BlockPos> list, Predicate<ItemStack> item) {
 		if (mode.is(Mode.PACKET)) {
 			int placed = 0;
 			for (BlockPos pos : list) {
@@ -635,7 +713,7 @@ public class TrapModule extends Module {
 			return Double.compare(Vec3.atCenterOf(b).distanceToSqr(eyes), Vec3.atCenterOf(a).distanceToSqr(eyes));
 		});
 		if (committed != null) {
-			if (mc.level.getBlockState(committed).canBeReplaced() && !BlockUtil.hasBlockingEntity(committed, false)) {
+			if (list.contains(committed) && mc.level.getBlockState(committed).canBeReplaced() && !blocked(committed)) {
 				BlockHitResult planned = visiblePlacement(committed);
 				if (planned != null) {
 					aimingAt = committed;
@@ -649,7 +727,7 @@ public class TrapModule extends Module {
 		Vec3 lookAt = null;
 		for (BlockPos pos : ordered) {
 			if (!mc.level.getBlockState(pos).canBeReplaced()) continue;
-			if (BlockUtil.hasBlockingEntity(pos, false)) {
+			if (blocked(pos)) {
 				// Standing in it yourself: step back out of the way
 				if (mc.player.getBoundingBox().intersects(new AABB(pos))) needBackOff = true;
 				continue;
@@ -899,9 +977,9 @@ public class TrapModule extends Module {
 	// ---------------------------------------------------------------- fill
 
 	private boolean fill(BlockPos feetPos) {
-		boolean done = fill.is(Fill.COBWEB) ? mc.level.getBlockState(feetPos).is(Blocks.COBWEB)
+		boolean done = webFill() ? mc.level.getBlockState(feetPos).is(Blocks.COBWEB)
 			: mc.level.getFluidState(feetPos).is(net.minecraft.tags.FluidTags.LAVA);
-		Predicate<ItemStack> item = fill.is(Fill.COBWEB) ? stack -> stack.is(Items.COBWEB) : stack -> stack.is(Items.LAVA_BUCKET);
+		Predicate<ItemStack> item = webFill() ? stack -> stack.is(Items.COBWEB) : stack -> stack.is(Items.LAVA_BUCKET);
 		boolean have = item.test(mc.player.getOffhandItem()) || InventoryUtil.findHotbar(item) >= 0;
 		if (done || !have) {
 			filled = true;
@@ -920,7 +998,7 @@ public class TrapModule extends Module {
 			return false;
 		}
 		BlockHitResult planned = new BlockHitResult(new Vec3(feetPos.getX() + 0.5, feetPos.getY(), feetPos.getZ() + 0.5), Direction.UP, ground, false);
-		if (fill.is(Fill.COBWEB)) {
+		if (webFill()) {
 			aimingAt = feetPos;
 			if (mode.is(Mode.PACKET)) {
 				PlaceUtil.placeInside(feetPos, item, switchMode.get(), rotate.get(), strict.get());
