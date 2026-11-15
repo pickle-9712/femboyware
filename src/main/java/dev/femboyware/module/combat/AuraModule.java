@@ -1,9 +1,17 @@
+/*
+ * Target priority, fail swing and auto block are ported from LiquidBounce
+ * (https://github.com/CCBlueX/LiquidBounce): TargetTracker/TargetPriority, KillAuraFailSwing and
+ * KillAuraAutoBlock. Copyright (c) 2015 - 2026 CCBlueX, GNU General Public License v3 or later.
+ * Modified for femboyware: ported from Kotlin to Java and cut down to a shield auto block and an
+ * air swing on a miss.
+ */
 package dev.femboyware.module.combat;
 
 import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
+import dev.femboyware.lb.ClickScheduler;
 import dev.femboyware.lb.RotationSettings;
 import dev.femboyware.module.utility.FriendsModule;
 import dev.femboyware.setting.BoolSetting;
@@ -32,13 +40,15 @@ import net.minecraft.world.phys.Vec3;
 public class AuraModule extends Module {
 	private static final int ROTATION_PRIORITY = 50;
 
-	public enum Page { GENERAL, POINT, ROTATION, JITTER, SMOOTH, EXTRAS, PITCH, BYPASS }
+	public enum Page { GENERAL, TARGET, CLICKING, BLOCKING, POINT, ROTATION, JITTER, SMOOTH, EXTRAS, PITCH, BYPASS }
 	public enum Point { CENTER, EYES, CLOSEST, ROAMING }
 	public enum PointJitter { NONE, RANDOM, ROAMING, SINE, DRUNK_SINE }
 	public enum Distribution { FLAT, NORMAL }
 	public enum Jitter { NONE, RANDOM, SINE, NOISE }
 	public enum HoldTiming { AFTER_ATTACK, AFTER_CRIT }
 	public enum Engine { FEMBOYWARE, LIQUIDBOUNCE }
+	public enum ClickMode { COOLDOWN, CLICKER }
+	public enum Priority { DISTANCE, HEALTH, DIRECTION, HURT_TIME, AGE }
 
 	private final EnumSetting<Page> page = add(new EnumSetting<>("Page", "Settings page", Page.GENERAL));
 
@@ -119,6 +129,24 @@ public class AuraModule extends Module {
 	private final NumberSetting pitchITMin = add(new NumberSetting("Pitch IT Min", "Lowest pitch while on target", -90, -90, 90, 1)).visibleWhen(() -> page.is(Page.PITCH));
 	private final NumberSetting pitchITMax = add(new NumberSetting("Pitch IT Max", "Highest pitch while on target", 90, -90, 90, 1)).visibleWhen(() -> page.is(Page.PITCH));
 
+	// Target (LiquidBounce's target tracker)
+	private final EnumSetting<Priority> priority = add(new EnumSetting<>("Priority", "Who to fight first (players always before mobs)", Priority.DISTANCE)).visibleWhen(() -> page.is(Page.TARGET));
+	private final BoolSetting ignoreShield = add(new BoolSetting("Ignore Shield", "Also go for players holding up a shield (off: skip them unless you hold an axe)", true)).visibleWhen(() -> page.is(Page.TARGET));
+
+	// Clicking (LiquidBounce's clicker and fail swing)
+	private final EnumSetting<ClickMode> clickMode = add(new EnumSetting<>("Click Mode", "Cooldown hits when the swing is charged; Clicker clicks at a CPS like LiquidBounce (still waits for Cooldown)", ClickMode.COOLDOWN)).visibleWhen(() -> page.is(Page.CLICKING));
+	private final ClickScheduler clicker = new ClickScheduler(s -> add(s), () -> page.is(Page.CLICKING) && clickMode.is(ClickMode.CLICKER));
+	private final BoolSetting failSwing = add(new BoolSetting("Fail Swing", "Swing at the air when the target is just out of reach, like a real miss", false)).visibleWhen(() -> page.is(Page.CLICKING));
+	private final NumberSetting failRangeMin = add(new NumberSetting("Fail Range Min", "Least extra reach to swing within", 2.5, 0, 10, 0.1)).visibleWhen(() -> page.is(Page.CLICKING) && failSwing.get());
+	private final NumberSetting failRangeMax = add(new NumberSetting("Fail Range Max", "Most extra reach to swing within", 3, 0, 10, 0.1)).visibleWhen(() -> page.is(Page.CLICKING) && failSwing.get());
+
+	// Blocking (LiquidBounce's auto block)
+	private final BoolSetting autoBlock = add(new BoolSetting("Auto Block", "Hold up your shield between hits", false)).visibleWhen(() -> page.is(Page.BLOCKING));
+	private final NumberSetting reblockTicks = add(new NumberSetting("Reblock", "Ticks after a hit before blocking again", 0, 0, 3, 1)).visibleWhen(() -> page.is(Page.BLOCKING) && autoBlock.get());
+	private final NumberSetting pauseOnUnblock = add(new NumberSetting("Pause On Unblock", "Ticks to wait after lowering the shield before hitting", 0, 0, 3, 1)).visibleWhen(() -> page.is(Page.BLOCKING) && autoBlock.get());
+	private final NumberSetting blockChance = add(new NumberSetting("Block Chance", "Percent of the time to block", 100, 0, 100, 1)).visibleWhen(() -> page.is(Page.BLOCKING) && autoBlock.get());
+	private final BoolSetting onlyInDanger = add(new BoolSetting("Only In Danger", "Only block while the target is looking at you within reach", false)).visibleWhen(() -> page.is(Page.BLOCKING) && autoBlock.get());
+
 	// Bypass
 	private final BoolSetting noMultiActions = add(new BoolSetting("No Multi Actions", "Don't attack while using an item or with a container open, which Grim flags", true)).visibleWhen(() -> page.is(Page.BYPASS));
 	private final NumberSetting switchDelay = add(new NumberSetting("Switch Delay", "Ticks to wait after changing hotbar slot before attacking", 0, 0, 10, 1)).visibleWhen(() -> page.is(Page.BYPASS));
@@ -151,6 +179,10 @@ public class AuraModule extends Module {
 	private float spinRemaining;
 	private int holdTicks;
 
+	private int pauseTicks, ticksSinceAttack;
+	private boolean blocking;
+	private double failRange = 2.75;
+
 	private int lastSlot = -1;
 	private int ticksSinceSwitch;
 
@@ -176,6 +208,8 @@ public class AuraModule extends Module {
 	@Override
 	protected void onDisable() {
 		target = null;
+		if (blocking && mc.player != null && mc.player.isUsingItem()) mc.gameMode.releaseUsingItem(mc.player);
+		blocking = false;
 	}
 
 	private void reset() {
@@ -256,8 +290,24 @@ public class AuraModule extends Module {
 
 	@Override
 	public void onPostMotion() {
+		if (clickMode.is(ClickMode.CLICKER)) clicker.tick();
+		if (pauseTicks > 0) {
+			pauseTicks--;
+			return;
+		}
+		tickAutoBlock();
 		if (target == null || !target.isAlive()) return;
+		if (clickMode.is(ClickMode.CLICKER) && clicker.clicksLeft() == 0) return;
 		if (mc.player.getAttackStrengthScale(0.5f) < cooldown.get()) return;
+		if (blocking && mc.player.isUsingItem()) {
+			// LiquidBounce unblocks to hit
+			mc.gameMode.releaseUsingItem(mc.player);
+			blocking = false;
+			if (pauseOnUnblock.getInt() > 0) {
+				pauseTicks = pauseOnUnblock.getInt();
+				return;
+			}
+		}
 		if (weaponOnly.get() && !(mc.player.getMainHandItem().is(ItemTags.SWORDS) || mc.player.getMainHandItem().is(ItemTags.AXES))) return;
 
 		if (noMultiActions.get() && (mc.player.isUsingItem() || Mc.screen() instanceof AbstractContainerScreen<?>)) return;
@@ -266,9 +316,15 @@ public class AuraModule extends Module {
 
 		AABB box = target.getBoundingBox();
 		if (!rayHits(FemboyWare.getRotations().getServerRotation(), box, range.get())) {
-			if (!packetRotate.get()) return;
+			if (!packetRotate.get()) {
+				failSwing();
+				return;
+			}
 			Vec3 eyes = mc.player.getEyePosition();
-			if (eyes.distanceTo(BlockUtil.closestPoint(box, eyes)) > range.get()) return;
+			if (eyes.distanceTo(BlockUtil.closestPoint(box, eyes)) > range.get()) {
+				failSwing();
+				return;
+			}
 			FemboyWare.getRotations().sendPacketRotation(Rotation.between(eyes, BlockUtil.closestPoint(box.deflate(0.05), eyes)));
 			// Carry on smoothing from where the server now thinks we look
 			current = FemboyWare.getRotations().getServerRotation();
@@ -276,9 +332,65 @@ public class AuraModule extends Module {
 		}
 
 		boolean crit = mc.player.fallDistance > 0 && !mc.player.onGround();
+		if (clickMode.is(ClickMode.CLICKER)) clicker.take();
 		mc.gameMode.attack(mc.player, target);
 		mc.player.swing(InteractionHand.MAIN_HAND);
 		onAttack(crit);
+		ticksSinceAttack = 0;
+		failRange = randomRange(failRangeMin.get(), failRangeMax.get());
+	}
+
+	private double randomRange(double a, double b) {
+		double lo = Math.min(a, b), hi = Math.max(a, b);
+		return lo + random.nextDouble() * (hi - lo);
+	}
+
+	/** LiquidBounce's fail swing: a target just out of reach gets a swing at the air, as a real miss would. */
+	private void failSwing() {
+		if (!failSwing.get() || target == null) return;
+		Vec3 eyes = mc.player.getEyePosition();
+		if (eyes.distanceTo(BlockUtil.closestPoint(target.getBoundingBox(), eyes)) > range.get() + failRange) return;
+		if (mc.hitResult != null && mc.hitResult.getType() == net.minecraft.world.phys.HitResult.Type.ENTITY) return;
+		if (clickMode.is(ClickMode.CLICKER)) clicker.take();
+		// What vanilla does on a miss: the swing resets the charge too
+		mc.player.resetAttackStrengthTicker();
+		mc.player.swing(InteractionHand.MAIN_HAND);
+		failRange = randomRange(failRangeMin.get(), failRangeMax.get());
+	}
+
+	private InteractionHand shieldHand() {
+		if (mc.player.getOffhandItem().getItem() instanceof net.minecraft.world.item.ShieldItem) return InteractionHand.OFF_HAND;
+		if (mc.player.getMainHandItem().getItem() instanceof net.minecraft.world.item.ShieldItem) return InteractionHand.MAIN_HAND;
+		return null;
+	}
+
+	private boolean inDanger() {
+		if (target == null) return false;
+		double reach = range.get();
+		Vec3 eyes = target.getEyePosition();
+		Vec3 end = eyes.add(target.getLookAngle().scale(reach));
+		return mc.player.getBoundingBox().inflate(0.3).clip(eyes, end).isPresent();
+	}
+
+	/** LiquidBounce's auto block, with a shield: raise it between hits, lowered again before the next one. */
+	private void tickAutoBlock() {
+		ticksSinceAttack++;
+		if (!autoBlock.get() || target == null) {
+			if (blocking) {
+				if (mc.player.isUsingItem()) mc.gameMode.releaseUsingItem(mc.player);
+				blocking = false;
+			}
+			return;
+		}
+		InteractionHand hand = shieldHand();
+		if (hand == null || blocking || mc.player.isUsingItem()) return;
+		if (ticksSinceAttack < reblockTicks.getInt()) return;
+		// A hit is going out this tick anyway: blocking now would only be lowered again straight away
+		Vec3 eyes = mc.player.getEyePosition();
+		if (mc.player.getAttackStrengthScale(0.5f) >= cooldown.get() && eyes.distanceTo(BlockUtil.closestPoint(target.getBoundingBox(), eyes)) <= range.get()) return;
+		if (onlyInDanger.get() && !inDanger()) return;
+		if (random.nextInt(100) >= blockChance.getInt()) return;
+		if (mc.gameMode.useItem(mc.player, hand).consumesAction()) blocking = true;
 	}
 
 	private void onAttack(boolean crit) {
@@ -296,18 +408,33 @@ public class AuraModule extends Module {
 		double maxRange = range.get() + aimRange.get();
 		Vec3 eyes = mc.player.getEyePosition();
 		LivingEntity best = null;
-		double bestDistance = Double.MAX_VALUE;
+		java.util.Comparator<LivingEntity> order = comparator(eyes);
 		for (Entity entity : mc.level.entitiesForRendering()) {
 			if (!(entity instanceof LivingEntity living) || entity == mc.player || !living.isAlive()) continue;
 			if (!isValidType(living) || FriendsModule.protects(living)) continue;
 			double distance = eyes.distanceTo(BlockUtil.closestPoint(living.getBoundingBox(), eyes));
-			if (distance > maxRange || distance >= bestDistance) continue;
+			if (distance > maxRange) continue;
+			if (!ignoreShield.get() && living instanceof Player p && p.isBlocking() && !mc.player.getMainHandItem().is(ItemTags.AXES)) continue;
 			// Otherwise we'd lock onto someone behind a wall and never swing at anyone
 			if (!throughWalls.get() && !isVisible(living, eyes)) continue;
-			best = living;
-			bestDistance = distance;
+			if (best == null || order.compare(living, best) < 0) best = living;
 		}
 		return best;
+	}
+
+	/** LiquidBounce's target priorities, players first. */
+	private java.util.Comparator<LivingEntity> comparator(Vec3 eyes) {
+		java.util.Comparator<LivingEntity> type = java.util.Comparator.comparingInt(e -> e instanceof Player ? 0 : e instanceof Enemy ? 1 : 2);
+		java.util.Comparator<LivingEntity> distance = java.util.Comparator.comparingDouble(e -> eyes.distanceTo(BlockUtil.closestPoint(e.getBoundingBox(), eyes)));
+		Vec3 look = FemboyWare.getRotations().getServerRotation().toVector();
+		java.util.Comparator<LivingEntity> then = switch (priority.get()) {
+			case DISTANCE -> distance;
+			case HEALTH -> java.util.Comparator.comparingDouble(e -> e.getHealth() + e.getAbsorptionAmount());
+			case DIRECTION -> java.util.Comparator.comparingDouble(e -> -look.dot(e.getBoundingBox().getCenter().subtract(eyes).normalize()));
+			case HURT_TIME -> java.util.Comparator.comparingInt(e -> e.hurtTime);
+			case AGE -> java.util.Comparator.comparingInt(e -> -e.tickCount);
+		};
+		return type.thenComparing(then).thenComparing(distance);
 	}
 
 	private static boolean isVisible(LivingEntity entity, Vec3 eyes) {

@@ -12,3 +12,8 @@ what was changed. Ported files:
   src/main/java/dev/femboyware/module/movement/ScaffoldModule.java
   src/main/java/dev/femboyware/lb/RotationSettings.java
   src/main/java/dev/femboyware/module/movement/ClutchModule.java
+  src/main/java/dev/femboyware/lb/ClickScheduler.java
+  src/main/java/dev/femboyware/module/movement/AntiKnockBackModule.java (Reversal, Strafe,
+    Jump Reset, Reduce and Grim modes)
+  src/main/java/dev/femboyware/module/combat/AuraModule.java (target priority, fail swing
+    and auto block)
