@@ -620,11 +620,11 @@ public class ModuleManager {
 
 	private final java.util.List<Module> deferredPostMotion = new java.util.ArrayList<>();
 
-	/** Modules with Grim on act at the start of the next tick instead, before its movement packet. */
+	/** Modules with Grim on (and Scaffold) act at the start of the next tick instead, before its movement packet. */
 	public void onPostMotion() {
 		deferredPostMotion.clear();
 		dispatch(module -> {
-			if (module.isGrim()) deferredPostMotion.add(module);
+			if (module.actsBeforeMovement()) deferredPostMotion.add(module);
 			else module.onPostMotion();
 		});
 	}

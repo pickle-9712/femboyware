@@ -58,6 +58,15 @@ public abstract class Module {
 		return grim != null && grim.get();
 	}
 
+	/**
+	 * Whether this module's post-motion actions wait for the start of the next tick, before its
+	 * movement packet, as vanilla's clicks do. Grim needs it; modules that are flagged for clicking
+	 * after the movement packet (Hypixel's Watchdog does this for placements) always do it.
+	 */
+	public boolean actsBeforeMovement() {
+		return isGrim();
+	}
+
 	protected <S extends Setting<?>> S add(S setting) {
 		settings.add(setting);
 		return setting;

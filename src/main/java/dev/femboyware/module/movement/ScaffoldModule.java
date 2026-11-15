@@ -108,7 +108,7 @@ public class ScaffoldModule extends Module {
 	private final NumberSetting timer = add(new NumberSetting("Timer", "Game speed while scaffolding", 1, 0.1, 10, 0.05)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final EnumSetting<SameY> sameY = add(new EnumSetting<>("Same Y", "Keep placing at the height you started on, so you can jump while bridging", SameY.OFF)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting autoBlock = add(new BoolSetting("Auto Block", "Pick the best blocks from your hotbar", true)).visibleWhen(() -> page.is(Page.GENERAL));
-	private final EnumSetting<SwitchMode> switchMode = add(new EnumSetting<>("Switch", "How to switch to blocks", SwitchMode.SILENT)).visibleWhen(() -> page.is(Page.GENERAL) && autoBlock.get());
+	private final EnumSetting<SwitchMode> switchMode = add(new EnumSetting<>("Switch", "How to switch to blocks. Normal stays on your blocks while you build, as LiquidBounce does; Silent flips to them and back for every block, which Hypixel flags", SwitchMode.NORMAL)).visibleWhen(() -> page.is(Page.GENERAL) && autoBlock.get());
 	private final NumberSetting keepBelow = add(new NumberSetting("Save Last", "Avoid stacks with this many or fewer blocks while others are left", 1, 0, 64, 1)).visibleWhen(() -> page.is(Page.GENERAL) && autoBlock.get());
 	private final BoolSetting grim = addGrim(() -> page.is(Page.GENERAL));
 	private final EnumSetting<Swing> swing = add(new EnumSetting<>("Swing", "How to swing when placing", Swing.NORMAL)).visibleWhen(() -> page.is(Page.GENERAL));
@@ -708,6 +708,16 @@ public class ScaffoldModule extends Module {
 		} else if (timing.is(Timing.ON_TICK_SNAP) && snapRotation != null) {
 			FemboyWare.getRotations().request(snapRotation, ROTATION_PRIORITY, 180f, false);
 		}
+	}
+
+	/**
+	 * femboyware: placements always go out at the start of the next tick, before its movement
+	 * packet, with the rotation that packet before them carried: the order vanilla clicks in and
+	 * LiquidBounce places in. Placed after the movement packet, Hypixel's Watchdog flags them.
+	 */
+	@Override
+	public boolean actsBeforeMovement() {
+		return true;
 	}
 
 	@Override
