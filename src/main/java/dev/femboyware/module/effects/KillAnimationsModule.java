@@ -107,7 +107,9 @@ public class KillAnimationsModule extends TargetFxModule {
 
 	/** A jet flying over a body: the point it passes over, the way it's flying, and when it set off. */
 	private record Flyby(Vec3 over, double dirX, double dirZ, long start) {
-		static final float LENGTH = 7f, SPEED = 30, LOWEST = 12;
+		/** Seconds until it's over them: it sets off close by, so it's there before the match resets. */
+		static final float LEAD = 1f;
+		static final float LENGTH = LEAD + 3.5f, SPEED = 30, LOWEST = 12;
 
 		float age() {
 			return (System.currentTimeMillis() - start) / 1000f;
@@ -115,7 +117,7 @@ public class KillAnimationsModule extends TargetFxModule {
 
 		/** Distance along the pass at {@code t} seconds, negative before it's over them. */
 		double along(float t) {
-			return (t - LENGTH / 2) * SPEED;
+			return (t - LEAD) * SPEED;
 		}
 
 		/** Where it is at {@code t}: swooping down to its lowest right over them, then climbing away. */
