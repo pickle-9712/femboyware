@@ -53,7 +53,7 @@ public class ClickGuiScreen extends Screen {
 	private static final String[] CHANNEL_NAMES = {"Red", "Green", "Blue", "Alpha"};
 	private static final int[] CHANNEL_SHIFTS = {16, 8, 0, 24};
 
-	private enum RowType { NAV, FAVORITES, HUD_EDIT, GUI_SETTINGS, HUD_DONE, CHIP, CARD, STAR, SWITCH, BACK, HEADER_SWITCH, SEARCH, BIND, BOOL, BUTTON, NUMBER, ENUM, ENUM_OPTION, STRING, COLOR, KEY }
+	private enum RowType { NAV, FAVORITES, ENABLED, HUD_EDIT, GUI_SETTINGS, HUD_DONE, CHIP, CARD, STAR, SWITCH, BACK, HEADER_SWITCH, SEARCH, BIND, BOOL, BUTTON, NUMBER, ENUM, ENUM_OPTION, STRING, COLOR, KEY }
 
 	private record Row(RowType type, int x, int y, int width, int height, Category category, Module module, Setting<?> setting, int shift, Category.Group group) {
 		boolean contains(double mouseX, double mouseY) {
@@ -70,6 +70,8 @@ public class ClickGuiScreen extends Screen {
 	/** Which section is showing, and the chosen tab in each; kept while the game runs. */
 	private Category.Group group = Category.Group.PVP;
 	private boolean favorites;
+	/** The Enabled section: every module that's on right now. */
+	private boolean enabledView;
 	private final Map<Category.Group, Category> tab = new EnumMap<>(Category.Group.class);
 	/** The module whose settings are open, or null for the cards. */
 	private Module open;
@@ -365,7 +367,7 @@ public class ClickGuiScreen extends Screen {
 		Glass.rounded(context, cx1 - 4, y1 + 4, x2 - 4, y2 - FOOTER, 8, Theme.content());
 		renderSearch(context, cx1 + 2, cy1, cx2, mouseX, mouseY, accent);
 		int top = cy1 + SEARCH_HEIGHT + 6;
-		if (open == null && !favorites && search.get().isBlank()) top = renderChips(context, cx1 + 2, top, cx2, mouseX, mouseY, accent);
+		if (open == null && !favorites && !enabledView && search.get().isBlank()) top = renderChips(context, cx1 + 2, top, cx2, mouseX, mouseY, accent);
 		int bottom = y2 - FOOTER - 6;
 		viewHeight = bottom - top;
 		scroll = Math.max(0, Math.min(scroll, Math.max(0, contentHeight - viewHeight)));
@@ -408,12 +410,13 @@ public class ClickGuiScreen extends Screen {
 		y += 24;
 		y = sectionHeader(context, "FEATURES", x, y);
 		y = navItem(context, RowType.FAVORITES, null, "star", "Favorites", favorites && open == null, x1, y, mouseX, mouseY, accent);
+		y = navItem(context, RowType.ENABLED, null, "enabled", "Enabled (" + enabledModules().size() + ")", enabledView && open == null, x1, y, mouseX, mouseY, accent);
 		// With Larp Only hiding cheats, sections left with nothing in them go too
-		if (tabs(group).isEmpty() && !favorites) group = Category.Group.VISUAL;
-		for (Category.Group g : FEATURES) if (!tabs(g).isEmpty()) y = navItem(context, RowType.NAV, g, icon(g), g.getDisplayName(), !favorites && group == g, x1, y, mouseX, mouseY, accent);
+		if (tabs(group).isEmpty() && !favorites && !enabledView) group = Category.Group.VISUAL;
+		for (Category.Group g : FEATURES) if (!tabs(g).isEmpty()) y = navItem(context, RowType.NAV, g, icon(g), g.getDisplayName(), !favorites && !enabledView && group == g, x1, y, mouseX, mouseY, accent);
 		y += 6;
 		y = sectionHeader(context, "OTHERS", x, y);
-		for (Category.Group g : OTHERS) y = navItem(context, RowType.NAV, g, icon(g), g == Category.Group.HUD ? "HUD Elements" : g.getDisplayName(), !favorites && group == g, x1, y, mouseX, mouseY, accent);
+		for (Category.Group g : OTHERS) y = navItem(context, RowType.NAV, g, icon(g), g == Category.Group.HUD ? "HUD Elements" : g.getDisplayName(), !favorites && !enabledView && group == g, x1, y, mouseX, mouseY, accent);
 		y = navItem(context, RowType.HUD_EDIT, null, "hud_editor", "HUD Editor", false, x1, y, mouseX, mouseY, accent);
 		// The ClickGUI's own settings: open and close animations and how long they take
 		y = navItem(context, RowType.GUI_SETTINGS, null, "customize", "Animations", open instanceof dev.femboyware.module.client.ClickGuiModule, x1, y, mouseX, mouseY, accent);
@@ -525,6 +528,7 @@ public class ClickGuiScreen extends Screen {
 	private List<Module> shown() {
 		String query = search.get().trim().toLowerCase();
 		if (!query.isEmpty()) return matches(query);
+		if (enabledView) return enabledModules();
 		if (favorites) {
 			List<Module> list = new ArrayList<>();
 			for (Module m : FemboyWare.getModules().getModules()) if (module.isFavorite(m) && !LarpOnlyModule.hides(m)) list.add(m);
@@ -535,12 +539,20 @@ public class ClickGuiScreen extends Screen {
 		return c == null ? List.of() : visible(c);
 	}
 
+	/** Every module that's on (less any Larp Only is hiding), by name. */
+	private static List<Module> enabledModules() {
+		List<Module> list = new ArrayList<>();
+		for (Module m : FemboyWare.getModules().getModules()) if (m.isEnabled() && !LarpOnlyModule.hides(m)) list.add(m);
+		list.sort((a, b) -> a.getName().compareToIgnoreCase(b.getName()));
+		return list;
+	}
+
 	private int renderCards(GuiGraphics context, int x1, int y, int x2, int mouseX, int mouseY, int accent) {
 		List<Module> list = shown();
 		cards.clear();
 		cardSpots.clear();
 		if (list.isEmpty()) {
-			String empty = favorites ? "Star a module to keep it here" : "Nothing matches";
+			String empty = enabledView ? "Nothing is on" : favorites ? "Star a module to keep it here" : "Nothing matches";
 			context.drawString(font, empty, x1 + 4, y + 6, Theme.muted());
 			return y + 24;
 		}
@@ -812,11 +824,16 @@ public class ClickGuiScreen extends Screen {
 	}
 
 	private void showGroup(Category.Group g, boolean favs) {
+		showGroup(g, favs, false);
+	}
+
+	private void showGroup(Category.Group g, boolean favs, boolean enabled) {
 		// A new section starts with an empty search
 		clearSearch();
 		searching = false;
 		group = g == null ? group : g;
 		favorites = favs;
+		enabledView = enabled;
 		open = null;
 		scroll = 0;
 		smooth = 0;
@@ -848,6 +865,7 @@ public class ClickGuiScreen extends Screen {
 			switch (row.type) {
 				case NAV -> showGroup(row.group, false);
 				case FAVORITES -> showGroup(null, true);
+				case ENABLED -> showGroup(null, false, true);
 				case HUD_EDIT -> hudEditing = true;
 				case GUI_SETTINGS -> openSettings(dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.client.ClickGuiModule.class));
 				case HUD_DONE -> hudEditing = false;
