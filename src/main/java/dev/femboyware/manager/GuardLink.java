@@ -63,7 +63,7 @@ public final class GuardLink {
 	/** Orders sent while no guards were connected go to guards that connect within this long. */
 	private static final int HOLD_ORDERS = 15000;
 	private static final int CLOSE_TAKEN_OVER = 4001;
-	private static final byte DATA = 0, JOINED = 1, LEFT = 2;
+	private static final byte DATA = 0, JOINED = 1, LEFT = 2, ECHO = 3;
 	private static final byte[] SALT = "femboyware guard link v1".getBytes(StandardCharsets.UTF_8);
 	private static final SecureRandom RANDOM = new SecureRandom();
 	private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(CONNECT_TIMEOUT)).build();
@@ -106,6 +106,12 @@ public final class GuardLink {
 		volatile String closeReason = "";
 		/** When anything last came from the relay, pongs included. */
 		private volatile long heard = System.currentTimeMillis();
+		/**
+		 * The principal's end: pongs only show the connection to Cloudflare is up, not that the relay
+		 * still sends guards here, so it asks the relay for an echo instead and goes by real frames.
+		 */
+		private boolean echo;
+		private volatile long heardFrame = System.currentTimeMillis();
 
 		static Relay open(String room, String role) throws IOException {
 			Relay relay = new Relay();
@@ -122,7 +128,7 @@ public final class GuardLink {
 
 		@Override
 		public CompletionStage<?> onBinary(WebSocket webSocket, ByteBuffer data, boolean last) {
-			heard = System.currentTimeMillis();
+			heard = heardFrame = System.currentTimeMillis();
 			ByteBuffer joined = ByteBuffer.allocate(partialBinary.remaining() + data.remaining());
 			joined.put(partialBinary).put(data).flip();
 			if (last) {
@@ -184,6 +190,14 @@ public final class GuardLink {
 			}
 		}
 
+		private void askEcho() {
+			try {
+				send(new byte[]{ECHO, 0, 0, 0, 0});
+			} catch (IOException e) {
+				incoming.add(CLOSED);
+			}
+		}
+
 		private synchronized void ping() {
 			try {
 				socket.sendPing(ByteBuffer.allocate(0)).get(CONNECT_TIMEOUT, TimeUnit.MILLISECONDS);
@@ -209,12 +223,13 @@ public final class GuardLink {
 					throw new EOFException("Relay connection closed");
 				}
 				if (next != null) return next;
-				if (System.currentTimeMillis() - heard > DEAD_AFTER) {
+				if (System.currentTimeMillis() - (echo ? heardFrame : heard) > DEAD_AFTER) {
 					// Looks open, but the relay hasn't answered: the line's dead
 					incoming.add(CLOSED);
 					throw new EOFException("Relay stopped answering");
 				}
-				ping();
+				if (echo) askEcho();
+				else ping();
 			}
 		}
 
@@ -388,6 +403,7 @@ public final class GuardLink {
 			boolean toldUnreachable = false;
 			while (running) {
 				try (Relay current = Relay.open(room, "principal")) {
+					current.echo = true;
 					relay = current;
 					if (!running) return;
 					toldUnreachable = false;
