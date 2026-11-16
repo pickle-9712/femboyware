@@ -28,6 +28,7 @@ public class GuardCommandModule extends Module {
 	private final KeySetting rallyKey = add(new KeySetting("Rally Key", "Press to call every guard to you", -1));
 	private final KeySetting hereKey = add(new KeySetting("Send Here Key", "Press to send every guard to the block you're looking at", -1));
 	private final BoolSetting bringGuards = add(new BoolSetting("Bring Guards", "Guards on the link join whatever server you're on by themselves, and follow you when you switch", true));
+	private final BoolSetting mirrorAura = add(new BoolSetting("Mirror Aura", "Guards use your Legit Aura and Aura settings (not keybinds or whether they're on), sent whenever you change them or a guard connects", true));
 	private final NumberSetting joinSpacing = add(new NumberSetting("Join Spacing", "Seconds between guards joining, one at a time: servers turn away joins from the same IP that come close together (\"Connection throttled\"), and every turned away try restarts their wait", 6, 4, 30, 0.5)).visibleWhen(bringGuards::get);
 
 	/** One guard's latest report. */
@@ -53,6 +54,10 @@ public class GuardCommandModule extends Module {
 	private String announced = "";
 	private int announceTimer;
 	private int joinTurn;
+	/** What each mirrored module's settings were last sent as, and the guards that had connected then. */
+	private final Map<String, String> mirrored = new java.util.HashMap<>();
+	private final java.util.Set<String> mirroredTo = new java.util.HashSet<>();
+	private int mirrorTimer;
 
 	public GuardCommandModule() {
 		super("Guard Command", "Send bodyguards orders privately with " + CommandManager.PREFIX + "g, without using chat", Category.LEGIT);
@@ -75,6 +80,24 @@ public class GuardCommandModule extends Module {
 		statuses.values().removeIf(status -> status.age() > STATUS_GONE);
 		arena.tick();
 		announceServer();
+		mirrorAura();
+	}
+
+	/** Once a second: sends any aura settings that changed, or all of them when a guard has connected since. */
+	private void mirrorAura() {
+		if (!mirrorAura.get() || server == null || ++mirrorTimer < 20) return;
+		mirrorTimer = 0;
+		java.util.Set<String> guards = new java.util.HashSet<>(server.names());
+		boolean newcomer = !mirroredTo.containsAll(guards);
+		mirroredTo.retainAll(guards);
+		mirroredTo.addAll(guards);
+		if (guards.isEmpty()) return;
+		for (Class<? extends Module> type : GuardConfig.MIRRORED) {
+			Module module = FemboyWare.getModules().get(type);
+			String packed = GuardConfig.encode(module);
+			if (!newcomer && packed.equals(mirrored.get(module.getName()))) continue;
+			if (server.send("cfg " + packed) > 0) mirrored.put(module.getName(), packed);
+		}
 	}
 
 	/**
@@ -152,6 +175,8 @@ public class GuardCommandModule extends Module {
 		server = null;
 		running = "";
 		announced = "";
+		mirrored.clear();
+		mirroredTo.clear();
 		statuses.clear();
 	}
 
@@ -229,7 +254,7 @@ public class GuardCommandModule extends Module {
 			return;
 		}
 		if (order.isEmpty()) {
-			ChatUtil.info("Usage: " + CommandManager.PREFIX + "g <order>, like " + CommandManager.PREFIX + "g pause or " + CommandManager.PREFIX + "g say /leave");
+			ChatUtil.info("Usage: " + CommandManager.PREFIX + "g <order>, like " + CommandManager.PREFIX + "g pause, " + CommandManager.PREFIX + "g say /leave or " + CommandManager.PREFIX + "g off legit pot");
 			return;
 		}
 		String[] parts = order.split("\\s+");
@@ -241,6 +266,16 @@ public class GuardCommandModule extends Module {
 			case "bet" -> {
 				arena.bet(parts);
 				return;
+			}
+			case "on", "off", "enable", "disable", "toggle" -> {
+				// Checked here so a typo gets told off now, and sent with the module's real name
+				Module module = GuardConfig.find(order.substring(parts[0].length()).trim());
+				if (module == null || module instanceof BodyguardModule || module instanceof GuardCommandModule) {
+					ChatUtil.info(module == null ? "No module called \"" + order.substring(parts[0].length()).trim() + "\". Like: " + CommandManager.PREFIX + "g off legit pot"
+						: module.getName() + " can't be changed from the link");
+					return;
+				}
+				order = parts[0].toLowerCase(Locale.ROOT) + " " + module.getName();
 			}
 			default -> {
 			}

@@ -137,6 +137,8 @@ public class BodyguardModule extends Module {
 	private final NumberSetting crowdChatEvery = add(new NumberSetting("Crowd Chat Every", "About how many seconds between each guard's messages", 120, 30, 600, 10)).visibleWhen(crowdChat::get);
 	private final BoolSetting rallyPearl = add(new BoolSetting("Rally Pearl", "When called to a far-off place, throw an ender pearl from the hotbar to get there faster", true));
 	private final StringSetting prefix = add(new StringSetting("Prefix", "What orders start with", "!"));
+	private final BoolSetting acceptPacks = add(new BoolSetting("Accept Packs", "Take server resource packs without asking, so a guard isn't stuck on the yes/no prompt", true));
+	private final BoolSetting copyAura = add(new BoolSetting("Copy Aura", "Use the principal's Legit Aura and Aura settings, sent over the link whenever they change (they need Mirror Aura on in Guard Command)", true));
 	private final BoolSetting followServer = add(new BoolSetting("Follow Server", "Join whatever server the principal is on (they need Bring Guards on in Guard Command), leaving the one you're on if it's different", true));
 	private final StringSetting linkKey = add(new StringSetting("Link Key", "Private orders: the same password as the principal's Guard Command module, from any computer or network. Leave empty to only take orders from chat", ""));
 	private final BoolSetting lowPower = add(new BoolSetting("Low Power", "Don't draw the world (just the HUD on black), cap the frame rate and shorten the render distance, so many guards can run on one PC", true));
@@ -370,9 +372,13 @@ public class BodyguardModule extends Module {
 	private void linkOrder(String text) {
 		if (!isEnabled()) return;
 		String body = text.trim();
-		// This one also works from the title screen or another server, where nothing else can
+		// These also work from the title screen or another server, where nothing else can
 		if (body.startsWith("join ")) {
 			joinServer(body.substring(5).trim());
+			return;
+		}
+		if (body.startsWith("cfg ")) {
+			if (copyAura.get()) GuardConfig.apply(body.substring(4));
 			return;
 		}
 		if (mc.player == null || mc.level == null) return;
@@ -383,6 +389,27 @@ public class BodyguardModule extends Module {
 		} finally {
 			linkOrder = false;
 		}
+	}
+
+	/** Whether to take server resource packs without the prompt. */
+	public boolean acceptsPacks() {
+		return isEnabled() && acceptPacks.get();
+	}
+
+	/** {@code on|off|toggle <module>}: turns one of our modules on or off for the principal. Not this one or Guard Command, which would cut the link. */
+	private void moduleOrder(String how, String name) {
+		Module module = GuardConfig.find(name);
+		if (module == null) {
+			confirm("No module called " + name);
+			return;
+		}
+		if (module == this || module instanceof GuardCommandModule) {
+			confirm(module.getName() + " can't be changed from the link");
+			return;
+		}
+		boolean on = how.equals("toggle") ? !module.isEnabled() : how.equals("on") || how.equals("enable");
+		module.setEnabled(on);
+		confirm(module.getName() + ": " + (module.isEnabled() ? "on" : "off"));
 	}
 
 	/** Goes to the principal's server unless we're already there or on our way. */
@@ -1242,6 +1269,7 @@ public class BodyguardModule extends Module {
 				guards.set(String.join(" ", List.of(words).subList(1, words.length)));
 				confirm("Guards: " + String.join(", ", roster()));
 			}
+			case "on", "off", "enable", "disable", "toggle" -> moduleOrder(command, body.substring(words[0].length()).trim());
 			case "status" -> confirm((paused ? "Paused, " : "") + (ceasefire ? "Ceasefire, " : "") + EnumSetting.prettify(mode.get().name()) + ", "
 				+ EnumSetting.prettify(formation.get().name()) + ", " + present().size() + " guards here"
 				+ (target != null ? ", fighting " + target.getName().getString() : ""));

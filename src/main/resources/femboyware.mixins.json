@@ -20,6 +20,7 @@
 		"ClientLevelAccessor",
 		"ChatHudMixin",
 		"ClientChunkLoadProgressMixin",
+		"ClientCommonPacketListenerMixin",
 		"ClientConnectionMixin",
 		"ClientPlayerEntityAccessor",
 		"ClientPlayerEntityMixin",
