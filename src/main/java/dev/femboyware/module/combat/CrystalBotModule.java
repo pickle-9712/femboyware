@@ -50,7 +50,7 @@ import net.minecraft.world.phys.Vec3;
  * charged and they're open to one, so the crystal straight after makes it a double tap.
  */
 public class CrystalBotModule extends Module {
-	private enum Step { IDLE, TOTEM, PEARL, SWORD, OBSIDIAN, CRYSTAL, POP, ANCHOR_PLACE, ANCHOR_CHARGE, ANCHOR_BLOW }
+	private enum Step { IDLE, TOTEM, EAT, PEARL, SWORD, OBSIDIAN, CRYSTAL, POP, ANCHOR_PLACE, ANCHOR_CHARGE, ANCHOR_BLOW }
 
 	private static final Item[] WEAPONS = {Items.NETHERITE_SWORD, Items.DIAMOND_SWORD, Items.IRON_SWORD, Items.COPPER_SWORD,
 		Items.STONE_SWORD, Items.GOLDEN_SWORD, Items.WOODEN_SWORD, Items.NETHERITE_AXE, Items.DIAMOND_AXE, Items.IRON_AXE};
@@ -69,6 +69,11 @@ public class CrystalBotModule extends Module {
 	private final BoolSetting pearl = add(new BoolSetting("Pearl", "Throw an ender pearl at their feet when they're too far to walk to, leading them by where they'll be when it lands", true));
 	private final NumberSetting pearlDistance = add(new NumberSetting("Pearl Distance", "Pearl when they're at least this far away", 10, 6, 40, 0.5)).visibleWhen(pearl::get);
 	private final BoolSetting autoTotem = add(new BoolSetting("Auto Totem", "Keep a totem in your offhand: a hotbar one goes in with a real switch and F, and Legit Totem is turned on for the rest", true));
+	private final BoolSetting fastCrystals = add(new BoolSetting("Fast Crystals", "Turn on Crystal Optimizer while fighting: a crystal you hit goes on your side at once, so the next goes down a ping sooner", true));
+	private final BoolSetting gapple = add(new BoolSetting("Gapple", "Eat a golden apple (enchanted first) when you're low, holding right click like you would", true));
+	private final NumberSetting gappleHealth = add(new NumberSetting("Gapple Health", "Eat at or below this much health plus absorption", 12, 2, 30, 0.5)).visibleWhen(gapple::get);
+	private final BoolSetting strafe = add(new BoolSetting("Strafe", "Circle them left and right while in place, switching now and then, so they're harder to crystal back", true)).visibleWhen(move::get);
+	private final BoolSetting predict = add(new BoolSetting("Predict", "Only put a crystal or anchor down if it still hurts them where they'll be a few ticks on, so running doesn't waste it", true));
 	private final NumberSetting flickSpeed = add(new NumberSetting("Flick Speed", "How fast your view flicks onto each thing, in whole mouse steps at your sensitivity", 28, 6, 60, 1));
 
 	private final MouseTurner turner = new MouseTurner();
@@ -86,7 +91,12 @@ public class CrystalBotModule extends Module {
 	/** Ticks left waiting for the server to answer an offhand swap, so a second F doesn't swap it back. */
 	private int totemWait;
 	/** Modules this turned on or off, put back when it's turned off. */
-	private boolean enabledTotem, disabledDTap;
+	private boolean enabledTotem, disabledDTap, enabledOptimizer;
+	/** Holding right click to eat, and whether the eating got going. */
+	private boolean eating, startedEating;
+	/** Strafing: which way, and ticks till it switches. */
+	private boolean strafeLeft;
+	private int strafeTimer, retarget;
 	private final Map<BlockPos, Vec3> topSpots = new HashMap<>();
 	/** The A* walk to them: the blocks to go through, how far along, where it was aimed, and ticks till it can be worked out again. */
 	private java.util.List<Vec3> path;
@@ -111,6 +121,8 @@ public class CrystalBotModule extends Module {
 		// Two things flicking the view at once fight each other
 		disabledDTap = FemboyWare.isEnabled(AutoDTapModule.class);
 		if (disabledDTap) FemboyWare.getModules().get(AutoDTapModule.class).setEnabled(false);
+		enabledOptimizer = fastCrystals.get() && !FemboyWare.isEnabled(CrystalOptimizerModule.class);
+		if (enabledOptimizer) FemboyWare.getModules().get(CrystalOptimizerModule.class).setEnabled(true);
 	}
 
 	@Override
@@ -120,7 +132,9 @@ public class CrystalBotModule extends Module {
 		step = Step.IDLE;
 		if (enabledTotem) FemboyWare.getModules().get(LegitTotemModule.class).setEnabled(false);
 		if (disabledDTap) FemboyWare.getModules().get(AutoDTapModule.class).setEnabled(true);
-		enabledTotem = disabledDTap = false;
+		if (enabledOptimizer) FemboyWare.getModules().get(CrystalOptimizerModule.class).setEnabled(false);
+		enabledTotem = disabledDTap = enabledOptimizer = false;
+		stopEating();
 	}
 
 	/** Fighting: Legit Aura doesn't aim, swing or switch meanwhile. */
@@ -141,14 +155,33 @@ public class CrystalBotModule extends Module {
 			sinceSwitch = 0;
 		} else sinceSwitch++;
 
-		if (target == null || !TargetUtil.isValid(target) || mc.player.distanceTo(target) > range.get() + 2) {
-			target = TargetUtil.closestPlayer(range.get());
-			next(Step.IDLE);
+		boolean lost = target == null || !TargetUtil.isValid(target) || mc.player.distanceTo(target) > range.get() + 2;
+		if (lost || ++retarget >= 10) {
+			retarget = 0;
+			Player picked = pickTarget(lost ? null : target);
+			if (picked != target) {
+				target = picked;
+				if (step != Step.EAT) next(Step.IDLE);
+			}
+		}
+		// Eating goes on with or without someone to fight
+		if (step == Step.EAT) {
+			eatStep();
+			return;
 		}
 		if (target == null || Mc.screen() != null || mc.player.isUsingItem()) return;
 		if (FemboyWare.getModules().get(TrapModule.class).isBusy()) return;
 
 		// A step that can't get done in time is given up
+		// Staying alive comes first: these cut in on a crystal spam or an anchor half done
+		if (needsApple()) {
+			next(Step.EAT);
+			startedEating = false;
+			eatStep();
+			return;
+		}
+		if (step != Step.TOTEM && autoTotem.get() && totemWait == 0 && !mc.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING)
+			&& InventoryUtil.findHotbar(stack -> stack.is(Items.TOTEM_OF_UNDYING)) >= 0) next(Step.TOTEM);
 		if (step != Step.IDLE && ++stepTicks > (step == Step.OBSIDIAN || step == Step.ANCHOR_PLACE ? 20 : 12)) next(Step.IDLE);
 		if (step == Step.IDLE) decide();
 		switch (step) {
@@ -176,6 +209,11 @@ public class CrystalBotModule extends Module {
 		outOfReach = false;
 		if (autoTotem.get() && totemWait == 0 && !mc.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING) && InventoryUtil.findHotbar(stack -> stack.is(Items.TOTEM_OF_UNDYING)) >= 0) {
 			next(Step.TOTEM);
+			return;
+		}
+		if (needsApple()) {
+			next(Step.EAT);
+			startedEating = false;
 			return;
 		}
 		if (pearlTime()) {
@@ -247,6 +285,78 @@ public class CrystalBotModule extends Module {
 		KeyMapping.click(InputConstants.getKey(mc.options.keySwapOffhand.saveString()));
 		totemWait = 10;
 		next(Step.IDLE);
+	}
+
+	/**
+	 * Who to fight: near and weak (health plus absorption) beats far and healthy. The one already being
+	 * fought gets a head start, so it only switches for someone clearly better.
+	 */
+	private Player pickTarget(Player current) {
+		Player best = null;
+		double bestScore = Double.MAX_VALUE;
+		for (Player player : mc.level.players()) {
+			if (!TargetUtil.isValid(player)) continue;
+			double distance = mc.player.distanceTo(player);
+			if (distance > range.get()) continue;
+			double score = distance + (player.getHealth() + player.getAbsorptionAmount()) / 3 - (player == current ? 4 : 0);
+			if (score < bestScore) {
+				bestScore = score;
+				best = player;
+			}
+		}
+		return best;
+	}
+
+	private boolean low() {
+		return mc.player.getHealth() + mc.player.getAbsorptionAmount() <= gappleHealth.get();
+	}
+
+	/** Low, with an apple to eat, and not still on the last one's absorption (unless it's getting desperate). */
+	private boolean needsApple() {
+		return gapple.get() && low() && gappleSlot() >= 0 && (mc.player.getAbsorptionAmount() <= 0 || mc.player.getHealth() <= 6);
+	}
+
+	private int gappleSlot() {
+		int slot = InventoryUtil.findHotbar(stack -> stack.is(Items.ENCHANTED_GOLDEN_APPLE));
+		return slot >= 0 ? slot : InventoryUtil.findHotbar(stack -> stack.is(Items.GOLDEN_APPLE));
+	}
+
+	/** Switches to the apple and holds right click till it's eaten, as you would; nothing else meanwhile. */
+	private void eatStep() {
+		if (++stepTicks > 60 || Mc.screen() != null) {
+			stopEating();
+			next(Step.IDLE);
+			return;
+		}
+		if (mc.player.isUsingItem()) {
+			startedEating = true;
+			return;
+		}
+		if (startedEating || (!low() && !eating)) {
+			// Eaten (or let go of): back to it
+			stopEating();
+			next(Step.IDLE);
+			return;
+		}
+		int slot = gappleSlot();
+		if (slot < 0) {
+			stopEating();
+			next(Step.IDLE);
+			return;
+		}
+		if (mc.player.getInventory().getSelectedSlot() != slot) {
+			InventoryUtil.select(slot);
+			return;
+		}
+		if (sinceSwitch < 1) return;
+		mc.options.keyUse.setDown(true);
+		eating = true;
+	}
+
+	private void stopEating() {
+		if (!eating) return;
+		eating = false;
+		dev.femboyware.util.KeyUtil.sync(mc.options.keyUse);
 	}
 
 	/** Too far to walk in, a pearl in the hotbar that's off cooldown, and an arc that gets there. */
@@ -503,7 +613,15 @@ public class CrystalBotModule extends Module {
 	private float worth(BlockPos base) {
 		float self = DamageCalculator.crystalDamage(mc.player, base, false, false);
 		if (self > maxSelf.getFloat() || self >= mc.player.getHealth() + mc.player.getAbsorptionAmount() - 1) return 0;
-		return DamageCalculator.crystalDamage(target, base, false, false);
+		Vec3 center = Vec3.atBottomCenterOf(base.above());
+		float now = DamageCalculator.explosionDamage(target, target.getBoundingBox(), center, DamageCalculator.CRYSTAL_POWER, false, false);
+		if (!predict.get()) return now;
+		return Math.min(now, DamageCalculator.explosionDamage(target, ahead(), center, DamageCalculator.CRYSTAL_POWER, false, false));
+	}
+
+	/** Where they'll be a few ticks on if they keep going the way they are. */
+	private AABB ahead() {
+		return target.getBoundingBox().move((target.getX() - target.xo) * 3, 0, (target.getZ() - target.zo) * 3);
 	}
 
 	/** Damage to them from an anchor going off at {@code pos}, or 0 if it would do you too much. */
@@ -511,7 +629,9 @@ public class CrystalBotModule extends Module {
 		Vec3 center = Vec3.atCenterOf(pos);
 		float self = DamageCalculator.explosionDamage(mc.player, mc.player.getBoundingBox(), center, ANCHOR_POWER, false, false, null, pos);
 		if (self > maxSelf.getFloat() || self >= mc.player.getHealth() + mc.player.getAbsorptionAmount() - 1) return 0;
-		return DamageCalculator.explosionDamage(target, target.getBoundingBox(), center, ANCHOR_POWER, false, false, null, pos);
+		float now = DamageCalculator.explosionDamage(target, target.getBoundingBox(), center, ANCHOR_POWER, false, false, null, pos);
+		if (!predict.get()) return now;
+		return Math.min(now, DamageCalculator.explosionDamage(target, ahead(), center, ANCHOR_POWER, false, false, null, pos));
 	}
 
 	private boolean crystalFits(BlockPos base) {
@@ -679,6 +799,16 @@ public class CrystalBotModule extends Module {
 		boolean closer = gap > wanted + 0.4, away = !outOfReach && gap < wanted - 1.2;
 		if (!closer && !away) {
 			path = null;
+			if (strafe.get() && !outOfReach && mc.player.onGround()) {
+				if (--strafeTimer <= 0 || mc.player.horizontalCollision) {
+					strafeLeft = !strafeLeft;
+					strafeTimer = 15 + ThreadLocalRandom.current().nextInt(25);
+				}
+				// Sideways from where the view is, which is round about them
+				mc.player.input.keyPresses = new Input(keys.forward(), keys.backward(), keys.left() || strafeLeft, keys.right() || !strafeLeft,
+					keys.jump(), keys.shift(), keys.sprint());
+				((InputAccessor) mc.player.input).femboyware$setMovementVector(new Vec2(strafeLeft ? 1 : -1, 0));
+			}
 			return;
 		}
 		Vec3 toward = new Vec3(target.getX() - pos.x, 0, target.getZ() - pos.z);
