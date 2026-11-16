@@ -54,6 +54,6 @@ public final class TargetUtil {
 
 	public static boolean isValid(Player player) {
 		return player != mc.player && player.isAlive() && !player.isSpectator() && !player.isRemoved() && !FriendsModule.protects(player)
-			&& !BodyguardModule.protects(player);
+			&& !BodyguardModule.protects(player) && !dev.femboyware.module.utility.AntiBotModule.isBot(player);
 	}
 }

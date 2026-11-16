@@ -234,6 +234,7 @@ public class ModuleManager {
 		register(new dev.femboyware.module.combat.BacktrackModule());
 		register(new LegitCrystalModule());
 		register(new dev.femboyware.module.combat.AutoDTapModule());
+		register(new dev.femboyware.module.combat.CrystalBotModule());
 		register(new dev.femboyware.module.combat.AutoWebEscapeModule());
 		register(new dev.femboyware.module.combat.LegitSurroundModule());
 		register(new dev.femboyware.module.combat.LegitSelfTrapModule());
@@ -525,6 +526,7 @@ public class ModuleManager {
 		register(new AutoReplenishModule());
 		register(new MiddleClickExtraModule());
 		register(new FriendsModule());
+		register(new dev.femboyware.module.utility.AntiBotModule());
 		register(new WaypointsModule());
 		register(new ChatPlusModule());
 		register(new NoRotateModule());
