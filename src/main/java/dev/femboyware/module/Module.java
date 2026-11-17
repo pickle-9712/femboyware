@@ -3,7 +3,6 @@ package dev.femboyware.module;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.event.PacketEvent;
 import dev.femboyware.event.Render3DEvent;
-import dev.femboyware.module.hud.NotificationsModule;
 import dev.femboyware.setting.Setting;
 import java.util.ArrayList;
 import java.util.List;
@@ -88,7 +87,7 @@ public abstract class Module {
 			// Modules can be toggled from the main menu, before any world exists
 			FemboyWare.LOGGER.error("Module {} threw while being {}", name, enabled ? "enabled" : "disabled", e);
 		}
-		if (FemboyWare.getModules() != null) NotificationsModule.onToggle(this);
+		if (FemboyWare.getModules() != null) dev.femboyware.module.hud.ModuleNotificationsModule.onToggle(this);
 	}
 
 	/** Extra text shown next to the module name in the array list. */

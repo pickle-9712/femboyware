@@ -67,7 +67,6 @@ import dev.femboyware.module.hud.IslandModule;
 import dev.femboyware.module.hud.LyricsModule;
 import dev.femboyware.module.hud.MediaPlayerModule;
 import dev.femboyware.module.hud.ModuleListModule;
-import dev.femboyware.module.hud.NotificationsModule;
 import dev.femboyware.module.hud.PotionEffectsModule;
 import dev.femboyware.module.hud.TargetHudModule;
 import dev.femboyware.module.hud.WatermarkModule;
@@ -562,7 +561,8 @@ public class ModuleManager {
 		register(new dev.femboyware.module.hud.GuardHudModule());
 		register(new dev.femboyware.module.hud.SessionStatsModule());
 		register(new dev.femboyware.module.combat.GuardCommandModule());
-		register(new NotificationsModule());
+		register(new dev.femboyware.module.hud.ModuleNotificationsModule());
+		register(new dev.femboyware.module.larp.NotificationsModule());
 	}
 
 	private void register(Module module) {

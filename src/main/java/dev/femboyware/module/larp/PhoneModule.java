@@ -394,7 +394,7 @@ public class PhoneModule extends Module {
 	public void forbesAlert(String headline) {
 		wireToasts.add(new Wire("Forbes", 0, System.currentTimeMillis(), headline));
 		while (wireToasts.size() > 2) wireToasts.removeFirst();
-		if (sound.get() && dev.femboyware.module.hud.NotificationsModule.on()) LarpSounds.play(LarpSounds.PHONE_TEXT, 1.1f, 0.8f);
+		if (sound.get() && NotificationsModule.on()) LarpSounds.play(LarpSounds.PHONE_TEXT, 1.1f, 0.8f);
 	}
 
 	private void scheduleWire() {
@@ -418,7 +418,7 @@ public class PhoneModule extends Module {
 		bankActivity.addFirst(new Transaction("Wire from " + from, amount, System.currentTimeMillis()));
 		wireToasts.add(new Wire(from, amount, System.currentTimeMillis()));
 		while (wireToasts.size() > 2) wireToasts.removeFirst();
-		if (sound.get() && dev.femboyware.module.hud.NotificationsModule.on()) LarpSounds.play(LarpSounds.LEDGER_NOTIFY, 0.8f, 0.9f);
+		if (sound.get() && NotificationsModule.on()) LarpSounds.play(LarpSounds.LEDGER_NOTIFY, 0.8f, 0.9f);
 	}
 
 	@Override
@@ -659,7 +659,7 @@ public class PhoneModule extends Module {
 		String line = "Sold " + (sale.count() > 1 ? sale.count() + "x " : "") + sale.item() + (who != null ? " to " + who : "") + " for " + LedgerModule.usd(sale.price());
 		toasts.add(new Message(SHOPIFY, line, false, System.currentTimeMillis()));
 		while (toasts.size() > 3) toasts.removeFirst();
-		if (sound.get() && dev.femboyware.module.hud.NotificationsModule.on()) LarpSounds.play(LarpSounds.LEDGER_SUCCESS, 0.8f);
+		if (sound.get() && NotificationsModule.on()) LarpSounds.play(LarpSounds.LEDGER_SUCCESS, 0.8f);
 	}
 
 
@@ -1146,7 +1146,7 @@ public class PhoneModule extends Module {
 		bankActivity.addFirst(new Transaction("Wire to " + to, -amount, now));
 		realThreads.add(to);
 		threads.computeIfAbsent(to, key -> new ArrayList<>()).add(new Message(to, "Wire sent: " + LedgerModule.usd(amount), true, now));
-		if (sound.get() && dev.femboyware.module.hud.NotificationsModule.on()) LarpSounds.play(LarpSounds.LEDGER_NOTIFY, 0.8f, 1.2f);
+		if (sound.get() && NotificationsModule.on()) LarpSounds.play(LarpSounds.LEDGER_NOTIFY, 0.8f, 1.2f);
 		return null;
 	}
 
@@ -1221,7 +1221,7 @@ public class PhoneModule extends Module {
 		threads.computeIfAbsent(contact, key -> new ArrayList<>()).add(message);
 		toasts.add(message);
 		while (toasts.size() > 3) toasts.removeFirst();
-		if (sound.get() && dev.femboyware.module.hud.NotificationsModule.on()) {
+		if (sound.get() && NotificationsModule.on()) {
 			LarpSounds.play(LarpSounds.PHONE_TEXT, 0.85f);
 		}
 	}
@@ -1299,7 +1299,7 @@ public class PhoneModule extends Module {
 		zachMessages = 0;
 		toasts.add(new Message(X_ALERT, "ZachXBT posted a thread about you", false, exposedAt));
 		while (toasts.size() > 3) toasts.removeFirst();
-		if (sound.get() && dev.femboyware.module.hud.NotificationsModule.on()) LarpSounds.play(LarpSounds.PHONE_TEXT, 0.7f, 0.9f);
+		if (sound.get() && NotificationsModule.on()) LarpSounds.play(LarpSounds.PHONE_TEXT, 0.7f, 0.9f);
 		later(2, ZACH, "it's up.");
 		later(6, LAWYER, "call me. NOW.");
 		later(12, "Twin", "bro ur all over twitter rn");
@@ -1495,14 +1495,14 @@ public class PhoneModule extends Module {
 		String where = key.substring(key.indexOf('/') + 1);
 		toasts.add(new Message(DISCORD_ALERT, user + " in #" + where + "\n" + text, false, System.currentTimeMillis()));
 		while (toasts.size() > 3) toasts.removeFirst();
-		if (sound.get() && dev.femboyware.module.hud.NotificationsModule.on()) LarpSounds.play(LarpSounds.PHONE_TEXT, 0.85f);
+		if (sound.get() && NotificationsModule.on()) LarpSounds.play(LarpSounds.PHONE_TEXT, 0.85f);
 	}
 
 	// ---------------------------------------------------------------- banners
 
 	@Override
 	public void onRender2D(GuiGraphics context, float tickDelta) {
-		if (!dev.femboyware.module.hud.NotificationsModule.on()) {
+		if (!NotificationsModule.on()) {
 			toasts.clear();
 			wireToasts.clear();
 			return;

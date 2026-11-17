@@ -15,12 +15,12 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.util.Mth;
 
 /**
- * Every pop-up the client gives you in one place: modules turning on or off, and the client's
- * alerts (staff joining, a stash found, "no ender pearl in your hotbar" and the like), shown as
- * glass toasts that slide in and fade away, or sent to chat if you'd rather. What a dot-command
- * says back always stays in chat.
+ * Pop-ups for modules turning on or off, and the client's alerts (staff joining, a stash found,
+ * "no ender pearl in your hotbar" and the like), as glass toasts that slide in and fade away, or
+ * sent to chat if you'd rather. With this off, alerts just go to chat. What a dot-command says back
+ * always stays in chat. Phone and Ledger notifications are the separate Notifications module.
  */
-public class NotificationsModule extends HudElement {
+public class ModuleNotificationsModule extends HudElement {
 	public enum Where { TOASTS, CHAT, BOTH, HIDDEN }
 
 	private static final int WIDTH = 120;
@@ -43,23 +43,14 @@ public class NotificationsModule extends HudElement {
 
 	private final List<Toast> toasts = new ArrayList<>();
 
-	public NotificationsModule() {
-		super("Notifications", "Module toggles and the client's alerts as pop-ups", 99, 80);
+	public ModuleNotificationsModule() {
+		super("Module Notifications", "Pop-ups when modules turn on or off, and the client's alerts", 99, 80);
 		setEnabled(true);
-	}
-
-	/**
-	 * Whether notifications are on at all. With this module off, nothing pops up anywhere: no phone
-	 * banners or dings (texts, Discord, wires, Forbes, Shopify) and no Ledger pop-ups. Calls still ring.
-	 */
-	public static boolean on() {
-		NotificationsModule self = FemboyWare.getModules() == null ? null : FemboyWare.getModules().get(NotificationsModule.class);
-		return self == null || self.isEnabled();
 	}
 
 	/** Called whenever any module is switched on or off. */
 	public static void onToggle(Module module) {
-		NotificationsModule self = FemboyWare.getModules().get(NotificationsModule.class);
+		ModuleNotificationsModule self = FemboyWare.getModules().get(ModuleNotificationsModule.class);
 		if (self == null || !self.isEnabled() || !self.toggles.get() || module instanceof ClickGuiModule || module == self) return;
 		// Toggling the same module again replaces its notification instead of stacking up
 		self.toasts.removeIf(toast -> toast.kind != Kind.ALERT && toast.title.equals(module.getName()));
@@ -72,10 +63,10 @@ public class NotificationsModule extends HudElement {
 	 */
 	public static boolean alert(String message) {
 		var modules = FemboyWare.getModules();
-		NotificationsModule self = modules == null ? null : modules.get(NotificationsModule.class);
+		ModuleNotificationsModule self = modules == null ? null : modules.get(ModuleNotificationsModule.class);
 		if (self == null) return false;
-		// Off means off: no toasts and nothing in chat either
-		if (!self.isEnabled()) return true;
+		// Off: no toasts, the alert goes to chat like normal
+		if (!self.isEnabled()) return false;
 		Where where = self.alerts.get();
 		if (where == Where.CHAT) return false;
 		if (where == Where.HIDDEN) return true;
@@ -139,7 +130,7 @@ public class NotificationsModule extends HudElement {
 	protected void draw(GuiGraphics context, int left, int top, boolean editing) {
 		long now = System.currentTimeMillis();
 		toasts.removeIf(toast -> now - toast.shownAt > life(toast));
-		List<Toast> shown = toasts.isEmpty() && editing ? List.of(new Toast("Notifications", "", Kind.ON, now - SLIDE)) : toasts;
+		List<Toast> shown = toasts.isEmpty() && editing ? List.of(new Toast("Module Notifications", "", Kind.ON, now - SLIDE)) : toasts;
 		int offset = 0;
 		for (int i = 0; i < shown.size(); i++) {
 			Toast toast = shown.get(shown.size() - 1 - i);

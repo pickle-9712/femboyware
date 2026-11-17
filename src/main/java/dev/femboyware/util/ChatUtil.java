@@ -20,7 +20,7 @@ public final class ChatUtil {
 	public static void info(String message) {
 		Minecraft mc = Minecraft.getInstance();
 		if (mc.gui == null) return;
-		if (replying == 0 && dev.femboyware.module.hud.NotificationsModule.alert(message)) return;
+		if (replying == 0 && dev.femboyware.module.hud.ModuleNotificationsModule.alert(message)) return;
 		chat(message);
 	}
 
