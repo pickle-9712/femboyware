@@ -119,8 +119,8 @@ public class CrystalBotModule extends Module {
 		enabledTotem = autoTotem.get() && !FemboyWare.isEnabled(LegitTotemModule.class);
 		if (enabledTotem) FemboyWare.getModules().get(LegitTotemModule.class).setEnabled(true);
 		// Two things flicking the view at once fight each other
-		disabledDTap = FemboyWare.isEnabled(AutoDTapModule.class);
-		if (disabledDTap) FemboyWare.getModules().get(AutoDTapModule.class).setEnabled(false);
+		disabledDTap = FemboyWare.isEnabled(HitCrystalModule.class);
+		if (disabledDTap) FemboyWare.getModules().get(HitCrystalModule.class).setEnabled(false);
 		enabledOptimizer = fastCrystals.get() && !FemboyWare.isEnabled(CrystalOptimizerModule.class);
 		if (enabledOptimizer) FemboyWare.getModules().get(CrystalOptimizerModule.class).setEnabled(true);
 	}
@@ -131,7 +131,7 @@ public class CrystalBotModule extends Module {
 		aimPoint = null;
 		step = Step.IDLE;
 		if (enabledTotem) FemboyWare.getModules().get(LegitTotemModule.class).setEnabled(false);
-		if (disabledDTap) FemboyWare.getModules().get(AutoDTapModule.class).setEnabled(true);
+		if (disabledDTap) FemboyWare.getModules().get(HitCrystalModule.class).setEnabled(true);
 		if (enabledOptimizer) FemboyWare.getModules().get(CrystalOptimizerModule.class).setEnabled(false);
 		enabledTotem = disabledDTap = enabledOptimizer = false;
 		stopEating();

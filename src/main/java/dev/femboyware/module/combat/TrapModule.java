@@ -77,7 +77,7 @@ public class TrapModule extends Module {
 	private final NumberSetting escapeWebs = add(new NumberSetting("Escape Webs", "How many of the open sides next to them get a web, nearest (or the one they're heading for) first", 1, 0, 4, 1)).visibleWhen(webFirst::get);
 	private final EnumSetting<Fill> fill = add(new EnumSetting<>("Fill", "Put a cobweb or lava at their feet before closing the walls", Fill.NONE)).visibleWhen(() -> !webFirst.get());
 	private final BoolSetting hitGap = add(new BoolSetting("Hit Gap", "While fighting with Legit Aura (or Aura), leave the head-height block on your side open: their feet stay boxed in so they can't get out, and your hits still land through the gap", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
-	private final BoolSetting crystalGap = add(new BoolSetting("Crystal Gap", "With end crystals on you: leave the head-height block on your side open (and the one above it), with obsidian under it in their feet ring, so a crystal sits right against them. The feet ring and roof still hold them, and Auto DTap crystals that spot", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
+	private final BoolSetting crystalGap = add(new BoolSetting("Crystal Gap", "With end crystals on you: leave the head-height block on your side open (and the one above it), with obsidian under it in their feet ring, so a crystal sits right against them. The feet ring and roof still hold them, and Hit Crystal crystals that spot", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
 	private final BoolSetting jump = add(new BoolSetting("Jump", "Jump while trapping, to reach the high blocks and look the part", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
 	private final BoolSetting realLook = add(new BoolSetting("Real Look", "Really turn your head to each block (no silent rotation), with free look so you can still look anywhere", true)).visibleWhen(() -> mode.is(Mode.LEGIT));
 	private final BoolSetting thirdPerson = add(new BoolSetting("Third Person", "Switch to third person while Real Look turns your head", true)).visibleWhen(() -> mode.is(Mode.LEGIT) && realLook.get());
@@ -761,7 +761,7 @@ public class TrapModule extends Module {
 
 	/**
 	 * The obsidian Trap left open for a crystal against {@code entity}, once it's in and the gap above
-	 * is clear, or null: Auto DTap crystals there.
+	 * is clear, or null: Hit Crystal crystals there.
 	 */
 	public BlockPos crystalSpot(LivingEntity entity) {
 		if (!isEnabled() || entity == null || entity != target || crystalBase == null) return null;

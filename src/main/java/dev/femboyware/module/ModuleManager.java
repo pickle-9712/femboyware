@@ -233,7 +233,7 @@ public class ModuleManager {
 		register(new LegitAuraModule());
 		register(new dev.femboyware.module.combat.BacktrackModule());
 		register(new LegitCrystalModule());
-		register(new dev.femboyware.module.combat.AutoDTapModule());
+		register(new dev.femboyware.module.combat.HitCrystalModule());
 		register(new dev.femboyware.module.combat.CrystalBotModule());
 		register(new dev.femboyware.module.combat.AutoWebEscapeModule());
 		register(new dev.femboyware.module.combat.LegitSurroundModule());

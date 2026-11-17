@@ -915,7 +915,7 @@ public class AutoCrystalModule extends Module {
 	}
 
 	/** Attack packet for a bare entity id. The constructor is private, so it goes through the codec. */
-	private static ServerboundInteractPacket attackPacket(int id, boolean sneaking) {
+	static ServerboundInteractPacket attackPacket(int id, boolean sneaking) {
 		FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
 		try {
 			buf.writeVarInt(id);
