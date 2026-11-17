@@ -27,7 +27,7 @@ public final class MsAuth {
 	/** The Minecraft Launcher's own client id, where most exported refresh tokens come from. */
 	public static final String LAUNCHER_CLIENT = "00000000402b5328";
 	/** Clients an imported refresh token is tried against when you don't say which it's from. */
-	public static final String[] IMPORT_CLIENTS = {LAUNCHER_CLIENT, DEVICE_CLIENT,
+	public static final String[] IMPORT_CLIENTS = {LAUNCHER_CLIENT, DEVICE_CLIENT, "000000004C12AE6F",
 		"c36a9fb6-4f2a-41ff-90bd-ae7cc92031eb", "499546d9-bbfe-4b9b-a086-eb3d75afb78f"};
 
 	private static final String LIVE_SCOPE = "service::user.auth.xboxlive.com::MBI_SSL";
@@ -108,33 +108,52 @@ public final class MsAuth {
 
 	// ---------------------------------------------------------------- refresh token
 
-	/** Swap a refresh token for fresh Microsoft tokens, trying the launcher and Switch clients if none is known. */
+	/** The desktop redirect the Minecraft Launcher uses; the live endpoint wants it back on a refresh. */
+	private static final String LIVE_REDIRECT = "https://login.live.com/oauth20_desktop.srf";
+
+	/** Swap a refresh token for fresh Microsoft tokens, trying the known apps if you don't say which it's from. */
 	public static MsTokens refresh(String clientId, String refreshToken) throws AuthException {
-		if (clientId != null) return refreshWith(clientId, refreshToken);
-		AuthException last = new AuthException("That refresh token didn't work with any known app");
+		if (clientId != null && !clientId.isBlank()) return refreshWith(clientId.trim(), refreshToken);
+		AuthException last = null;
 		for (String client : IMPORT_CLIENTS) {
 			try {
 				return refreshWith(client, refreshToken);
 			} catch (AuthException e) {
-				last = e;
+				// An "expired/revoked token" answer is the real reason; keep it over a plain client mismatch
+				if (last == null || e.getMessage().contains("expired") || e.getMessage().contains("revoked")) last = e;
 			}
 		}
-		throw last;
+		throw last != null ? last : new AuthException("That refresh token didn't work with any known app");
 	}
 
 	private static MsTokens refreshWith(String clientId, String refreshToken) throws AuthException {
+		boolean azure = isAzure(clientId);
 		Map<String, String> fields = new LinkedHashMap<>();
 		fields.put("client_id", clientId);
 		fields.put("refresh_token", refreshToken);
 		fields.put("grant_type", "refresh_token");
-		if (isAzure(clientId)) fields.put("scope", AZURE_SCOPE);
-		Reply reply = postForm(isAzure(clientId) ? AZURE_TOKEN : LIVE_TOKEN, fields);
+		// Both endpoints want the scope on a refresh; the live launcher client also wants its redirect back
+		fields.put("scope", azure ? AZURE_SCOPE : LIVE_SCOPE);
+		if (!azure) fields.put("redirect_uri", LIVE_REDIRECT);
+		Reply reply = postForm(azure ? AZURE_TOKEN : LIVE_TOKEN, fields);
 		if (reply.status == 200 && reply.json != null && reply.json.has("access_token")) {
 			return new MsTokens(clientId, reply.json.get("access_token").getAsString(),
 				reply.json.has("refresh_token") ? reply.json.get("refresh_token").getAsString() : refreshToken);
 		}
-		String error = reply.json != null && reply.json.has("error") ? reply.json.get("error").getAsString() : String.valueOf(reply.status);
-		throw new AuthException("Refresh token rejected (" + error + ")");
+		throw new AuthException("Refresh token rejected: " + reason(reply));
+	}
+
+	/** Microsoft's own words for why a token request failed, trimmed to fit a status line. */
+	private static String reason(Reply reply) {
+		if (reply.json != null && reply.json.has("error_description")) {
+			String text = reply.json.get("error_description").getAsString().replaceAll("\\s+", " ");
+			// Microsoft prefixes a code like "AADSTS70008:" or "invalid_grant;"; the sentence after it is the useful part
+			int colon = text.indexOf(": ");
+			if (colon > 0 && colon < 20) text = text.substring(colon + 2);
+			return text.length() > 90 ? text.substring(0, 90) + "..." : text;
+		}
+		if (reply.json != null && reply.json.has("error")) return reply.json.get("error").getAsString();
+		return "HTTP " + reply.status;
 	}
 
 	// ---------------------------------------------------------------- Xbox and Minecraft
