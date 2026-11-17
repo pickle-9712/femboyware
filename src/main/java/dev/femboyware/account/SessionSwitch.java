@@ -96,19 +96,48 @@ public final class SessionSwitch {
 
 	// ---------------------------------------------------------------- Session Login bridge (reflection)
 
+	// Resolved once, not on every call: this runs from getGameProfile, which is very hot
+	private static boolean reflectionReady;
+	private static java.lang.reflect.Field currentField, originalField;
+
+	/** Look up Session Login's session fields a single time and keep them. */
+	private static void prepareReflection() {
+		if (reflectionReady) return;
+		reflectionReady = true;
+		if (!SESSION_LOGIN) return;
+		try {
+			Class<?> mod = Class.forName("dev.elv1n200.sessionlogin.SessionLogin");
+			currentField = mod.getDeclaredField("currentSession");
+			currentField.setAccessible(true);
+			originalField = mod.getDeclaredField("originalSession");
+			originalField.setAccessible(true);
+		} catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+			currentField = null;
+			originalField = null;
+		}
+	}
+
 	private static User sessionLoginCurrent() {
-		return field("currentSession");
+		return read(currentField());
 	}
 
 	private static User sessionLoginOriginal() {
-		return field("originalSession");
+		return read(originalField());
 	}
 
-	private static User field(String name) {
-		if (!SESSION_LOGIN) return null;
+	private static java.lang.reflect.Field currentField() {
+		prepareReflection();
+		return currentField;
+	}
+
+	private static java.lang.reflect.Field originalField() {
+		prepareReflection();
+		return originalField;
+	}
+
+	private static User read(java.lang.reflect.Field f) {
+		if (f == null) return null;
 		try {
-			java.lang.reflect.Field f = Class.forName("dev.elv1n200.sessionlogin.SessionLogin").getDeclaredField(name);
-			f.setAccessible(true);
 			return f.get(null) instanceof User user ? user : null;
 		} catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
 			return null;
