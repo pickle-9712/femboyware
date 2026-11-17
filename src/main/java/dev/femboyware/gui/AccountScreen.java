@@ -47,6 +47,17 @@ import net.minecraft.resources.Identifier;
 public class AccountScreen extends Screen {
 	private static final String API = "https://api.minecraftservices.com/minecraft/profile";
 	private static final Pattern VALID_NAME = Pattern.compile("[A-Za-z0-9_]{3,16}");
+	/** Accounts whose name must never be changed from here, whatever is clicked. */
+	private static final java.util.Set<String> NAME_LOCKED = java.util.Set.of("mzu", "estrogenaddict", "r34user");
+
+	private static boolean nameLocked(String name) {
+		return name == null || NAME_LOCKED.contains(name.trim().toLowerCase(Locale.ROOT));
+	}
+
+	/** Locked if the signed-in name or the name Mojang reports is one of them, or the name isn't known yet. */
+	private boolean nameLocked() {
+		return nameLocked(sessionName) || nameLocked(liveName);
+	}
 	private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ROOT).withZone(ZoneId.systemDefault());
 	private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 	private static final Identifier CURRENT_SKIN = Identifier.fromNamespaceAndPath("femboyware", "account/current_skin");
@@ -157,8 +168,9 @@ public class AccountScreen extends Screen {
 		String wanted = nameBox.getValue().trim();
 		boolean valid = VALID_NAME.matcher(wanted).matches() && !wanted.equalsIgnoreCase(liveName == null ? sessionName : liveName);
 		boolean confirming = pendingName != null && pendingName.equals(wanted) && System.currentTimeMillis() < pendingUntil;
-		changeName.setMessage(Component.literal(confirming ? "Click again to confirm" : "Change name"));
-		changeName.active = !busy && signedIn && valid && nameChangeAllowed;
+		boolean locked = nameLocked();
+		changeName.setMessage(Component.literal(locked ? "Name locked" : confirming ? "Click again to confirm" : "Change name"));
+		changeName.active = !busy && signedIn && valid && nameChangeAllowed && !locked;
 		checkName.active = !busy && signedIn && valid;
 		variant.setMessage(Component.literal(slim ? "Arms: Slim" : "Arms: Classic"));
 		uploadSkin.active = !busy && signedIn && chosenBytes != null;
@@ -386,6 +398,12 @@ public class AccountScreen extends Screen {
 	private void changeName() {
 		String wanted = nameBox.getValue().trim();
 		String current = liveName == null ? sessionName : liveName;
+		if (nameLocked()) {
+			pendingName = null;
+			setStatus("The name on " + current + " is locked and can't be changed here", BAD);
+			updateButtons();
+			return;
+		}
 		if (pendingName == null || !pendingName.equals(wanted) || System.currentTimeMillis() >= pendingUntil) {
 			pendingName = wanted;
 			pendingUntil = System.currentTimeMillis() + 5000;
@@ -397,6 +415,29 @@ public class AccountScreen extends Screen {
 		busy = true;
 		setStatus("Renaming " + current + " to " + wanted + "...", INFO);
 		updateButtons();
+		// Ask Mojang what the account is called right now and refuse a locked one before anything is renamed
+		send(get(API), check -> {
+			String now = null;
+			try {
+				if (check.statusCode() == 200) now = JsonParser.parseString(check.body()).getAsJsonObject().get("name").getAsString();
+			} catch (RuntimeException ignored) {}
+			if (now == null) {
+				done(error("Couldn't confirm which account this is, nothing was changed", check), BAD);
+				return;
+			}
+			if (nameLocked(now) || nameLocked()) {
+				done("The name on " + now + " is locked and can't be changed here", BAD);
+				return;
+			}
+			rename(wanted);
+		});
+	}
+
+	private void rename(String wanted) {
+		if (nameLocked()) {
+			done("This account's name is locked and can't be changed here", BAD);
+			return;
+		}
 		send(request(API + "/name/" + encode(wanted)).PUT(HttpRequest.BodyPublishers.noBody()).build(), response -> {
 			if (response.statusCode() == 200) {
 				showProfile(JsonParser.parseString(response.body()).getAsJsonObject());
