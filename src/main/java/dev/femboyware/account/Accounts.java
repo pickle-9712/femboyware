@@ -34,11 +34,15 @@ public final class Accounts {
 		return account;
 	}
 
+	/** Accounts always kept out of exports by name (signed in via Microsoft before that was tracked). */
+	private static final java.util.Set<String> EXPORT_EXCLUDED = java.util.Set.of("mzu", "estrogenaddict", "r34user");
+
 	/** The accounts that may be written to an export: imported ones with tokens, never the Microsoft sign-ins. */
 	public static java.util.List<Account> exportable() {
 		java.util.List<Account> list = new java.util.ArrayList<>();
 		for (Account a : store().all()) {
-			if (!a.offline && !a.viaMicrosoft && (a.refreshToken != null || a.mcToken != null)) list.add(a);
+			boolean excluded = a.name != null && EXPORT_EXCLUDED.contains(a.name.trim().toLowerCase(java.util.Locale.ROOT));
+			if (!a.offline && !a.viaMicrosoft && !excluded && (a.refreshToken != null || a.mcToken != null)) list.add(a);
 		}
 		return list;
 	}
