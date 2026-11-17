@@ -80,13 +80,15 @@ public class AccountScreen extends Screen {
 	private boolean signedIn = true;
 
 	private EditBox nameBox;
-	private Button changeName, checkName, chooseSkin, variant, uploadSkin, refresh;
+	private Button changeName, checkName, chooseSkin, variant, uploadSkin, savedSkins, refresh;
 	/** The name waiting for its second click to confirm, and until when. */
 	private String pendingName;
 	private long pendingUntil;
 
 	private Path chosenFile;
 	private byte[] chosenBytes;
+	/** The account's skin as Mojang has it now, to save to the list. */
+	private byte[] currentBytes;
 	private boolean chosenLegacy, currentLegacy;
 	private boolean slim;
 	private boolean hasCurrentSkin, hasChosenSkin;
@@ -156,6 +158,9 @@ public class AccountScreen extends Screen {
 			updateButtons();
 		}).bounds(skinX + 80, columnY + 50, 100, 20).build());
 		uploadSkin = addRenderableWidget(Button.builder(Component.literal("Upload skin"), b -> uploadSkin()).bounds(skinX + 80, columnY + 72, 100, 20).build());
+		savedSkins = addRenderableWidget(Button.builder(Component.literal("Saved skins..."), b -> Mc.setScreen(new SavedSkinsScreen(this,
+			currentBytes, "slim".equalsIgnoreCase(liveSkinVariant), chosenBytes, slim)))
+			.bounds(skinX + 80, columnY + 94, 100, 20).build());
 
 		refresh = addRenderableWidget(Button.builder(Component.literal("Refresh"), b -> load()).bounds(left + 10, top + 206, 90, 20).build());
 		addRenderableWidget(Button.builder(Component.literal("Back"), b -> onClose()).bounds(left + 300, top + 206, 90, 20).build());
@@ -175,6 +180,7 @@ public class AccountScreen extends Screen {
 		variant.setMessage(Component.literal(slim ? "Arms: Slim" : "Arms: Classic"));
 		uploadSkin.active = !busy && signedIn && chosenBytes != null;
 		chooseSkin.active = !busy && signedIn;
+		savedSkins.active = !busy;
 		refresh.active = !busy;
 	}
 
@@ -246,8 +252,8 @@ public class AccountScreen extends Screen {
 			drawSkin(context, CHOSEN_SKIN, skinX + 44, columnY + 30, 2, slim, chosenLegacy);
 		}
 		String file = chosenFile == null ? "No file chosen" : chosenFile.getFileName().toString();
-		context.drawString(font, text(font.plainSubstrByWidth(file, 180), CleanFontModule.CLEAN), skinX + 4, columnY + 100, Theme.muted(), false);
-		context.drawString(font, text("64x64 or 64x32 PNG", CleanFontModule.CLEAN), skinX + 4, columnY + 112, Theme.muted(), false);
+		context.drawString(font, text(font.plainSubstrByWidth(file, 72), CleanFontModule.CLEAN), skinX + 4, columnY + 100, Theme.muted(), false);
+		context.drawString(font, text("64x64 PNG", CleanFontModule.CLEAN), skinX + 4, columnY + 112, Theme.muted(), false);
 
 		if (!status.isEmpty()) {
 			Component line = text(font.plainSubstrByWidth(status, 190), CleanFontModule.CLEAN);
@@ -256,7 +262,7 @@ public class AccountScreen extends Screen {
 	}
 
 	/** The skin from the front, flat: head, body, arms and legs with their outer layers. */
-	private static void drawSkin(GuiGraphics context, Identifier id, int x, int y, float scale, boolean slim, boolean legacy) {
+	static void drawSkin(GuiGraphics context, Identifier id, int x, int y, float scale, boolean slim, boolean legacy) {
 		int texHeight = legacy ? 32 : 64;
 		int arm = slim ? 3 : 4;
 		context.pose().pushMatrix();
@@ -286,7 +292,7 @@ public class AccountScreen extends Screen {
 		context.blit(RenderPipelines.GUI_TEXTURED, id, x, y, u, v, w, h, w, h, 64, texHeight);
 	}
 
-	private static Component text(String text, FontDescription font) {
+	static Component text(String text, FontDescription font) {
 		return Component.literal(text).setStyle(Style.EMPTY.withFont(font));
 	}
 
@@ -369,6 +375,7 @@ public class AccountScreen extends Screen {
 				minecraft.execute(() -> {
 					int texHeight = upload(CURRENT_SKIN, response.body());
 					hasCurrentSkin = texHeight > 0;
+					currentBytes = texHeight > 0 ? response.body() : null;
 					currentLegacy = texHeight == 32;
 				});
 			});
@@ -504,6 +511,22 @@ public class AccountScreen extends Screen {
 		updateButtons();
 	}
 
+	/** A skin picked on the Saved skins screen goes in the New slot, ready to upload. */
+	void useSaved(Path path, byte[] bytes, boolean slimArms) {
+		int texHeight = upload(CHOSEN_SKIN, bytes);
+		if (texHeight == 0) {
+			setStatus("That saved skin isn't a 64x64 or 64x32 PNG", BAD);
+			return;
+		}
+		chosenFile = path;
+		chosenBytes = bytes;
+		chosenLegacy = texHeight == 32;
+		hasChosenSkin = true;
+		slim = slimArms;
+		setStatus("Ready to upload " + path.getFileName() + " (" + (slim ? "slim" : "classic") + ")", INFO);
+		updateButtons();
+	}
+
 	private void uploadSkin() {
 		if (chosenBytes == null) return;
 		String boundary = "femboyware" + UUID.randomUUID().toString().replace("-", "");
@@ -580,7 +603,8 @@ public class AccountScreen extends Screen {
 	}
 
 	/** Puts a skin PNG on {@code id}; its height (64 or 32), or 0 if it isn't a skin. */
-	private int upload(Identifier id, byte[] png) {
+	static int upload(Identifier id, byte[] png) {
+		net.minecraft.client.Minecraft minecraft = net.minecraft.client.Minecraft.getInstance();
 		NativeImage image;
 		try {
 			image = NativeImage.read(new ByteArrayInputStream(png));
@@ -592,7 +616,7 @@ public class AccountScreen extends Screen {
 			return 0;
 		}
 		int texHeight = image.getHeight();
-		release(id);
+		minecraft.getTextureManager().release(id);
 		DynamicTexture texture = new DynamicTexture(() -> "femboyware account skin", image);
 		minecraft.getTextureManager().register(id, texture);
 		texture.upload();
