@@ -87,6 +87,7 @@ public class FemboyTitleScreen extends Screen {
 		buttons.add(new Button("Minecraft Settings", Kind.SECONDARY, () -> Mc.setScreen(new OptionsScreen(this, minecraft.options)), 10));
 		//?}
 		buttons.add(new Button("Client", Kind.SECONDARY, () -> Mc.setScreen(new ClickGuiScreen(FemboyWare.getModules().get(ClickGuiModule.class))), 0));
+		buttons.add(new Button("Account", Kind.SECONDARY, () -> Mc.setScreen(new AccountScreen(this)), 0));
 		buttons.add(new Button("Quit Game", Kind.SECONDARY, minecraft::stop, 10));
 		skinProfile = minecraft.getGameProfile();
 		skin = minecraft.getSkinManager().createLookup(skinProfile, false);

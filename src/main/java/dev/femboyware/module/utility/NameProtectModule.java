@@ -237,7 +237,7 @@ public class NameProtectModule extends Module {
 
 	/** Called from TextVisitFactoryMixin for every string the game draws. */
 	public String replaceName(String text) {
-		if (!isEnabled() || text == null) return text;
+		if (!isEnabled() || text == null || onAccountScreen()) return text;
 		parse();
 		String result = replaceWords(text, replacements);
 		if (hideName.get() && mc.getUser() != null) {
@@ -245,6 +245,11 @@ public class NameProtectModule extends Module {
 			if (!username.isEmpty()) result = result.replace(username, name.get());
 		}
 		return result;
+	}
+
+	/** The Account screen always shows the real account it's changing, so Name Protect stays out of it. */
+	private static boolean onAccountScreen() {
+		return dev.femboyware.util.Mc.screen() instanceof dev.femboyware.gui.AccountScreen;
 	}
 
 	/** Swaps whole names in one pass, ignoring case, so "Bob" leaves "Bobby" alone and a fake name is never replaced again. */
@@ -282,7 +287,7 @@ public class NameProtectModule extends Module {
 
 	/** Called from PlayerListEntryMixin with the skin a player would normally have. */
 	public PlayerSkin skinFor(GameProfile profile, PlayerSkin real) {
-		if (!isEnabled()) return real;
+		if (!isEnabled() || onAccountScreen()) return real;
 		String fake = fakeNameOf(profile.name());
 		if (fake != null && accountSkins.get()) {
 			// Never their real skin, even for the moment the other one takes to load
