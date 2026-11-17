@@ -18,6 +18,8 @@ public final class Account {
 	public String mcToken;
 	public long mcExpires;
 	public boolean offline;
+	/** True if added through the Microsoft sign-in page (rather than imported); left out of exports. */
+	public boolean viaMicrosoft;
 	/** When this account was last switched to, for sorting. */
 	public long lastUsed;
 

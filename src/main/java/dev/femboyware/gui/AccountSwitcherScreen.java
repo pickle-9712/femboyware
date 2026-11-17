@@ -33,7 +33,7 @@ public class AccountSwitcherScreen extends Screen {
 	private float scroll;
 	private float scrollTarget;
 
-	private Button switchBtn, refreshBtn, removeBtn, addBtn, importBtn, logoutBtn;
+	private Button switchBtn, refreshBtn, removeBtn, addBtn, importBtn, logoutBtn, exportBtn;
 	private String status = "";
 	private int statusColor = INFO;
 	private boolean busy;
@@ -66,6 +66,7 @@ public class AccountSwitcherScreen extends Screen {
 		addBtn = addRenderableWidget(Button.builder(Component.literal("Add (Microsoft)"), b -> startDeviceLogin()).bounds(rightX, top + 114, 120, 20).build());
 		importBtn = addRenderableWidget(Button.builder(Component.literal("Import token..."), b -> Mc.setScreen(new ImportTokenScreen(this))).bounds(rightX, top + 138, 120, 20).build());
 		logoutBtn = addRenderableWidget(Button.builder(Component.literal("Use launcher account"), b -> useLauncher()).bounds(rightX, top + 162, 120, 20).build());
+		exportBtn = addRenderableWidget(Button.builder(Component.literal("Export accounts (TXT)"), b -> exportAccounts()).bounds(left + 10, top + 206, 200, 20).build());
 		addRenderableWidget(Button.builder(Component.literal("Back"), b -> onClose()).bounds(left + 310, top + 206, 90, 20).build());
 		updateButtons();
 	}
@@ -80,6 +81,7 @@ public class AccountSwitcherScreen extends Screen {
 		addBtn.active = !busy;
 		importBtn.active = !busy;
 		logoutBtn.active = !busy && SessionSwitch.switched();
+		exportBtn.active = !busy && !Accounts.exportable().isEmpty();
 		boolean armed = has && removeArmed == selected && System.currentTimeMillis() < removeUntil;
 		removeBtn.setMessage(Component.literal(armed ? "Sure?" : "Remove"));
 	}
@@ -164,6 +166,48 @@ public class AccountSwitcherScreen extends Screen {
 	private void useLauncher() {
 		SessionSwitch.restore();
 		done("Back on your launcher account (" + Accounts.currentName() + ")", GOOD);
+	}
+
+	/**
+	 * Write a plain-text backup of the imported accounts (username, UUID, refresh token, session token),
+	 * each in a labelled block. Accounts signed in through Microsoft here are left out on purpose.
+	 */
+	private void exportAccounts() {
+		List<Account> list = Accounts.exportable();
+		if (list.isEmpty()) {
+			setStatus("Nothing to export (Microsoft sign-ins are left out)", PENDING);
+			return;
+		}
+		StringBuilder out = new StringBuilder();
+		out.append("femboyware account export\r\n");
+		out.append(list.size()).append(" account").append(list.size() == 1 ? "" : "s")
+			.append(" - keep this file safe, these tokens can log in to the accounts\r\n");
+		out.append("Accounts signed in through Microsoft are not included.\r\n\r\n");
+		int i = 1;
+		for (Account a : list) {
+			out.append("=== Account ").append(i++).append(" ===\r\n");
+			out.append("Username: ").append(a.name).append("\r\n");
+			out.append("UUID: ").append(a.uuid).append("\r\n");
+			out.append("Refresh token: ").append(a.refreshToken == null ? "(none)" : a.refreshToken).append("\r\n");
+			out.append("Session token: ").append(a.mcToken == null ? "(none)" : a.mcToken).append("\r\n\r\n");
+		}
+		try {
+			java.nio.file.Path dir = net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().resolve("femboyware");
+			java.nio.file.Files.createDirectories(dir);
+			java.nio.file.Path file = dir.resolve("accounts-export.txt");
+			java.nio.file.Files.writeString(file, out.toString());
+			setStatus("Exported " + list.size() + " to femboyware/accounts-export.txt", GOOD);
+			try {
+				//? if >=26.3 {
+				/*com.mojang.blaze3d.Blaze3D.openPath(dir);
+				*///?} else {
+				net.minecraft.util.Util.getPlatform().openPath(dir);
+				//?}
+			} catch (RuntimeException ignored) {
+			}
+		} catch (Exception e) {
+			setStatus("Couldn't write the export file", BAD);
+		}
 	}
 
 	private void startDeviceLogin() {

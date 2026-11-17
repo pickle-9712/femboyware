@@ -28,8 +28,19 @@ public final class Accounts {
 	public static Account fromDeviceLogin(MsAuth.MsTokens tokens) throws MsAuth.AuthException {
 		MsAuth.McLogin login = MsAuth.toMinecraft(tokens.access());
 		Account account = Account.microsoft(login.name(), login.uuid(), tokens.clientId(), tokens.refresh(), login.accessToken(), login.expiresAt());
+		// Signed in here, not imported: kept out of exports
+		account.viaMicrosoft = true;
 		store().add(account);
 		return account;
+	}
+
+	/** The accounts that may be written to an export: imported ones with tokens, never the Microsoft sign-ins. */
+	public static java.util.List<Account> exportable() {
+		java.util.List<Account> list = new java.util.ArrayList<>();
+		for (Account a : store().all()) {
+			if (!a.offline && !a.viaMicrosoft && (a.refreshToken != null || a.mcToken != null)) list.add(a);
+		}
+		return list;
 	}
 
 	/** Import a refresh token: work out its app if needed, prove it logs in, and save the account. */
