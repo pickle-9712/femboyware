@@ -392,44 +392,85 @@ public class TungSahurModule extends Module {
 	 * toes, and a bat held low in his right hand. Smooth surfaces lit from one side.
 	 */
 	public static void drawSahur(Render3DEvent event, Vec3 at, float yaw, float swingYaw, float armAngle, float size) {
+		if (body == null) buildMeshes();
 		PoseStack matrices = event.matrices();
 		VertexConsumer quads = event.consumers().getBuffer(RenderTypes.debugQuads());
 		matrices.pushPose();
 		matrices.translate(at.x, at.y, at.z);
 		matrices.mulPose(Axis.YP.rotation(yaw));
 		matrices.scale(size, size, size);
-		PoseStack.Pose entry = matrices.last();
-
-		drawLog(quads, entry);
-		drawFace(quads, matrices);
-		drawLegs(quads, entry);
-
-		// Left arm, hanging close to his side
-		Vec3 leftHand = new Vec3(-SHOULDER_X - 0.035, SHOULDER - 0.37, 0.04);
-		tube(quads, entry, new Vec3[]{new Vec3(-SHOULDER_X + 0.02, SHOULDER, 0), new Vec3(-SHOULDER_X - 0.03, SHOULDER - 0.18, 0.01), leftHand},
-			new float[]{0.042f, 0.037f, 0.033f}, WOOD, 10);
-		hand(quads, entry, leftHand, -1);
+		body.draw(quads, matrices.last());
 
 		// Right arm and bat, swung from the shoulder
 		matrices.pushPose();
 		matrices.translate(SHOULDER_X, SHOULDER, 0);
 		matrices.mulPose(Axis.YP.rotation(swingYaw));
 		matrices.mulPose(Axis.XP.rotationDegrees(armAngle));
-		PoseStack.Pose arm = matrices.last();
-		Vec3 grip = new Vec3(0.035, -0.37, 0.0);
-		tube(quads, arm, new Vec3[]{new Vec3(-0.02, 0, 0), new Vec3(0.03, -0.18, 0.0), grip}, new float[]{0.042f, 0.037f, 0.033f}, WOOD, 10);
-		hand(quads, arm, grip, 1);
+		arm.draw(quads, matrices.last());
 		// The bat leans forward and out from the fist, its barrel down by his feet
-		matrices.translate(grip.x, grip.y, grip.z);
+		matrices.translate(GRIP.x, GRIP.y, GRIP.z);
 		matrices.mulPose(Axis.XP.rotationDegrees(-BAT_TILT));
 		matrices.mulPose(Axis.ZP.rotationDegrees(BAT_OUT));
-		PoseStack.Pose bat = matrices.last();
-		ellipsoid(quads, bat, 0, 0.09, 0, 0.034, 0.016, 0.034, BAT_DARK, 10, 5);
-		tube(quads, bat, new Vec3[]{new Vec3(0, 0.08, 0), new Vec3(0, -0.2, 0), new Vec3(0, -0.5, 0), new Vec3(0, -0.8, 0), new Vec3(0, -1.04, 0)},
-			new float[]{0.024f, 0.028f, 0.045f, 0.066f, 0.07f}, BAT, 14);
+		bat.draw(quads, matrices.last());
 		matrices.popPose();
 
 		matrices.popPose();
+	}
+
+	private static final Vec3 GRIP = new Vec3(0.035, -0.37, 0.0);
+
+	/**
+	 * His shape never changes, only how he's posed, so the ~20k vertices (all that trig and
+	 * lighting) are worked out once into these and just replayed each frame. Building them every
+	 * frame cost about 3 ms per sahur, which piled up with a pet and a few bodies being bonked.
+	 */
+	private static Mesh body, arm, bat;
+
+	private record Mesh(float[] positions, int[] colors) {
+		void draw(VertexConsumer quads, PoseStack.Pose pose) {
+			for (int i = 0, p = 0; i < colors.length; i++, p += 3) quads.addVertex(pose, positions[p], positions[p + 1], positions[p + 2]).setColor(colors[i]);
+		}
+	}
+
+	/** Where {@link #vertex} writes while a mesh is being built; null when drawing straight out. */
+	private static it.unimi.dsi.fastutil.floats.FloatArrayList recordPositions;
+	private static it.unimi.dsi.fastutil.ints.IntArrayList recordColors;
+
+	private static void buildMeshes() {
+		body = record(matrices -> {
+			PoseStack.Pose entry = matrices.last();
+			drawLog(null, entry);
+			drawFace(null, matrices);
+			drawLegs(null, entry);
+			// Left arm, hanging close to his side
+			Vec3 leftHand = new Vec3(-SHOULDER_X - 0.035, SHOULDER - 0.37, 0.04);
+			tube(null, entry, new Vec3[]{new Vec3(-SHOULDER_X + 0.02, SHOULDER, 0), new Vec3(-SHOULDER_X - 0.03, SHOULDER - 0.18, 0.01), leftHand},
+				new float[]{0.042f, 0.037f, 0.033f}, WOOD, 10);
+			hand(null, entry, leftHand, -1);
+		});
+		arm = record(matrices -> {
+			PoseStack.Pose entry = matrices.last();
+			tube(null, entry, new Vec3[]{new Vec3(-0.02, 0, 0), new Vec3(0.03, -0.18, 0.0), GRIP}, new float[]{0.042f, 0.037f, 0.033f}, WOOD, 10);
+			hand(null, entry, GRIP, 1);
+		});
+		bat = record(matrices -> {
+			PoseStack.Pose entry = matrices.last();
+			ellipsoid(null, entry, 0, 0.09, 0, 0.034, 0.016, 0.034, BAT_DARK, 10, 5);
+			tube(null, entry, new Vec3[]{new Vec3(0, 0.08, 0), new Vec3(0, -0.2, 0), new Vec3(0, -0.5, 0), new Vec3(0, -0.8, 0), new Vec3(0, -1.04, 0)},
+				new float[]{0.024f, 0.028f, 0.045f, 0.066f, 0.07f}, BAT, 14);
+		});
+	}
+
+	private static Mesh record(java.util.function.Consumer<PoseStack> build) {
+		recordPositions = new it.unimi.dsi.fastutil.floats.FloatArrayList();
+		recordColors = new it.unimi.dsi.fastutil.ints.IntArrayList();
+		try {
+			build.accept(new PoseStack());
+			return new Mesh(recordPositions.toFloatArray(), recordColors.toIntArray());
+		} finally {
+			recordPositions = null;
+			recordColors = null;
+		}
 	}
 
 	/** The log: straight round sides, a slightly rounded bottom edge and a flat sawn top with a soft rim. */
@@ -671,6 +712,15 @@ public class TungSahurModule extends Module {
 	}
 
 	private static void vertex(VertexConsumer quads, PoseStack.Pose entry, float x, float y, float z, int color) {
+		if (recordPositions != null) {
+			// Into the mesh, in the model's own space (the eyes are posed inside it)
+			org.joml.Vector3f at = entry.pose().transformPosition(x, y, z, new org.joml.Vector3f());
+			recordPositions.add(at.x);
+			recordPositions.add(at.y);
+			recordPositions.add(at.z);
+			recordColors.add(color);
+			return;
+		}
 		quads.addVertex(entry, x, y, z).setColor(color);
 	}
 

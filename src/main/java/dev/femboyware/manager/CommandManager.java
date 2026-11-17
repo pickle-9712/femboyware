@@ -69,6 +69,7 @@ public class CommandManager {
 			case "larp" -> FemboyWare.getModules().get(dev.femboyware.module.utility.ServerLarpModule.class).command(args);
 			case "forcedispenser", "fd" -> FemboyWare.getModules().get(dev.femboyware.module.larp.ForceDispenserModule.class).command(args);
 			case "emote", "emotes" -> FemboyWare.getModules().get(dev.femboyware.module.render.EmotesModule.class).command(args);
+			case "perf", "lag", "fps" -> FemboyWare.getModules().startProfile(args.length > 1 ? args[1] : null);
 			case "help" -> help();
 			default -> ChatUtil.info("Unknown command. Try " + PREFIX + "help");
 		}
@@ -126,6 +127,7 @@ public class CommandManager {
 	}
 
 	private void help() {
+		ChatUtil.info(PREFIX + "perf [seconds]  (when the game lags: measures for a few seconds, then says your FPS and which modules take the most time)");
 		ChatUtil.info(PREFIX + "friend <add|remove|list|clear> [name]  (or middle click a player)");
 		ChatUtil.info(PREFIX + "waypoint <add|remove|list|clear> [name]  (" + PREFIX + "wp for short)");
 		ChatUtil.info(PREFIX + "g <order>  (privately order your bodyguards, like " + PREFIX + "g pause, " + PREFIX + "g rally or " + PREFIX + "g here; needs Guard Command on)");

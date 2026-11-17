@@ -615,6 +615,12 @@ public class ModuleManager {
 	}
 
 	public void onFrame() {
+		if (profiling) {
+			long now = System.nanoTime();
+			if (lastProfiledFrame != 0) profileFrames.add(now - lastProfiledFrame);
+			lastProfiledFrame = now;
+			if (profileEnds != 0 && now >= profileEnds) finishProfile();
+		}
 		dispatch(Module::onFrame);
 	}
 
@@ -719,6 +725,7 @@ public class ModuleManager {
 			if (!module.isEnabled()) continue;
 			// Dispatches nest (a module's click fires the packet events), so put back whoever was running
 			Module outer = dev.femboyware.util.Grim.running(module);
+			long start = profiling ? System.nanoTime() : 0;
 			try {
 				action.accept(module);
 			} catch (Exception e) {
@@ -726,7 +733,56 @@ public class ModuleManager {
 				FemboyWare.LOGGER.error("Module {} threw an exception", module.getName(), e);
 			} finally {
 				dev.femboyware.util.Grim.running(outer);
+				if (profiling) profile.merge(module.getName(), System.nanoTime() - start, Long::sum);
 			}
 		}
+	}
+
+	/** Time each module spends in its hooks, in nanoseconds, while {@link #profiling} is on. */
+	public static boolean profiling;
+	public static final java.util.Map<String, Long> profile = new java.util.HashMap<>();
+	public static final java.util.List<Long> profileFrames = new java.util.ArrayList<>();
+	public static long lastProfiledFrame;
+	/** When {@code .perf}'s measuring stops, in {@link System#nanoTime()}; 0 when it isn't running. */
+	private static long profileEnds;
+
+	/** {@code .perf [seconds]}: measures for a few seconds, then says the frame rate and which modules cost the most. */
+	public void startProfile(String seconds) {
+		double length = 5;
+		try {
+			if (seconds != null) length = Math.max(1, Math.min(60, Double.parseDouble(seconds)));
+		} catch (NumberFormatException ignored) {
+		}
+		profile.clear();
+		profileFrames.clear();
+		lastProfiledFrame = 0;
+		profileEnds = System.nanoTime() + (long) (length * 1e9);
+		profiling = true;
+		dev.femboyware.util.ChatUtil.info("Measuring for " + (int) length + "s, keep playing...");
+	}
+
+	private void finishProfile() {
+		profiling = false;
+		profileEnds = 0;
+		int frames = profileFrames.size();
+		if (frames == 0) return;
+		java.util.List<Long> sorted = new java.util.ArrayList<>(profileFrames);
+		sorted.sort(null);
+		double total = 0;
+		for (long frame : profileFrames) total += frame;
+		double average = total / frames / 1e6;
+		double spikes = sorted.get(Math.min(frames - 1, (int) (frames * 0.99))) / 1e6;
+		double modules = 0;
+		for (long time : profile.values()) modules += time;
+		dev.femboyware.util.ChatUtil.info(String.format(java.util.Locale.ROOT, "%.0f FPS (%.1f ms a frame, worst 1%%: %.1f ms). Modules: %.1f ms a frame of that",
+			1000 / average, average, spikes, modules / frames / 1e6));
+		var limiter = net.minecraft.client.Minecraft.getInstance().getFramerateLimitTracker();
+		int cap = limiter.getFramerateLimit();
+		if (cap < net.minecraft.client.Minecraft.getInstance().options.framerateLimit().get()) {
+			dev.femboyware.util.ChatUtil.info("Minecraft is capping you at " + cap + " FPS right now (AFK, minimised or a menu: Video Settings > Reduce FPS when)");
+		}
+		profile.entrySet().stream().sorted(java.util.Map.Entry.<String, Long>comparingByValue().reversed()).limit(6)
+			.filter(entry -> entry.getValue() / frames / 1e6 >= 0.05)
+			.forEach(entry -> dev.femboyware.util.ChatUtil.info(String.format(java.util.Locale.ROOT, "  %s: %.2f ms", entry.getKey(), entry.getValue() / frames / 1e6)));
 	}
 }

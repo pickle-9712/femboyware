@@ -60,6 +60,14 @@ public class AuraSkyModule extends SkyFxModule {
 	private static final float[] RINGS = {-14, -5, -1, 1, 3, 5, 8, 11, 15, 20, 26, 33, 41, 50, 60, 71, 82, 90};
 	private static final int SEGMENTS = 72;
 	private static final int STREAKS = 70;
+	/** Every point of the dome's grid, worked out once: four domes a frame redid this trig on every corner of every quad. */
+	private static final Vector3f[][] GRID = new Vector3f[RINGS.length][SEGMENTS + 1];
+
+	static {
+		for (int r = 0; r < RINGS.length; r++) {
+			for (int i = 0; i <= SEGMENTS; i++) GRID[r][i] = direction(360f * i / SEGMENTS, RINGS[r]);
+		}
+	}
 
 	private final EnumSetting<Style> style = add(new EnumSetting<>("Style", "Aurora green, sandstorm gold, crimson, violet, crystal blue cells, or Israel blue and white with a giant Star of David", Style.AURORA));
 	private final NumberSetting speed = add(new NumberSetting("Speed", "How fast the sky moves", 1, 0, 4, 0.05));
@@ -175,8 +183,7 @@ public class AuraSkyModule extends SkyFxModule {
 		boolean textured = tiles > 0;
 		for (int r = 0; r < RINGS.length - 1; r++) {
 			for (int i = 0; i < SEGMENTS; i++) {
-				float az1 = 360f * i / SEGMENTS, az2 = 360f * (i + 1) / SEGMENTS;
-				Vector3f a = direction(az1, RINGS[r]), b = direction(az2, RINGS[r]), c = direction(az2, RINGS[r + 1]), d = direction(az1, RINGS[r + 1]);
+				Vector3f a = GRID[r][i], b = GRID[r][i + 1], c = GRID[r + 1][i + 1], d = GRID[r + 1][i];
 				vertex(consumer, pose, a, distance, shade, tiles, du, dv, textured);
 				vertex(consumer, pose, b, distance, shade, tiles, du, dv, textured);
 				vertex(consumer, pose, c, distance, shade, tiles, du, dv, textured);
