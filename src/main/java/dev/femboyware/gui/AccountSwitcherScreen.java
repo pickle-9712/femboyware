@@ -29,6 +29,8 @@ public class AccountSwitcherScreen extends Screen {
 	private int selected = -1;
 	private int removeArmed = -1;
 	private long removeUntil;
+	/** Index of the first account shown, so more than {@link #ROWS} can be scrolled through. */
+	private int scroll;
 
 	private Button switchBtn, refreshBtn, removeBtn, addBtn, importBtn, logoutBtn;
 	private String status = "";
@@ -247,16 +249,38 @@ public class AccountSwitcherScreen extends Screen {
 
 	// ---------------------------------------------------------------- drawing and clicks
 
-	private int rowY(int index) {
-		return top() + 30 + index * ROW_H;
+	/** The y of the row-slot an on-screen account sits in (0 is the top slot). */
+	private int slotY(int slot) {
+		return top() + 30 + slot * ROW_H;
+	}
+
+	/** Keep the scroll in range and the selected account on screen. */
+	private void clampScroll() {
+		int max = Math.max(0, accounts.size() - ROWS);
+		if (selected >= 0) {
+			if (selected < scroll) scroll = selected;
+			else if (selected >= scroll + ROWS) scroll = selected - ROWS + 1;
+		}
+		scroll = Math.max(0, Math.min(scroll, max));
+	}
+
+	@Override
+	public boolean mouseScrolled(double mouseX, double mouseY, double amountX, double amountY) {
+		if (accounts.size() > ROWS) {
+			scroll = Math.max(0, Math.min(scroll - (int) Math.signum(amountY), accounts.size() - ROWS));
+			return true;
+		}
+		return super.mouseScrolled(mouseX, mouseY, amountX, amountY);
 	}
 
 	@Override
 	public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
 		if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
 			int left = left();
-			for (int i = 0; i < Math.min(accounts.size(), ROWS); i++) {
-				int y = rowY(i);
+			for (int slot = 0; slot < ROWS; slot++) {
+				int i = scroll + slot;
+				if (i >= accounts.size()) break;
+				int y = slotY(slot);
 				if (click.x() >= left + 10 && click.x() < left + 255 && click.y() >= y && click.y() < y + ROW_H - 2) {
 					if (selected != i) removeArmed = -1;
 					selected = i;
@@ -294,9 +318,12 @@ public class AccountSwitcherScreen extends Screen {
 			context.drawString(font, AccountScreen.text("No saved accounts. Add one with the buttons on the right.", CleanFontModule.CLEAN),
 				left + 12, top + 36, Theme.muted(), false);
 		}
-		for (int i = 0; i < Math.min(accounts.size(), ROWS); i++) {
+		clampScroll();
+		for (int slot = 0; slot < ROWS; slot++) {
+			int i = scroll + slot;
+			if (i >= accounts.size()) break;
 			Account a = accounts.get(i);
-			int y = rowY(i);
+			int y = slotY(slot);
 			boolean hover = mouseX >= left + 10 && mouseX < left + 255 && mouseY >= y && mouseY < y + ROW_H - 2;
 			int fill = i == selected ? Theme.menuPrimary() : hover ? 0x40FFFFFF : 0x22FFFFFF;
 			FemboyTitleScreen.roundedRect(context, left + 10, y, left + 255, y + ROW_H - 2, 4, fill);
@@ -306,6 +333,13 @@ public class AccountSwitcherScreen extends Screen {
 			String tag = a.offline ? "offline" : a.tokenFresh() ? "ready" : "needs refresh";
 			int tagColor = a.offline ? Theme.muted() : a.tokenFresh() ? GOOD : PENDING;
 			context.drawString(font, AccountScreen.text(tag, CleanFontModule.CLEAN), left + 250 - font.width(tag), y + 5, tagColor, false);
+		}
+		// How far down the list we are, and that there's more above or below
+		if (accounts.size() > ROWS) {
+			String range = (scroll + 1) + "-" + Math.min(accounts.size(), scroll + ROWS) + " of " + accounts.size();
+			context.drawString(font, AccountScreen.text(range, CleanFontModule.CLEAN), left + 255 - font.width(range), top + 18, Theme.muted(), false);
+			if (scroll > 0) context.drawString(font, AccountScreen.text("▲", CleanFontModule.CLEAN), left + 258, slotY(0) + 2, Theme.muted(), false);
+			if (scroll + ROWS < accounts.size()) context.drawString(font, AccountScreen.text("▼", CleanFontModule.CLEAN), left + 258, slotY(ROWS - 1) + 2, Theme.muted(), false);
 		}
 
 		if (device != null) {
