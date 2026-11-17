@@ -58,6 +58,8 @@ public class AccountScreen extends Screen {
 	private final String sessionName;
 	private final UUID sessionId;
 	private final String token;
+	/** Whether the account came from the Session Login mod's session rather than the launcher's. */
+	private final boolean viaSessionLogin;
 
 	/** What Mojang says right now; null until loaded. */
 	private String liveName;
@@ -85,10 +87,30 @@ public class AccountScreen extends Screen {
 	public AccountScreen(Screen parent) {
 		super(Component.literal("Account"));
 		this.parent = parent;
-		var user = net.minecraft.client.Minecraft.getInstance().getUser();
+		// The account you logged into with Session Login, if you did; otherwise the launcher's
+		net.minecraft.client.User user = sessionLoginUser("currentSession");
+		// Not switched yet, its session is still the launcher's own
+		viaSessionLogin = user != null && user != sessionLoginUser("originalSession");
+		if (user == null) user = net.minecraft.client.Minecraft.getInstance().getUser();
 		sessionName = user.getName();
 		sessionId = user.getProfileId();
 		token = user.getAccessToken();
+	}
+
+	/**
+	 * The session the Session Login mod (sessionlogin) has you on, read straight from it so this
+	 * always acts on that account; null when the mod isn't installed or hasn't switched you.
+	 */
+	private static net.minecraft.client.User sessionLoginUser(String field) {
+		if (!net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sessionlogin")) return null;
+		try {
+			Class<?> mod = Class.forName("dev.elv1n200.sessionlogin.SessionLogin");
+			java.lang.reflect.Field current = mod.getDeclaredField(field);
+			current.setAccessible(true);
+			return current.get(null) instanceof net.minecraft.client.User user ? user : null;
+		} catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+			return null;
+		}
 	}
 
 	// ---------------------------------------------------------------- layout
@@ -192,8 +214,8 @@ public class AccountScreen extends Screen {
 		context.drawString(font, text("UUID " + sessionId, CleanFontModule.CLEAN), left + 10, top + 39, Theme.menuButtonText(), false);
 		String session = !signedIn ? "Not signed in to a Microsoft account: nothing can be changed"
 			: liveName == null ? "Loading from Mojang..."
-			: liveName.equals(sessionName) ? "Signed in with the launcher as " + sessionName
-			: "Signed in as " + sessionName + ", now called " + liveName + " (the game uses the new name after a restart)";
+			: liveName.equals(sessionName) ? (viaSessionLogin ? "Logged in with Session Login as " : "Signed in with the launcher as ") + sessionName
+			: (viaSessionLogin ? "Session Login: " : "Signed in as ") + sessionName + ", now called " + liveName + " (the game uses the new name after a restart)";
 		context.drawString(font, text(session, CleanFontModule.CLEAN), left + 10, top + 50, Theme.menuButtonText(), false);
 
 		int columnY = top + 72;
