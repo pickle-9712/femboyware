@@ -23,10 +23,12 @@ public class ImportTokenScreen extends Screen {
 
 	private final AccountSwitcherScreen parent;
 	private EditBox tokenBox, clientBox;
-	private Button importBtn, paste;
+	private Button importBtn, paste, typeBtn;
 	private String status = "";
 	private int statusColor = INFO;
 	private boolean busy;
+	/** false = import a refresh token (lasting), true = import a Minecraft access token (expires). */
+	private boolean accessMode;
 
 	public ImportTokenScreen(AccountSwitcherScreen parent) {
 		super(Component.literal("Import refresh token"));
@@ -55,7 +57,11 @@ public class ImportTokenScreen extends Screen {
 		clientBox = addRenderableWidget(new EditBox(font, left + 10, top + 84, 300, 18, Component.literal("App id")));
 		clientBox.setMaxLength(100);
 		clientBox.setHint(Component.literal("App id (optional)"));
-		importBtn = addRenderableWidget(Button.builder(Component.literal("Import"), b -> doImport()).bounds(left + 10, top + 120, 120, 20).build());
+		typeBtn = addRenderableWidget(Button.builder(Component.literal(""), b -> {
+			accessMode = !accessMode;
+			updateButtons();
+		}).bounds(left + 10, top + 120, 180, 20).build());
+		importBtn = addRenderableWidget(Button.builder(Component.literal("Import"), b -> doImport()).bounds(left + 200, top + 120, 110, 20).build());
 		addRenderableWidget(Button.builder(Component.literal("Back"), b -> onClose()).bounds(left + 300, top + 206, 90, 20).build());
 		updateButtons();
 	}
@@ -64,17 +70,24 @@ public class ImportTokenScreen extends Screen {
 		if (importBtn == null) return;
 		importBtn.active = !busy && tokenBox.getValue().trim().length() > 20;
 		paste.active = !busy;
+		typeBtn.active = !busy;
+		typeBtn.setMessage(Component.literal(accessMode ? "Type: Access token" : "Type: Refresh token"));
+		// An access token has no app, so grey the app id box out in that mode
+		clientBox.setEditable(!accessMode);
+		clientBox.active = !accessMode;
+		tokenBox.setHint(Component.literal(accessMode ? "Paste the access token" : "Paste the refresh token"));
 	}
 
 	private void doImport() {
 		String token = tokenBox.getValue().trim();
 		String client = clientBox.getValue().trim();
+		boolean access = accessMode;
 		busy = true;
-		setStatus("Checking the token with Microsoft...", INFO);
+		setStatus(access ? "Checking the access token with Minecraft..." : "Checking the token with Microsoft...", INFO);
 		updateButtons();
 		CompletableFuture.supplyAsync(() -> {
 			try {
-				return Accounts.fromRefreshToken(client.isEmpty() ? null : client, token);
+				return access ? Accounts.fromAccessToken(token) : Accounts.fromRefreshToken(client.isEmpty() ? null : client, token);
 			} catch (MsAuth.AuthException e) {
 				return e;
 			}
@@ -107,11 +120,16 @@ public class ImportTokenScreen extends Screen {
 		super.render(context, mouseX, mouseY, deltaTicks);
 		//?}
 		int left = left(), top = top();
-		context.drawString(font, AccountScreen.text("Import a refresh token", CleanFontModule.CLEAN), left + 10, top + 8, 0xFFFFFFFF, false);
-		context.drawString(font, AccountScreen.text("Adds a Microsoft account from its refresh token and keeps it topped up.", CleanFontModule.CLEAN),
-			left + 10, top + 22, Theme.muted(), false);
-		context.drawString(font, AccountScreen.text("Refresh token", CleanFontModule.CLEAN), left + 10, top + 36, Theme.muted(), false);
-		context.drawString(font, AccountScreen.text("App id  -  leave blank to try the usual launcher apps", CleanFontModule.CLEAN), left + 10, top + 74, Theme.muted(), false);
+		context.drawString(font, AccountScreen.text("Import a token", CleanFontModule.CLEAN), left + 10, top + 8, 0xFFFFFFFF, false);
+		String blurb = accessMode
+			? "Adds an account from a Minecraft access token. It can't be renewed, so it stops"
+			: "Adds a Microsoft account from its refresh token and keeps it topped up on its own.";
+		context.drawString(font, AccountScreen.text(blurb, CleanFontModule.CLEAN), left + 10, top + 22, Theme.muted(), false);
+		if (accessMode) context.drawString(font, AccountScreen.text("working when it expires (about a day) - it'll tell you when you switch to it.", CleanFontModule.CLEAN),
+			left + 10, top + 32, Theme.muted(), false);
+		context.drawString(font, AccountScreen.text(accessMode ? "Access token" : "Refresh token", CleanFontModule.CLEAN), left + 10, top + 36, Theme.muted(), false);
+		context.drawString(font, AccountScreen.text(accessMode ? "App id  -  not used for an access token" : "App id  -  leave blank to try the usual launcher apps", CleanFontModule.CLEAN),
+			left + 10, top + 74, accessMode ? Theme.offDot() : Theme.muted(), false);
 		if (!status.isEmpty()) {
 			context.drawString(font, AccountScreen.text(font.plainSubstrByWidth(status, 380), CleanFontModule.CLEAN), left + 10, top + 150, statusColor, false);
 		}

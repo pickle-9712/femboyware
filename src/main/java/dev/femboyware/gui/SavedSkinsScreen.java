@@ -116,6 +116,32 @@ public class SavedSkinsScreen extends Screen {
 
 	// ---------------------------------------------------------------- files
 
+	/**
+	 * Keep a skin you just put on in the Saved skins list, so your history builds itself. Does nothing
+	 * if the very same image is already saved (under any name), so re-wearing one doesn't pile up copies.
+	 * Named by the day it was worn, e.g. {@code worn 2026-11-17.png}, with a number if that's taken.
+	 */
+	public static void autoSave(byte[] bytes, boolean slim) {
+		if (bytes == null) return;
+		try {
+			Files.createDirectories(DIR);
+			if (Files.isDirectory(DIR)) {
+				try (Stream<Path> list = Files.list(DIR)) {
+					for (Path p : (Iterable<Path>) list::iterator) {
+						if (p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".png")
+							&& java.util.Arrays.equals(Files.readAllBytes(p), bytes)) return;
+					}
+				}
+			}
+			String ext = slim ? ".slim.png" : ".png";
+			String day = java.time.LocalDate.now().toString();
+			Path target = DIR.resolve("worn " + day + ext);
+			for (int n = 2; Files.exists(target); n++) target = DIR.resolve("worn " + day + " (" + n + ")" + ext);
+			Files.write(target, bytes);
+		} catch (Exception ignored) {
+		}
+	}
+
 	private void reload() {
 		releaseAll();
 		entries.clear();

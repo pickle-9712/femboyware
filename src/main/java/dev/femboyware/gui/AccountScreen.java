@@ -451,7 +451,10 @@ public class AccountScreen extends Screen {
 				nameChangeAllowed = false;
 				nameChangeLine = "Next change from " + DATE.format(Instant.now().plus(Duration.ofDays(30)));
 				nameBox.setValue("");
-				done("Done: you're now " + liveName + ". Restart the game for it to use the new name", GOOD);
+				// Show the new name in-game now: update the saved account and the live session
+				dev.femboyware.account.Accounts.renamed(sessionId, liveName);
+				dev.femboyware.account.SessionSwitch.renameCurrent(sessionId, liveName);
+				done("Done: you're now " + liveName + " (updated in-game too)", GOOD);
 			} else if (response.statusCode() == 403) {
 				done(error("Mojang refused (taken, not allowed, or changed in the last 30 days)", response), BAD);
 			} else if (response.statusCode() == 400) {
@@ -542,7 +545,11 @@ public class AccountScreen extends Screen {
 			.POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray())).build(), response -> {
 				if (response.statusCode() == 200) {
 					showProfile(JsonParser.parseString(response.body()).getAsJsonObject());
-					done("Skin changed. Other players see it after you rejoin a server", GOOD);
+					// Keep every skin you put on, so the Saved skins history builds itself
+					byte[] worn = chosenBytes;
+					boolean wornSlim = slim;
+					SavedSkinsScreen.autoSave(worn, wornSlim);
+					done("Skin changed and saved to your skins. Others see it after you rejoin", GOOD);
 				} else {
 					done(error("Couldn't upload the skin", response), BAD);
 				}

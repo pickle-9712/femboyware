@@ -28,9 +28,22 @@ public final class FreshProfile {
 	private FreshProfile() {
 	}
 
+	// A separate cache for the account you've switched to with the account switcher
+	private static volatile GameProfile switchedProfile;
+	private static volatile java.util.UUID switchedId;
+	private static volatile long switchedFetchedAt;
+	private static volatile boolean switchedFetching;
+
 	/** The freshest copy of {@code launched} (your profile from launch), starting a refetch if it's due. */
 	public static GameProfile of(GameProfile launched) {
 		if (launched == null) return null;
+		// Switched to another account: the whole game (menu skin included) should show that account
+		if (dev.femboyware.account.SessionSwitch.switched()) {
+			net.minecraft.client.User user = dev.femboyware.account.SessionSwitch.current();
+			GameProfile p = switched(user.getProfileId(), user.getName());
+			// Until its skin is fetched, at least show the right name and UUID (default skin meanwhile)
+			return p != null ? p : new GameProfile(user.getProfileId(), user.getName());
+		}
 		// It already has its skin: nothing to fix
 		if (!launched.properties().get("textures").isEmpty()) return launched;
 		long now = System.currentTimeMillis();
@@ -62,5 +75,36 @@ public final class FreshProfile {
 	/** The profile straight from Mojang's public session server, for when the game's own service won't answer. */
 	private static GameProfile direct(GameProfile launched) {
 		return AccountSkins.profileById(launched.id());
+	}
+
+	/** The switched account's full profile (name, UUID and skin), fetched by UUID and cached; null until it's in. */
+	private static GameProfile switched(java.util.UUID id, String name) {
+		if (switchedId == null || !switchedId.equals(id)) {
+			switchedId = id;
+			switchedProfile = null;
+			switchedFetchedAt = 0;
+		}
+		GameProfile cached = switchedProfile;
+		if (cached != null && cached.id().equals(id)) return cached;
+		long now = System.currentTimeMillis();
+		if (!switchedFetching && now - switchedFetchedAt > RETRY) {
+			switchedFetching = true;
+			switchedFetchedAt = now;
+			Minecraft mc = Minecraft.getInstance();
+			CompletableFuture.runAsync(() -> {
+				try {
+					var result = mc.services().sessionService().fetchProfile(id, true);
+					if (result != null && result.profile() != null && !result.profile().properties().get("textures").isEmpty()) switchedProfile = result.profile();
+					else {
+						GameProfile fromMojang = AccountSkins.profileById(id);
+						if (fromMojang != null) switchedProfile = fromMojang;
+					}
+				} catch (RuntimeException ignored) {
+				} finally {
+					switchedFetching = false;
+				}
+			});
+		}
+		return switchedProfile != null && switchedProfile.id().equals(id) ? switchedProfile : null;
 	}
 }

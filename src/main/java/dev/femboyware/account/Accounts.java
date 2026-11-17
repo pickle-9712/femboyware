@@ -41,9 +41,31 @@ public final class Accounts {
 		return account;
 	}
 
+	/** Add an account from a Minecraft access token alone. It can't be refreshed, so it stops working when it expires. */
+	public static Account fromAccessToken(String mcToken) throws MsAuth.AuthException {
+		MsAuth.McLogin login = MsAuth.fromAccessToken(mcToken.trim());
+		Account account = Account.microsoft(login.name(), login.uuid(), null, null, login.accessToken(), login.expiresAt());
+		store().add(account);
+		return account;
+	}
+
 	/** A session for this account, refreshing the Minecraft token from the refresh token if it's stale. */
 	public static MsAuth.McLogin login(Account account) throws MsAuth.AuthException {
 		if (account.offline) return new MsAuth.McLogin(account.name, account.uuid, "0", Long.MAX_VALUE);
+		// Access-token-only (no refresh token): can't be renewed, so make sure it still works and say if it doesn't
+		if (account.refreshToken == null) {
+			if (account.mcToken == null) throw new MsAuth.AuthException(account.name + " has no token saved. Add it again.");
+			try {
+				MsAuth.McLogin check = MsAuth.fromAccessToken(account.mcToken);
+				account.name = check.name();
+				account.uuid = check.uuid();
+				account.mcExpires = check.expiresAt();
+				store().save();
+				return check;
+			} catch (MsAuth.AuthException e) {
+				throw new MsAuth.AuthException(account.name + ": " + e.getMessage() + ". Add it again with a fresh token");
+			}
+		}
 		if (account.tokenFresh()) return new MsAuth.McLogin(account.name, account.uuid, account.mcToken, account.mcExpires);
 		return refresh(account);
 	}
@@ -81,5 +103,17 @@ public final class Accounts {
 
 	public static String currentName() {
 		return SessionSwitch.current().getName();
+	}
+
+	/** A saved account was renamed on Mojang (via the Account screen): update its stored name. */
+	public static void renamed(UUID uuid, String newName) {
+		boolean changed = false;
+		for (Account a : store().all()) {
+			if (a.uuid != null && a.uuid.equals(uuid)) {
+				a.name = newName;
+				changed = true;
+			}
+		}
+		if (changed) store().save();
 	}
 }

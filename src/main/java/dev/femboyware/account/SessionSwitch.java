@@ -58,6 +58,23 @@ public final class SessionSwitch {
 		active = user;
 	}
 
+	/**
+	 * The account the game is on was renamed on Mojang: show the new name in-game right away, without a
+	 * restart, by rebuilding its session with the new name (same UUID and token). Does nothing unless the
+	 * current account matches {@code uuid}.
+	 */
+	public static void renameCurrent(UUID uuid, String newName) {
+		User base = current();
+		if (base == null || !base.getProfileId().equals(uuid)) return;
+		User renamed = new User(newName, base.getProfileId(), base.getAccessToken(), Optional.empty(), Optional.empty());
+		if (original == null) original = Minecraft.getInstance().getUser();
+		if (SESSION_LOGIN && sessionLoginSetSession(renamed)) {
+			active = null;
+			return;
+		}
+		active = renamed;
+	}
+
 	/** Go back to the account the launcher started with. */
 	public static void restore() {
 		if (SESSION_LOGIN) {

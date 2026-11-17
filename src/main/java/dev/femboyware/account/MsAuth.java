@@ -10,6 +10,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -201,6 +202,29 @@ public final class MsAuth {
 		if (profile.status == 404) throw new AuthException("That account doesn't own Minecraft (Java)");
 		if (profile.status != 200 || profile.json == null || !profile.json.has("id")) throw new AuthException("Couldn't load the Minecraft profile (" + profile.status + ")");
 		return new McLogin(profile.json.get("name").getAsString(), dashUuid(profile.json.get("id").getAsString()), mcToken, expires);
+	}
+
+	/** Use a Minecraft access token directly (no Microsoft login): checks it works and reads its expiry. */
+	public static McLogin fromAccessToken(String mcToken) throws AuthException {
+		Reply profile = get(PROFILE, mcToken);
+		if (profile.status == 401) throw new AuthException("The access token isn't valid or has expired");
+		if (profile.status == 404) throw new AuthException("That account doesn't own Minecraft (Java)");
+		if (profile.status != 200 || profile.json == null || !profile.json.has("id")) throw new AuthException("Couldn't use that access token (" + profile.status + ")");
+		return new McLogin(profile.json.get("name").getAsString(), dashUuid(profile.json.get("id").getAsString()), mcToken, jwtExpiry(mcToken));
+	}
+
+	/** When a Minecraft token expires, from its own JWT; a day from now if it can't be read. */
+	private static long jwtExpiry(String token) {
+		try {
+			String[] parts = token.split("\\.");
+			if (parts.length >= 2) {
+				String json = new String(Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8);
+				JsonObject claims = JsonParser.parseString(json).getAsJsonObject();
+				if (claims.has("exp")) return claims.get("exp").getAsLong() * 1000L;
+			}
+		} catch (RuntimeException ignored) {
+		}
+		return System.currentTimeMillis() + 24L * 3600 * 1000;
 	}
 
 	private static String xstsReason(long xErr) {
