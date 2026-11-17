@@ -71,4 +71,23 @@ public class MinecraftClientMixin {
 	private int femboyware$fakeFps(int fps) {
 		return dev.femboyware.FemboyWare.getModules() == null ? fps : dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.utility.FakeFpsModule.class).adjust(fps);
 	}
+
+	/**
+	 * The account switcher: once you switch to another account, every part of the game that asks who
+	 * you are (your name and UUID, and the access token it joins online servers with) gets the
+	 * switched account. Only active when you've switched and the Session Login mod isn't handling it.
+	 */
+	@Inject(method = "getUser", at = @At("HEAD"), cancellable = true)
+	private void femboyware$switchedUser(org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable<net.minecraft.client.User> cir) {
+		if (dev.femboyware.account.SessionSwitch.overriding()) cir.setReturnValue(dev.femboyware.account.SessionSwitch.activeUser());
+	}
+
+	/**
+	 * While switched, don't sign chat with the launcher account's keys (they belong to a different
+	 * account and the server would reject them); hand back the empty manager so chat just goes unsigned.
+	 */
+	@Inject(method = "getProfileKeyPairManager", at = @At("HEAD"), cancellable = true)
+	private void femboyware$switchedKeys(org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable<net.minecraft.client.multiplayer.ProfileKeyPairManager> cir) {
+		if (dev.femboyware.account.SessionSwitch.overriding()) cir.setReturnValue(net.minecraft.client.multiplayer.ProfileKeyPairManager.EMPTY_KEY_MANAGER);
+	}
 }
