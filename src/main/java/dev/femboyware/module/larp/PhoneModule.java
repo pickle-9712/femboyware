@@ -240,9 +240,12 @@ public class PhoneModule extends Module {
 
 	// ---------------------------------------------------------------- data for the apps
 
-	/** Threads with the newest first. */
+	/** Threads with the newest first. With Fake DMs off, only ones with real people: the made-up contacts are hidden. */
 	public List<List<Message>> threads() {
-		List<List<Message>> list = new ArrayList<>(threads.values());
+		List<List<Message>> list = new ArrayList<>();
+		threads.forEach((contact, thread) -> {
+			if (dms.get() || isReal(contact)) list.add(thread);
+		});
 		list.sort((a, b) -> Long.compare(b.getLast().time(), a.getLast().time()));
 		return list;
 	}
@@ -439,6 +442,19 @@ public class PhoneModule extends Module {
 		ownsItem.set(false);
 		LarpItems.remove(LarpItems.PHONE);
 		if (had) dev.femboyware.FemboyWare.getConfig().save();
+	}
+
+	/** {@code .phone fake [on|off]} (and {@code .fpphone}): the made-up contacts texting you and showing in Messages, or not. Toggles without a word. */
+	public void fakeContacts(String word) {
+		String w = word.trim().toLowerCase(Locale.ROOT);
+		boolean on = switch (w) {
+			case "on", "true", "1" -> true;
+			case "off", "false", "0" -> false;
+			default -> !dms.get();
+		};
+		dms.set(on);
+		dev.femboyware.FemboyWare.getConfig().save();
+		ChatUtil.info("Fake phone people " + (on ? "ON" : "OFF: only real people show in Messages"));
 	}
 
 	/** Turned off: the item leaves your inventory with it. */
@@ -1725,6 +1741,7 @@ public class PhoneModule extends Module {
 					? "Here's your phone, in your larp inventory: move it round like any item. Right-click it to open it"
 					: "Here's your phone. It's a ghost item, on your side only; turn on Server Larp to move it round freely. Right-click it to open it");
 			}
+			case "fake", "fakes", "contacts" -> fakeContacts(args.length > 2 ? args[2] : "");
 			case "remove", "take", "clear" -> {
 				putAway();
 				ChatUtil.info("Put your phone away");
@@ -1793,7 +1810,7 @@ public class PhoneModule extends Module {
 				dev.femboyware.FemboyWare.getConfig().save();
 				ChatUtil.info("Robux balance is now " + String.format(Locale.US, "%,d", robux()));
 			}
-			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "phone <open|give|clear|dm [name] [message]|wire [amount] [from]|forbes [headline]|timing|bank [amount]|robux [amount]>");
+			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "phone <open|give|clear|fake [on|off]|dm [name] [message]|wire [amount] [from]|forbes [headline]|timing|bank [amount]|robux [amount]>");
 		}
 	}
 }

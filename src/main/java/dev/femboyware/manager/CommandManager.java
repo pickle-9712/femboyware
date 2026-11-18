@@ -57,6 +57,7 @@ public class CommandManager {
 			case "area", "areaminer" -> FemboyWare.getModules().get(dev.femboyware.module.utility.AutoAreaMinerModule.class).command(args);
 			case "pilot", "autopilot", "fly" -> FemboyWare.getModules().get(dev.femboyware.module.movement.AutoElytraPilotModule.class).command(args);
 			case "phone" -> FemboyWare.getModules().get(dev.femboyware.module.larp.PhoneModule.class).command(args);
+			case "fpphone" -> FemboyWare.getModules().get(dev.femboyware.module.larp.PhoneModule.class).fakeContacts(args.length > 1 ? args[1] : "");
 			case "ledger", "wallet" -> FemboyWare.getModules().get(dev.femboyware.module.larp.LedgerModule.class).command(args);
 			case "cosmetics", "cos" -> FemboyWare.getModules().get(dev.femboyware.module.render.CosmeticsModule.class).command(args);
 			case "fakespawner", "fakespawners", "spawner" -> FemboyWare.getModules().get(dev.femboyware.module.larp.FakeSpawnerModule.class).command(args);
@@ -155,7 +156,7 @@ public class CommandManager {
 		ChatUtil.info(PREFIX + "fbi <raid|stop|release>  (the FBI raids your mansion; release unfreezes your accounts)");
 		ChatUtil.info(PREFIX + "jet <spawn|fly|sit|stand|land|remove>  (park a private jet; board it while larping and walk round inside as it flies a lap; right-click near a seat to sit, sneak to stand)");
 		ChatUtil.info(PREFIX + "car <spawn [suv|jesko]|remove|clear>  (park flex cars next to you; only you see them)");
-		ChatUtil.info(PREFIX + "phone <open|give|clear|dm [name] [message]|bank [amount]|robux [amount]>  (the fake phone: DMs, bank, stocks, Roblox; only you see it)");
+		ChatUtil.info(PREFIX + "phone <open|give|clear|fake [on|off]|dm [name] [message]|bank [amount]|robux [amount]>  (the fake phone: DMs, bank, stocks, Roblox; only you see it)");
 		ChatUtil.info(PREFIX + "ledger <open|give|clear|deposit [coin] [amount]|set <coin> <amount>|price <coin> <dollars>|history [clear]|reset|total>  (the fake crypto wallet; only you see it)");
 		ChatUtil.info(PREFIX + "cos <give|take|list|clear> [name] [fiery|frozen|poisoned|random|none|same]  (give a player your Korblox, headless and horns; only you see them)");
 		ChatUtil.info(PREFIX + "area <pos1|pos2|clear>  (mark a box for Auto Area Miner to dig out; marks the block you look at)");
