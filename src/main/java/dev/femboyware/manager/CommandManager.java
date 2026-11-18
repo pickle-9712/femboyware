@@ -153,10 +153,10 @@ public class CommandManager {
 		ChatUtil.info(PREFIX + "tv <place|play <file>|tiktok [link]|pause|resume|seek <time>|stop|remove|list|folder>  (a TV playing your MP4s in sync for everyone with Client Sync)");
 		ChatUtil.info(PREFIX + "mirror  (TikTok on your TV, no browser needed; scroll while looking at it to swipe)");
 		ChatUtil.info(PREFIX + "fbi <raid|stop|release>  (the FBI raids your mansion; release unfreezes your accounts)");
-		ChatUtil.info(PREFIX + "jet <spawn|fly|land|remove>  (park a private jet; board it while larping and walk round inside as it flies a lap)");
+		ChatUtil.info(PREFIX + "jet <spawn|fly|sit|stand|land|remove>  (park a private jet; board it while larping and walk round inside as it flies a lap; right-click near a seat to sit, sneak to stand)");
 		ChatUtil.info(PREFIX + "car <spawn [suv|jesko]|remove|clear>  (park flex cars next to you; only you see them)");
-		ChatUtil.info(PREFIX + "phone <open|give|dm [name] [message]|bank [amount]|robux [amount]>  (the fake phone: DMs, bank, stocks, Roblox; only you see it)");
-		ChatUtil.info(PREFIX + "ledger <open|give|deposit [coin] [amount]|set <coin> <amount>|price <coin> <dollars>|history [clear]|reset|total>  (the fake crypto wallet; only you see it)");
+		ChatUtil.info(PREFIX + "phone <open|give|clear|dm [name] [message]|bank [amount]|robux [amount]>  (the fake phone: DMs, bank, stocks, Roblox; only you see it)");
+		ChatUtil.info(PREFIX + "ledger <open|give|clear|deposit [coin] [amount]|set <coin> <amount>|price <coin> <dollars>|history [clear]|reset|total>  (the fake crypto wallet; only you see it)");
 		ChatUtil.info(PREFIX + "cos <give|take|list|clear> [name] [fiery|frozen|poisoned|random|none|same]  (give a player your Korblox, headless and horns; only you see them)");
 		ChatUtil.info(PREFIX + "area <pos1|pos2|clear>  (mark a box for Auto Area Miner to dig out; marks the block you look at)");
 		ChatUtil.info(PREFIX + "pilot <x> <z> | stop  (Auto Elytra Pilot flies you there and lands; ~ for where you are)");

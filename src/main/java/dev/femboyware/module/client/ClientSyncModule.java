@@ -95,11 +95,13 @@ public class ClientSyncModule extends Module {
 	private record Snap(UUID uuid, long ts, long time, String dim, boolean gone, String emote, int emoteTicks, double[] showCar, String song,
 						double[] body, String pose, int flags, int swings, String main, String off, String seatIn, double[] seat,
 						double[] jet, int[] jetLook, double[] heli, int[] heliLook, List<double[]> cars, int[] carLook,
-						double[] hangar, int[] hangarLook, List<double[]> valets, List<SharedFake> fakes, JsonObject looks, double[] yacht, int[] yachtLook, double[] mansion, int[] mansionLook, List<SharedSchem> schems, JsonObject tv, JsonObject raid, long interval) {
+						double[] hangar, int[] hangarLook, List<double[]> valets, List<SharedFake> fakes, JsonObject looks, double[] yacht, int[] yachtLook, double[] mansion, int[] mansionLook, List<SharedSchem> schems, JsonObject tv, JsonObject raid, long interval,
+						UUID rideOwner, int sit) {
 		/** The same update, at {@code time} on our clock. */
 		Snap at(long time) {
 			return new Snap(uuid, ts, time, dim, gone, emote, emoteTicks, showCar, song, body, pose, flags, swings, main, off, seatIn, seat,
-				jet, jetLook, heli, heliLook, cars, carLook, hangar, hangarLook, valets, fakes, looks, yacht, yachtLook, mansion, mansionLook, schems, tv, raid, interval);
+				jet, jetLook, heli, heliLook, cars, carLook, hangar, hangarLook, valets, fakes, looks, yacht, yachtLook, mansion, mansionLook, schems, tv, raid, interval,
+				rideOwner, sit);
 		}
 	}
 
@@ -129,6 +131,10 @@ public class ClientSyncModule extends Module {
 		float walkSpeed;
 		final float[] heliSpin = new float[2];
 		String seatedIn;
+		/** Whose jet they're riding in (when seatedIn is "ride"), where they are in its cabin, and the seat they're sat in (-1 stood). */
+		UUID rideOwner;
+		float[] cabinAt;
+		int sit = -1;
 		/** Their captains and valets, here as stand-ins moved to match theirs. */
 		RemotePlayer jetPilot, heliPilot;
 		final List<RemotePlayer> valets = new ArrayList<>();
@@ -343,6 +349,15 @@ public class ClientSyncModule extends Module {
 			if (jetSeat != null) {
 				l.addProperty("in", "jet");
 				l.add("seat", numbers(jetSeat[0], jetSeat[1], jetSeat[2]));
+				int sit = FemboyWare.getModules().get(JetModule.class).shareSitting();
+				if (sit >= 0) l.addProperty("st", sit);
+			} else if (riding != null && rideSpot != null) {
+				// Riding in someone's jet: where in its cabin, so everyone puts you there in their jet as
+				// they see it, rather than where you were in the world (which on their screen is behind it)
+				l.addProperty("in", "ride");
+				l.addProperty("ro", riding.uuid.toString());
+				l.add("seat", numbers(rideSpot[0], rideSpot[1], rideSpot[2]));
+				if (rideSeat >= 0) l.addProperty("st", rideSeat);
 			} else if (heliSeat != null) {
 				l.addProperty("in", "heli");
 				l.add("seat", numbers(heliSeat[0], heliSeat[1], heliSeat[2]));
@@ -645,7 +660,7 @@ public class ClientSyncModule extends Module {
 		long ts = s.get("ts").getAsLong();
 		if (s.has("x")) {
 			incoming.add(new Snap(uuid, ts, System.nanoTime(), null, true, null, 0, null, null, null, null, 0, 0, null, null, null, null,
-				null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0));
+				null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0, null, -1));
 			return;
 		}
 		String emote = null, song = null;
@@ -660,7 +675,8 @@ public class ClientSyncModule extends Module {
 		}
 		double[] body = null, seat = null;
 		String pose = null, main = null, off = null, seatIn = null;
-		int flags = 0, swingCount = 0;
+		int flags = 0, swingCount = 0, sit = -1;
+		UUID rideOwner = null;
 		if (s.has("l")) {
 			JsonObject l = s.getAsJsonObject("l");
 			body = doubles(l.get("b"), 9);
@@ -671,6 +687,16 @@ public class ClientSyncModule extends Module {
 			off = l.has("oh") ? l.get("oh").getAsString() : null;
 			seatIn = l.has("in") ? l.get("in").getAsString() : null;
 			seat = doubles(l.get("seat"), 3);
+			if (l.has("st")) {
+				sit = l.get("st").getAsInt();
+				if (!JetModule.validSeat(sit)) sit = -1;
+			}
+			if (l.has("ro")) {
+				try {
+					rideOwner = UUID.fromString(l.get("ro").getAsString());
+				} catch (IllegalArgumentException ignored) {
+				}
+			}
 			if (body == null) return;
 		}
 		List<double[]> cars = null;
@@ -730,7 +756,7 @@ public class ClientSyncModule extends Module {
 			doubles(s.get("g"), 4), ints(s.get("gc"), 2), valets, fakes, s.has("w") && s.get("w").isJsonObject() ? s.getAsJsonObject("w") : null,
 			doubles(s.get("yt"), 4), ints(s.get("yc"), 4), doubles(s.get("mn"), 4), ints(s.get("mc"), 3), schems,
 			s.has("tv") && s.get("tv").isJsonObject() ? s.getAsJsonObject("tv") : null,
-			s.has("fb") && s.get("fb").isJsonObject() ? s.getAsJsonObject("fb") : null, interval * 1_000_000L));
+			s.has("fb") && s.get("fb").isJsonObject() ? s.getAsJsonObject("fb") : null, interval * 1_000_000L, rideOwner, sit));
 	}
 
 	/** A list of at least {@code size} finite numbers, or null. */
@@ -1210,6 +1236,9 @@ public class ClientSyncModule extends Module {
 	private Peer riding;
 	private float[] rideSpot, rideSpotOld;
 	private float rideYaw;
+	/** The seat you're sat in aboard their jet, or -1; and whether sneak was down last tick. */
+	private int rideSeat = -1;
+	private boolean rideSneaking;
 
 	/** Their jet as it's drawn at {@code time}, or null. */
 	private static double[] jetAt(Peer peer, long time) {
@@ -1231,6 +1260,11 @@ public class ClientSyncModule extends Module {
 			double[] jet = peers.containsValue(riding) && showOthers.get() ? jetAt(riding, time) : null;
 			if (jet == null || jet[9] < 0.5 || !larping || ownFlight) {
 				// Parked again (or gone): you're left stood where you were, on its floor
+				if (rideSeat >= 0) {
+					Vec3 up = jet != null ? JetModule.sharedSeat(jet, JetModule.standSpot(rideSeat)) : player.position().add(0, 0.25, 0);
+					player.setPos(up.x, up.y, up.z);
+				}
+				rideSeat = -1;
 				riding = null;
 				player.setNoGravity(false);
 				player.setDeltaMovement(Vec3.ZERO);
@@ -1240,12 +1274,29 @@ public class ClientSyncModule extends Module {
 			player.setYRot(player.getYRot() + Mth.wrapDegrees((float) jet[3] - rideYaw));
 			rideYaw = (float) jet[3];
 			rideSpotOld = rideSpot;
-			var input = player.input.getMoveVector();
-			if (input.lengthSquared() > 1) input = input.normalized();
-			float speed = mc.options.keySprint.isDown() ? 0.26f : 0.18f;
 			double facing = Math.toRadians(player.getYRot() - jet[3]);
 			float fwdX = (float) -Math.sin(facing), fwdZ = (float) Math.cos(facing), leftX = (float) Math.cos(facing), leftZ = (float) Math.sin(facing);
-			rideSpot = JetModule.cabinSpot(rideSpot[0] + (fwdX * input.y + leftX * input.x) * speed, rideSpot[2] + (fwdZ * input.y + leftZ * input.x) * speed);
+			boolean sneaking = mc.options.keyShift.isDown();
+			if (rideSeat >= 0) {
+				// Sat down: sneak to get up
+				if (sneaking && !rideSneaking) standInRide();
+				else rideSpot = JetModule.seatSpot(rideSeat);
+			} else {
+				var input = player.input.getMoveVector();
+				if (input.lengthSquared() > 1) input = input.normalized();
+				float speed = mc.options.keySprint.isDown() ? 0.26f : 0.18f;
+				rideSpot = JetModule.cabinSpot(rideSpot[0] + (fwdX * input.y + leftX * input.x) * speed, rideSpot[2] + (fwdZ * input.y + leftZ * input.x) * speed);
+				// Right-click by a free seat to sit in it
+				if (dev.femboyware.util.Mc.screen() == null) {
+					int seat = JetModule.nearestSeat(rideSpot[0], rideSpot[2], fwdX, fwdZ, seatsTaken(riding.uuid), JetModule.SEAT_REACH);
+					if (seat >= 0) {
+						boolean clicked = false;
+						while (mc.options.keyUse.consumeClick()) clicked = true;
+						if (clicked) sitInRide(seat);
+					}
+				}
+			}
+			rideSneaking = sneaking;
 			Vec3 at = JetModule.sharedSeat(jet, rideSpot);
 			player.setDeltaMovement(Vec3.ZERO);
 			player.setPos(at.x, at.y, at.z);
@@ -1260,6 +1311,7 @@ public class ClientSyncModule extends Module {
 			org.joml.Vector3f local = JetModule.sharedLocal(jet, player.position());
 			if (!JetModule.sharedInCabin(local)) continue;
 			riding = peer;
+			rideSeat = -1;
 			rideSpot = JetModule.cabinSpot(local.x, local.z);
 			rideSpotOld = rideSpot;
 			rideYaw = (float) jet[3];
@@ -1337,16 +1389,97 @@ public class ClientSyncModule extends Module {
 		}
 	}
 
+	/**
+	 * The jet a peer is aboard as we see it at {@code time}, or null: their own (drawn behind by our
+	 * delay, like everything of theirs), or, riding with someone, that someone's. Riding with you,
+	 * it's your jet as it is right now, so they're sat right next to you on your screen whatever
+	 * their ping, rather than where they were in the world by the time their update got here.
+	 */
+	private double[] cabinJet(Peer peer, long time) {
+		if (peer.cabinAt == null || peer.seatedIn == null) return null;
+		if ("jet".equals(peer.seatedIn)) return jetAt(peer, time);
+		if (!"ride".equals(peer.seatedIn) || peer.rideOwner == null) return null;
+		if (peer.rideOwner.equals(mc.player.getUUID())) {
+			double[] mine = FemboyWare.getModules().get(JetModule.class).shareState();
+			return mine != null && mine[9] > 0.5 ? mine : null;
+		}
+		Peer owner = peers.get(peer.rideOwner);
+		double[] theirs = owner == null ? null : jetAt(owner, time);
+		return theirs != null && theirs[9] > 0.5 ? theirs : null;
+	}
+
+	/** Whether you're riding in someone else's jet. */
+	public boolean ridingJet() {
+		return riding != null;
+	}
+
+	/** The seats people are sat in aboard {@code owner}'s jet (them included), so nobody sits on anyone. */
+	public Set<Integer> seatsTaken(UUID owner) {
+		Set<Integer> taken = new java.util.HashSet<>();
+		if (!isEnabled()) return taken;
+		for (Peer peer : peers.values()) {
+			if (peer.sit < 0 || peer.entity == null) continue;
+			if ("jet".equals(peer.seatedIn) && peer.uuid.equals(owner)) taken.add(peer.sit);
+			else if ("ride".equals(peer.seatedIn) && owner.equals(peer.rideOwner)) taken.add(peer.sit);
+		}
+		// Riding in theirs: your own seat doesn't count against you, theirs does
+		if (riding != null && riding.uuid.equals(owner)) {
+			int theirs = riding.sit;
+			if (theirs >= 0) taken.add(theirs);
+		}
+		return taken;
+	}
+
+	/** {@code .jet sit} and {@code .jet stand} while riding in someone's jet. */
+	public void sitInRide(boolean sit) {
+		if (riding == null) return;
+		if (!sit) {
+			standInRide();
+			return;
+		}
+		int seat = JetModule.nearestSeat(rideSpot[0], rideSpot[2], 0, 0, seatsTaken(riding.uuid), Float.MAX_VALUE);
+		if (seat < 0) dev.femboyware.util.ChatUtil.info("Every seat's taken");
+		else sitInRide(seat);
+	}
+
+	private void sitInRide(int seat) {
+		rideSeat = seat;
+		rideSpot = JetModule.seatSpot(seat);
+		rideSpotOld = rideSpot;
+		mc.player.setYRot(rideYaw + JetModule.seatYaw(seat));
+		mc.player.setXRot(0);
+		dev.femboyware.util.Mc.actionBar("Sneak to get up");
+	}
+
+	private void standInRide() {
+		if (rideSeat < 0) return;
+		rideSpot = JetModule.standSpot(rideSeat);
+		rideSeat = -1;
+	}
+
 	/** Called from CameraMixin each frame: their captains moved to their seats exactly as their aircraft are drawn this frame. */
 	public void placeFrame() {
 		if (!isEnabled() || nullCheck() || peers.isEmpty()) return;
 		long now = System.nanoTime() - DELAY - TICK;
+		// Everyone aboard a jet, exactly in their spot in it as it's drawn this frame
+		for (Peer peer : peers.values()) {
+			if (peer.entity == null || peer.cabinAt == null) continue;
+			double[] cabin = cabinJet(peer, now);
+			if (cabin == null) continue;
+			Vec3 at = JetModule.sharedSeat(cabin, peer.cabinAt);
+			var entity = peer.entity;
+			entity.setPos(at.x, at.y, at.z);
+			entity.xo = entity.xOld = at.x;
+			entity.yo = entity.yOld = at.y;
+			entity.zo = entity.zOld = at.z;
+			if (peer.sit >= 0) entity.yBodyRot = entity.yBodyRotO = (float) cabin[3] + JetModule.seatYaw(peer.sit);
+		}
 		if (riding != null) {
 			// You, exactly where their jet is this frame, so you don't judder inside it
 			double[] jet = jetAt(riding, now);
 			if (jet != null && rideSpot != null) {
 				float partial = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
-				float[] spot = {Mth.lerp(partial, rideSpotOld[0], rideSpot[0]), rideSpot[1], Mth.lerp(partial, rideSpotOld[2], rideSpot[2])};
+				float[] spot = {Mth.lerp(partial, rideSpotOld[0], rideSpot[0]), Mth.lerp(partial, rideSpotOld[1], rideSpot[1]), Mth.lerp(partial, rideSpotOld[2], rideSpot[2])};
 				Vec3 at = JetModule.sharedSeat(jet, spot);
 				var player = mc.player;
 				player.setPos(at.x, at.y, at.z);
@@ -1395,6 +1528,19 @@ public class ClientSyncModule extends Module {
 
 	/** Called from PlayerModelMixin: their captains sit at the controls. */
 	public void posePilots(net.minecraft.client.model.player.PlayerModel model, net.minecraft.client.renderer.entity.state.AvatarRenderState state) {
+		// You sat in someone's jet, and anyone sat in a jet's seats
+		if (riding != null && rideSeat >= 0 && mc.player != null && state.id == mc.player.getId()) {
+			JetModule.poseSeated(model);
+			return;
+		}
+		if (!overridden.isEmpty()) {
+			for (Peer peer : peers.values()) {
+				if (peer.entity != null && peer.entity.getId() == state.id && peer.sit >= 0) {
+					JetModule.poseSeated(model);
+					return;
+				}
+			}
+		}
 		if (state.id >= 0) return;
 		if (seatedJetCaptains.contains(state.id)) JetModule.poseSeatedPilot(model);
 		else if (heliCaptains.contains(state.id)) HelicopterModule.poseSeatedPilot(model, true);
@@ -1549,9 +1695,13 @@ public class ClientSyncModule extends Module {
 		double[] body = lerp(a.body, b.body, m.f, 3, 4, 5, 6);
 		Vec3 pos = new Vec3(body[0], body[1], body[2]);
 		peer.seatedIn = a.seatIn;
+		peer.rideOwner = "ride".equals(a.seatIn) ? a.rideOwner : null;
+		peer.sit = ("jet".equals(a.seatIn) || "ride".equals(a.seatIn)) && a.seat != null ? a.sit : -1;
+		peer.cabinAt = a.seat == null ? null : toFloats(a.sit >= 0 || b.seat == null ? a.seat : lerp(a.seat, b.seat, m.f));
 		// Aboard their jet or helicopter: exactly in their seat, wherever it's flown to by now
-		if ("jet".equals(a.seatIn) && a.jet != null && a.seat != null) {
-			pos = JetModule.sharedSeat(lerp(a.jet, b.jet, m.f, 3, 4, 5), toFloats(lerp(a.seat, b.seat, m.f)));
+		double[] cabin = cabinJet(peer, System.nanoTime() - DELAY);
+		if (cabin != null) {
+			pos = JetModule.sharedSeat(cabin, peer.cabinAt);
 		} else if ("heli".equals(a.seatIn) && a.heli != null && a.seat != null) {
 			pos = HelicopterModule.sharedSeat(lerp(a.heli, b.heli, m.f, 3, 4, 5), toFloats(lerp(a.seat, b.seat, m.f)));
 		}
@@ -1568,6 +1718,7 @@ public class ClientSyncModule extends Module {
 		entity.setXRot((float) body[4]);
 		entity.setYHeadRot((float) body[5]);
 		entity.yBodyRot = (float) body[6];
+		if (cabin != null && peer.sit >= 0) entity.yBodyRot = entity.yBodyRotO = (float) cabin[3] + JetModule.seatYaw(peer.sit);
 		entity.setDeltaMovement(Vec3.ZERO);
 		// Their own walk animation, rather than one worked out from how far they moved
 		WalkAnimationStateAccessor walk = (WalkAnimationStateAccessor) entity.walkAnimation;
@@ -1613,6 +1764,9 @@ public class ClientSyncModule extends Module {
 		AbstractClientPlayer entity = peer.entity;
 		peer.entity = null;
 		peer.seatedIn = null;
+		peer.rideOwner = null;
+		peer.cabinAt = null;
+		peer.sit = -1;
 		if (entity == null) return;
 		overridden.remove(entity.getId());
 		List<Packet<?>> replay = held.remove(entity.getId());
@@ -1643,6 +1797,7 @@ public class ClientSyncModule extends Module {
 	private void releaseAll(boolean restore) {
 		if (riding != null && mc.player != null) mc.player.setNoGravity(false);
 		riding = null;
+		rideSeat = -1;
 		for (Peer peer : peers.values()) forget(peer, restore);
 		overridden.clear();
 		held.clear();

@@ -433,6 +433,20 @@ public class PhoneModule extends Module {
 		return ownsItem.get();
 	}
 
+	/** Takes the item out of your inventory and stops it being put back. */
+	private void putAway() {
+		boolean had = ownsItem.get() || LarpItems.has(LarpItems.PHONE);
+		ownsItem.set(false);
+		LarpItems.remove(LarpItems.PHONE);
+		if (had) dev.femboyware.FemboyWare.getConfig().save();
+	}
+
+	/** Turned off: the item leaves your inventory with it. */
+	@Override
+	protected void onDisable() {
+		putAway();
+	}
+
 	public void open() {
 		Mc.setScreen(new PhoneScreen(this));
 	}
@@ -1707,10 +1721,8 @@ public class PhoneModule extends Module {
 					? "Here's your phone, in your larp inventory: move it round like any item. Right-click it to open it"
 					: "Here's your phone. It's a ghost item, on your side only; turn on Server Larp to move it round freely. Right-click it to open it");
 			}
-			case "remove", "take" -> {
-				ownsItem.set(false);
-				LarpItems.remove(LarpItems.PHONE);
-				dev.femboyware.FemboyWare.getConfig().save();
+			case "remove", "take", "clear" -> {
+				putAway();
 				ChatUtil.info("Put your phone away");
 			}
 			case "send", "pay" -> {
@@ -1777,7 +1789,7 @@ public class PhoneModule extends Module {
 				dev.femboyware.FemboyWare.getConfig().save();
 				ChatUtil.info("Robux balance is now " + String.format(Locale.US, "%,d", robux()));
 			}
-			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "phone <open|give|dm [name] [message]|wire [amount] [from]|forbes [headline]|timing|bank [amount]|robux [amount]>");
+			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "phone <open|give|clear|dm [name] [message]|wire [amount] [from]|forbes [headline]|timing|bank [amount]|robux [amount]>");
 		}
 	}
 }

@@ -568,6 +568,20 @@ public class LedgerModule extends Module {
 		return ownsItem.get();
 	}
 
+	/** Takes the item out of your inventory and stops it being put back. */
+	private void putAway() {
+		boolean had = ownsItem.get() || LarpItems.has(LarpItems.LEDGER);
+		ownsItem.set(false);
+		LarpItems.remove(LarpItems.LEDGER);
+		if (had) dev.femboyware.FemboyWare.getConfig().save();
+	}
+
+	/** Turned off: the item leaves your inventory with it. */
+	@Override
+	protected void onDisable() {
+		putAway();
+	}
+
 	public void open() {
 		// Taken in the raid: it's in an evidence bag until the freeze lifts
 		if (FbiRaidModule.assetsFrozen()) {
@@ -707,10 +721,8 @@ public class LedgerModule extends Module {
 					? "Here's your Ledger, in your larp inventory: move it round like any item. Right-click it to open it"
 					: "Here's your Ledger. It's a ghost item, on your side only; turn on Server Larp to move it round freely. Right-click it to open it");
 			}
-			case "remove", "take" -> {
-				ownsItem.set(false);
-				LarpItems.remove(LarpItems.LEDGER);
-				dev.femboyware.FemboyWare.getConfig().save();
+			case "remove", "take", "clear" -> {
+				putAway();
 				ChatUtil.info("Put your Ledger away");
 			}
 			case "deposit", "receive", "add" -> {
@@ -764,7 +776,7 @@ public class LedgerModule extends Module {
 				ChatUtil.info("Wallet reset to its starting coins");
 			}
 			case "total", "balance" -> ChatUtil.info("Wallet total: " + usd(total()));
-			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "ledger <open|give|deposit [coin] [amount]|set <coin> <amount>|price <coin> <dollars>|history [clear]|reset|total>");
+			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "ledger <open|give|clear|deposit [coin] [amount]|set <coin> <amount>|price <coin> <dollars>|history [clear]|reset|total>");
 		}
 	}
 

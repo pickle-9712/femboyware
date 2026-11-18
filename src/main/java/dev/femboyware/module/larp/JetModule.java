@@ -166,6 +166,17 @@ public class JetModule extends Module {
 				if (!larping()) dev.femboyware.util.Mc.actionBar("Turn on Server Larp to board and fly it");
 			}
 			case "fly", "board" -> board();
+			case "sit" -> {
+				var sync = FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class);
+				if (sync.ridingJet()) sync.sitInRide(true);
+				else if (!boarded) ChatUtil.info("Board the jet first, then " + CommandManager.PREFIX + "jet sit (or right-click by a seat)");
+				else sitDown(nearestSeat(local.x, local.z, 0, 0, takenSeats(), Float.MAX_VALUE));
+			}
+			case "stand", "up" -> {
+				var sync = FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class);
+				if (sync.ridingJet()) sync.sitInRide(false);
+				else standUp();
+			}
 			case "land", "stop" -> {
 				if (boarded) disembark("Back on the ground");
 			}
@@ -174,7 +185,7 @@ public class JetModule extends Module {
 				parked = null;
 				removePilot();
 			}
-			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "jet <spawn|fly|land|remove>");
+			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "jet <spawn|fly|sit|stand|land|remove>");
 		}
 	}
 
@@ -222,6 +233,7 @@ public class JetModule extends Module {
 	 */
 	private void disembark(String message, boolean stayAboard) {
 		boarded = false;
+		sitting = -1;
 		frameSeconds = -1;
 		if (!stayAboard) {
 			doorOpening = true;
@@ -430,17 +442,37 @@ public class JetModule extends Module {
 		mc.player.setYRot(mc.player.getYRot() + Mth.wrapDegrees(pose.yaw - tickYaw));
 		tickYaw = pose.yaw;
 
-		// Walking round the cabin, in the jet's own space
+		// Walking round the cabin, in the jet's own space, or sat in a seat
 		prevLocal.set(local);
-		Vec2 input = mc.player.input.getMoveVector();
-		if (input.lengthSquared() > 1) input = input.normalized();
-		float speed = mc.options.keySprint.isDown() ? 0.26f : 0.18f;
+		boolean sneaking = mc.options.keyShift.isDown();
 		double facing = Math.toRadians(mc.player.getYRot() - pose.yaw);
 		float fwdX = (float) -Math.sin(facing), fwdZ = (float) Math.cos(facing), leftX = (float) Math.cos(facing), leftZ = (float) Math.sin(facing);
-		local.x = Mth.clamp(local.x + (fwdX * input.y + leftX * input.x) * speed, -AISLE, AISLE);
-		local.z = Mth.clamp(local.z + (fwdZ * input.y + leftZ * input.x) * speed, BACK, FRONT);
+		if (sitting >= 0) {
+			if (sneaking && !wasSneaking) standUp();
+			else {
+				float[] spot = seatSpot(sitting);
+				local.set(spot[0], spot[1], spot[2]);
+			}
+		} else {
+			Vec2 input = mc.player.input.getMoveVector();
+			if (input.lengthSquared() > 1) input = input.normalized();
+			float speed = mc.options.keySprint.isDown() ? 0.26f : 0.18f;
+			local.x = Mth.clamp(local.x + (fwdX * input.y + leftX * input.x) * speed, -AISLE, AISLE);
+			local.z = Mth.clamp(local.z + (fwdZ * input.y + leftZ * input.x) * speed, BACK, FRONT);
+			local.y = FLOOR;
+			// Right-click by a seat to sit in it
+			if (dev.femboyware.util.Mc.screen() == null) {
+				int seat = nearestSeat(local.x, local.z, fwdX, fwdZ, takenSeats(), SEAT_REACH);
+				if (seat >= 0) {
+					boolean clicked = false;
+					while (mc.options.keyUse.consumeClick()) clicked = true;
+					if (clicked) sitDown(seat);
+				}
+			}
+		}
+		wasSneaking = sneaking;
 
-		Vector3f at = new Vector3f(local.x, FLOOR, local.z).rotate(rotation(pose));
+		Vector3f at = new Vector3f(local.x, local.y, local.z).rotate(rotation(pose));
 		mc.player.setDeltaMovement(Vec3.ZERO);
 		mc.player.setPos(pose.pos.x + at.x, pose.pos.y + at.y, pose.pos.z + at.z);
 		mc.player.setOnGround(true);
@@ -453,6 +485,9 @@ public class JetModule extends Module {
 	}
 
 	private boolean wasAboard;
+	/** The seat you're sat in (see {@link #SEATS}), or -1 stood up; and whether sneak was down last tick. */
+	private int sitting = -1;
+	private boolean wasSneaking;
 
 	/** A world point in the parked jet's own space. */
 	private Vector3f toJet(Vec3 world) {
@@ -609,6 +644,11 @@ public class JetModule extends Module {
 
 	/** Called from PlayerModelMixin: the captain sits in his seat, hands on the controls. */
 	public void posePilot(net.minecraft.client.model.player.PlayerModel model, net.minecraft.client.renderer.entity.state.AvatarRenderState state) {
+		// You, sat in one of the cabin's seats
+		if (boarded && sitting >= 0 && mc.player != null && state.id == mc.player.getId()) {
+			poseSeated(model);
+			return;
+		}
 		if (pilot == null || state.id != PILOT_ID || !pilotSeated()) return;
 		poseSeatedPilot(model);
 	}
@@ -653,7 +693,8 @@ public class JetModule extends Module {
 		}
 		// First person: the eye placed in the cabin and turned with it, then your look on top
 		Quaternionf jet = rotation(pose);
-		Vector3f eye = new Vector3f(Mth.lerp(tickProgress, prevLocal.x, local.x), FLOOR + mc.player.getEyeHeight(), Mth.lerp(tickProgress, prevLocal.z, local.z)).rotate(jet);
+		Vector3f eye = new Vector3f(Mth.lerp(tickProgress, prevLocal.x, local.x), Mth.lerp(tickProgress, prevLocal.y, local.y) + mc.player.getEyeHeight(),
+			Mth.lerp(tickProgress, prevLocal.z, local.z)).rotate(jet);
 		float relativeYaw = lookYaw - pose.yaw;
 		// Vanilla turns the camera by yaw Y and pitch P as rotY(-Y) rotX(P) rotY(180); in the jet's own space likewise
 		cameraRotation = new Quaternionf(jet).rotateY((float) Math.toRadians(-relativeYaw)).rotateX((float) Math.toRadians(lookPitch)).rotateY((float) Math.PI);
@@ -766,6 +807,104 @@ public class JetModule extends Module {
 		return new float[]{Mth.clamp(x, -AISLE, AISLE), FLOOR, Mth.clamp(z, BACK, FRONT)};
 	}
 
+	// ---------------------------------------------------------------- seats
+
+	/**
+	 * Every seat you can sit in, in the jet's own space: x, z, which way you face (degrees from the
+	 * nose), and how high the cushion is above the floor. The two clubs of four armchairs, the dining
+	 * pair, both divans (two places each) and the right-hand cockpit seat; the captain has the left.
+	 */
+	private static final float[][] SEATS = {
+		{-0.66f, 8.2f, 180, 0.52f}, {-0.66f, 6.2f, 0, 0.52f}, {-0.66f, 4.8f, 180, 0.52f}, {-0.66f, 2.8f, 0, 0.52f},
+		{0.66f, 8.2f, 180, 0.52f}, {0.66f, 6.2f, 0, 0.52f}, {0.66f, 4.8f, 180, 0.52f}, {0.66f, 2.8f, 0, 0.52f},
+		{-0.66f, 1.2f, 180, 0.52f}, {-0.66f, -0.8f, 0, 0.52f},
+		{0.86f, 0.8f, 90, 0.55f}, {0.86f, -0.8f, 90, 0.55f},
+		{-0.86f, -2.7f, -90, 0.55f}, {-0.86f, -4.5f, -90, 0.55f},
+		{-0.55f, 11.45f, 0, 0.52f}};
+	/** How far from a seat (just in front of you) you can be to right-click into it. */
+	public static final float SEAT_REACH = 1.3f;
+	/** A player's legs are 0.75 long, so sat down their feet are this far under the cushion. */
+	private static final float LEGS = 0.75f;
+
+	public static boolean validSeat(int i) {
+		return i >= 0 && i < SEATS.length;
+	}
+
+	/** Where someone sat in seat {@code i} is (their feet, so their hips are on the cushion): {x, y, z}. */
+	public static float[] seatSpot(int i) {
+		float[] s = SEATS[i];
+		return new float[]{s[0], FLOOR + s[3] - LEGS, s[1]};
+	}
+
+	/** Which way seat {@code i} faces, in degrees added to the jet's heading. */
+	public static float seatYaw(int i) {
+		return SEATS[i][2];
+	}
+
+	/** Where you're stood after getting up from seat {@code i}: in the aisle beside it. */
+	public static float[] standSpot(int i) {
+		float[] s = SEATS[i];
+		return cabinSpot(s[0] * 0.3f, s[1]);
+	}
+
+	/**
+	 * The free seat nearest a little in front of you (at x, z facing fwdX, fwdZ in the jet's space),
+	 * within {@code reach}, or -1.
+	 */
+	public static int nearestSeat(float x, float z, float fwdX, float fwdZ, java.util.Set<Integer> taken, float reach) {
+		float px = x + fwdX * 0.5f, pz = z + fwdZ * 0.5f;
+		int best = -1;
+		float bestDist = reach * reach;
+		for (int i = 0; i < SEATS.length; i++) {
+			if (taken.contains(i)) continue;
+			float dx = SEATS[i][0] - px, dz = SEATS[i][1] - pz, d = dx * dx + dz * dz;
+			if (d < bestDist) {
+				bestDist = d;
+				best = i;
+			}
+		}
+		return best;
+	}
+
+	/** Seats in your jet that people riding with you are sat in. */
+	private java.util.Set<Integer> takenSeats() {
+		if (mc.player == null) return java.util.Set.of();
+		return FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class).seatsTaken(mc.player.getUUID());
+	}
+
+	private void sitDown(int seat) {
+		if (seat < 0) {
+			ChatUtil.info("Every seat's taken");
+			return;
+		}
+		sitting = seat;
+		float[] spot = seatSpot(seat);
+		local.set(spot[0], spot[1], spot[2]);
+		// Face the way the seat does
+		mc.player.setYRot(tickYaw + seatYaw(seat));
+		mc.player.setXRot(0);
+		dev.femboyware.util.Mc.actionBar("Sneak to get up");
+	}
+
+	private void standUp() {
+		if (sitting < 0) return;
+		float[] spot = standSpot(sitting);
+		local.set(spot[0], spot[1], spot[2]);
+		sitting = -1;
+	}
+
+	/** Someone sat in a cabin seat: legs out in front, hands resting on the armrests. */
+	public static void poseSeated(net.minecraft.client.model.player.PlayerModel model) {
+		model.rightLeg.xRot = -1.45f;
+		model.leftLeg.xRot = -1.45f;
+		model.rightLeg.yRot = 0.12f;
+		model.leftLeg.yRot = -0.12f;
+		model.rightArm.xRot = -0.45f;
+		model.leftArm.xRot = -0.45f;
+		model.rightArm.zRot = 0.08f;
+		model.leftArm.zRot = -0.08f;
+	}
+
 	/** Where the captain of someone else's jet is (x, y, z, yaw): in the left seat once it's boarded, otherwise greeting at the airstair. */
 	public static double[] sharedPilot(double[] s) {
 		Pose pose = sharedPose(s);
@@ -795,7 +934,12 @@ public class JetModule extends Module {
 
 	/** For Client Sync: where you're stood in the flying jet, in its own space, or null if you're not aboard. */
 	public float[] shareSeat() {
-		return boarded ? new float[]{local.x, FLOOR, local.z} : null;
+		return boarded ? new float[]{local.x, local.y, local.z} : null;
+	}
+
+	/** For Client Sync: the seat you're sat in while you fly, or -1. */
+	public int shareSitting() {
+		return boarded ? sitting : -1;
 	}
 
 	/** Someone else's jet, from what {@link #shareState} and {@link #shareLook} gave on their end. */
