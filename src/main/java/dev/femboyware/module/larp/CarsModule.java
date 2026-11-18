@@ -478,6 +478,81 @@ public class CarsModule extends Module {
 	private static final float[] JESKO_SEAT = {-0.36f, -0.62f, 0.05f}, MAYBACH_REAR = {0.45f, 0.0f, -1.35f}, MAYBACH_DRIVER = {-0.45f, 0.0f, 0.3f};
 	private static final double JESKO_TOP = 1.6, CHAUFFEUR_CRUISE = 0.42, SEATED_EYE = 1.62;
 
+	// ---------------------------------------------------------------- friends riding along
+
+	/**
+	 * Every seat in each car, in its own space. Seat 0 is always the owner's (the back right of the
+	 * Maybach, the Jesko's driver's seat); friends riding along get the others: the Maybach's back
+	 * left and front passenger seats (the chauffeur drives), the Jesko's passenger seat.
+	 */
+	private static final float[][] SUV_SEATS = {MAYBACH_REAR, {-0.45f, 0.0f, -1.35f}, {0.45f, 0.0f, 0.3f}},
+		JESKO_SEATS = {JESKO_SEAT, {0.36f, -0.62f, 0.05f}};
+
+	private static Model modelOf(double[] car) {
+		return Model.values()[net.minecraft.util.Mth.clamp((int) car[0], 0, Model.values().length - 1)];
+	}
+
+	/** How many seats a shared car (model, x, y, z, yaw, ...) has. */
+	public static int seatCount(double[] car) {
+		return modelOf(car) == Model.SUV ? SUV_SEATS.length : JESKO_SEATS.length;
+	}
+
+	/** Where someone in seat {@code seat} of a shared car is (their feet, so they sit on the cushion). */
+	public static Vec3 seatIn(double[] car, int seat) {
+		float[][] seats = modelOf(car) == Model.SUV ? SUV_SEATS : JESKO_SEATS;
+		float[] s = seats[net.minecraft.util.Mth.clamp(seat, 0, seats.length - 1)];
+		double rad = Math.toRadians(car[4]);
+		double rx = -Math.cos(rad), rz = -Math.sin(rad), fx = -Math.sin(rad), fz = Math.cos(rad);
+		return new Vec3(car[1] + rx * s[0] + fx * s[2], car[2] + s[1], car[3] + rz * s[0] + fz * s[2]);
+	}
+
+	/** Where you step out of seat {@code seat}: beside the car, on that seat's side. */
+	public static Vec3 doorOf(double[] car, int seat) {
+		float[][] seats = modelOf(car) == Model.SUV ? SUV_SEATS : JESKO_SEATS;
+		float x = seats[net.minecraft.util.Mth.clamp(seat, 0, seats.length - 1)][0];
+		double rad = Math.toRadians(car[4]);
+		double side = (x < 0 ? -1 : 1) * (modelOf(car) == Model.SUV ? 1.6 : 1.5);
+		return new Vec3(car[1] - Math.cos(rad) * side, car[2], car[3] - Math.sin(rad) * side);
+	}
+
+	/** Whether a shared car is the Jesko and seat 0, the driver's (so the arms go to the wheel). */
+	public static boolean driverSeat(double[] car, int seat) {
+		return seat == 0 && modelOf(car) == Model.JESKO;
+	}
+
+	/** For Client Sync: which of your cars (its place in the list you share) you're sat in, or -1. */
+	public int ridingIndex() {
+		return riding == null ? -1 : cars.indexOf(riding);
+	}
+
+	/** For Client Sync: your car {@code index} where it's drawn this frame (model, x, y, z, yaw), or null. */
+	public double[] carNow(int index) {
+		if (!isEnabled() || index < 0 || index >= cars.size()) return null;
+		Car car = frameCar(cars.get(index), System.nanoTime());
+		return new double[]{car.model.ordinal(), car.pos.x, car.pos.y, car.pos.z, car.yaw};
+	}
+
+	/** Whether you're looking at a shared car (model, x, y, z, yaw, ...) from close by. */
+	public boolean aimingAtShared(double[] s) {
+		if (mc.player == null || s.length < 5) return false;
+		Car car = new Car(modelOf(s), new Vec3(s[1], s[2], s[3]), (float) s[4], 0);
+		return car.pos.distanceToSqr(mc.player.position()) < 8 * 8 && aimingAt(car);
+	}
+
+	/** Someone sat in a car: legs out in front; the driver's hands on the wheel. */
+	public static void poseInCar(net.minecraft.client.model.player.PlayerModel model, boolean driving) {
+		model.rightLeg.xRot = -1.45f;
+		model.leftLeg.xRot = -1.45f;
+		model.rightLeg.yRot = 0.1f;
+		model.leftLeg.yRot = -0.1f;
+		if (driving) {
+			model.rightArm.xRot = -1.0f;
+			model.leftArm.xRot = -1.0f;
+			model.rightArm.zRot = 0;
+			model.leftArm.zRot = 0;
+		}
+	}
+
 	private static boolean larping() {
 		return dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.utility.ServerLarpModule.class).isLarping();
 	}
