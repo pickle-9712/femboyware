@@ -1703,7 +1703,11 @@ public class PhoneModule extends Module {
 	public void command(String[] args) {
 		String action = args.length > 1 ? args[1].toLowerCase(Locale.ROOT) : "open";
 		switch (action) {
-			case "open" -> mc.schedule(this::open);
+			case "open" -> {
+				// No phone item needed: .phone turns it on (texts, wires, notifications) and opens it
+				if (!isEnabled()) setEnabled(true);
+				mc.schedule(this::open);
+			}
 			case "give", "item" -> {
 				if (LarpItems.has(LarpItems.PHONE)) {
 					ChatUtil.info("You've already got your phone");
