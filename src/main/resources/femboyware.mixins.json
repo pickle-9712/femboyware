@@ -4,6 +4,13 @@
 	"package": "dev.femboyware.mixin",
 	"compatibilityLevel": "JAVA_${java}",
 	"client": [
+		"BoatNoclipOverlayMixin",
+		"EntityControlMobMixin",
+		"EntityControlRideMixin",
+		"EntityControlEntityMixin",
+		"EntityControlBoatMixin",
+		"AntiGhostBlockGameModeMixin",
+		"AntiGhostBlockLevelMixin",
 		"AbstractClientPlayerEntityMixin",
 		"AbstractBlockStateMixin",
 		"AbstractTextureAccessor",
