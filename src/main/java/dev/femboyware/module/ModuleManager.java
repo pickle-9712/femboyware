@@ -552,6 +552,8 @@ public class ModuleManager {
 		register(new dev.femboyware.module.utility.SpawnerProtectModule());
 		register(new dev.femboyware.module.utility.PlayerDetectionModule());
 		register(new dev.femboyware.module.utility.CoordSnapperModule());
+		register(new dev.femboyware.module.render.AmethystBypassModule());
+		register(new dev.femboyware.module.utility.MediaBaseFinderModule());
 		register(new dev.femboyware.module.client.DiscordPresenceModule());
 		register(new dev.femboyware.module.hud.StaffLiveModule());
 		register(new dev.femboyware.module.render.NetheriteFinderModule());
