@@ -552,6 +552,7 @@ public class ModuleManager {
 		register(new dev.femboyware.module.utility.SpawnerProtectModule());
 		register(new dev.femboyware.module.utility.PlayerDetectionModule());
 		register(new dev.femboyware.module.utility.CoordSnapperModule());
+		register(new dev.femboyware.module.render.BlockEntityDebugModule());
 		register(new dev.femboyware.module.render.BetterSusChunkModule());
 		register(new dev.femboyware.module.render.TotemSpiritModule());
 		register(new dev.femboyware.module.render.FloatingRelicsModule());
@@ -742,6 +743,8 @@ public class ModuleManager {
 	}
 
 	public boolean onPacketReceive(PacketEvent event) {
+		// Block Entity Debug's tracker listens all the time, so it knows chunks loaded before you turn it on
+		dev.femboyware.util.BlockEntityLeakTracker.ingest(event.getPacket());
 		dispatch(module -> module.onPacketReceive(event));
 		return event.isCancelled();
 	}
