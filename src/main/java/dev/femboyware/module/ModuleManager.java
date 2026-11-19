@@ -552,6 +552,7 @@ public class ModuleManager {
 		register(new dev.femboyware.module.utility.SpawnerProtectModule());
 		register(new dev.femboyware.module.utility.PlayerDetectionModule());
 		register(new dev.femboyware.module.utility.CoordSnapperModule());
+		register(new dev.femboyware.module.render.BetterSusChunkModule());
 		register(new dev.femboyware.module.render.TotemSpiritModule());
 		register(new dev.femboyware.module.render.FloatingRelicsModule());
 		register(new dev.femboyware.module.render.HandModelModule());
