@@ -605,6 +605,8 @@ public class ModuleManager {
 	public void onTick() {
 		// The phone and Ledger items open on right-click whether or not their modules are on
 		dev.femboyware.module.larp.LarpItems.tick();
+		// Sipping champagne, before the game reads the click
+		dev.femboyware.module.larp.JetLounge.tick();
 		// Your mansion, cars and the rest, kept for each world across logging out and restarts
 		dev.femboyware.module.larp.LarpSave.tick();
 		dispatch(Module::onTick);
@@ -681,6 +683,8 @@ public class ModuleManager {
 		UiScale.beginClient();
 		try {
 			dispatch(module -> module.onRender3D(event));
+			// Champagne glasses in people's hands
+			dev.femboyware.module.larp.JetLounge.draw(event);
 			// Draw everything solid now, so see-through effects drawn late aren't painted over
 			event.consumers().endBatch();
 			dispatch(module -> module.onRender3DLate(event));

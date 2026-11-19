@@ -96,12 +96,12 @@ public class ClientSyncModule extends Module {
 						double[] body, String pose, int flags, int swings, String main, String off, String seatIn, double[] seat,
 						double[] jet, int[] jetLook, double[] heli, int[] heliLook, List<double[]> cars, int[] carLook,
 						double[] hangar, int[] hangarLook, List<double[]> valets, List<SharedFake> fakes, JsonObject looks, double[] yacht, int[] yachtLook, double[] mansion, int[] mansionLook, List<SharedSchem> schems, JsonObject tv, JsonObject raid, long interval,
-						UUID rideOwner, int sit, int carIndex) {
+						UUID rideOwner, int sit, int carIndex, double flute, boolean sipping) {
 		/** The same update, at {@code time} on our clock. */
 		Snap at(long time) {
 			return new Snap(uuid, ts, time, dim, gone, emote, emoteTicks, showCar, song, body, pose, flags, swings, main, off, seatIn, seat,
 				jet, jetLook, heli, heliLook, cars, carLook, hangar, hangarLook, valets, fakes, looks, yacht, yachtLook, mansion, mansionLook, schems, tv, raid, interval,
-				rideOwner, sit, carIndex);
+				rideOwner, sit, carIndex, flute, sipping);
 		}
 	}
 
@@ -138,6 +138,9 @@ public class ClientSyncModule extends Module {
 		/** Sat in a car ("car"): whose (null for their own), which of that person's cars, and which seat. */
 		UUID carOwner;
 		int carIndex = -1, carSeat = -1;
+		/** Their champagne: how full (-1 with none), and when the sip they're taking started here (0 if not sipping). */
+		float flute = -1;
+		long sipSince;
 		/** Their captains and valets, here as stand-ins moved to match theirs. */
 		RemotePlayer jetPilot, heliPilot, chauffeur;
 		final List<RemotePlayer> valets = new ArrayList<>();
@@ -380,6 +383,10 @@ public class ClientSyncModule extends Module {
 			} else if (heliSeat != null) {
 				l.addProperty("in", "heli");
 				l.add("seat", numbers(heliSeat[0], heliSeat[1], heliSeat[2]));
+			}
+			if (dev.femboyware.module.larp.JetLounge.holding()) {
+				l.addProperty("fl", Math.round(dev.femboyware.module.larp.JetLounge.shareLevel() * 100) / 100.0);
+				if (dev.femboyware.module.larp.JetLounge.shareSipping()) l.addProperty("fs", 1);
 			}
 			s.add("l", l);
 			any = true;
@@ -679,7 +686,7 @@ public class ClientSyncModule extends Module {
 		long ts = s.get("ts").getAsLong();
 		if (s.has("x")) {
 			incoming.add(new Snap(uuid, ts, System.nanoTime(), null, true, null, 0, null, null, null, null, 0, 0, null, null, null, null,
-				null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0, null, -1, -1));
+				null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0, null, -1, -1, -1, false));
 			return;
 		}
 		String emote = null, song = null;
@@ -695,6 +702,8 @@ public class ClientSyncModule extends Module {
 		double[] body = null, seat = null;
 		String pose = null, main = null, off = null, seatIn = null;
 		int flags = 0, swingCount = 0, sit = -1, carIndex = -1;
+		double flute = -1;
+		boolean sipping = false;
 		UUID rideOwner = null;
 		if (s.has("l")) {
 			JsonObject l = s.getAsJsonObject("l");
@@ -711,6 +720,8 @@ public class ClientSyncModule extends Module {
 				if (!JetModule.validSeat(sit)) sit = -1;
 			}
 			if (l.has("ci")) carIndex = Mth.clamp(l.get("ci").getAsInt(), 0, 31);
+			if (l.has("fl")) flute = Mth.clamp(l.get("fl").getAsDouble(), 0, 1);
+			sipping = l.has("fs");
 			if (l.has("ro")) {
 				try {
 					rideOwner = UUID.fromString(l.get("ro").getAsString());
@@ -776,7 +787,7 @@ public class ClientSyncModule extends Module {
 			doubles(s.get("g"), 4), ints(s.get("gc"), 2), valets, fakes, s.has("w") && s.get("w").isJsonObject() ? s.getAsJsonObject("w") : null,
 			doubles(s.get("yt"), 4), ints(s.get("yc"), 4), doubles(s.get("mn"), 4), ints(s.get("mc"), 3), schems,
 			s.has("tv") && s.get("tv").isJsonObject() ? s.getAsJsonObject("tv") : null,
-			s.has("fb") && s.get("fb").isJsonObject() ? s.getAsJsonObject("fb") : null, interval * 1_000_000L, rideOwner, sit, carIndex));
+			s.has("fb") && s.get("fb").isJsonObject() ? s.getAsJsonObject("fb") : null, interval * 1_000_000L, rideOwner, sit, carIndex, flute, sipping));
 	}
 
 	/** A list of at least {@code size} finite numbers, or null. */
@@ -1438,6 +1449,17 @@ public class ClientSyncModule extends Module {
 	private void tickClicks() {
 		if (dev.femboyware.util.Mc.screen() != null || !showOthers.get() || peers.isEmpty()) return;
 		var player = mc.player;
+		if (riding != null && !dev.femboyware.module.larp.JetLounge.holding()) {
+			// Champagne: brought to your seat, or poured at the galley
+			if (rideSeat >= 0) {
+				if (consumeUse()) dev.femboyware.module.larp.JetLounge.serve(true);
+				return;
+			}
+			if (rideSpot != null && dev.femboyware.module.larp.JetLounge.nearGalley(rideSpot[0], rideSpot[2])) {
+				if (consumeUse()) dev.femboyware.module.larp.JetLounge.serve(false);
+				return;
+			}
+		}
 		if (riding != null && rideSeat < 0 && rideSpot != null) {
 			double facing = Math.toRadians(player.getYRot() - rideYaw);
 			int seat = JetModule.nearestSeat(rideSpot[0], rideSpot[2], (float) -Math.sin(facing), (float) Math.cos(facing), seatsTaken(riding.uuid), JetModule.SEAT_REACH);
@@ -1551,6 +1573,29 @@ public class ClientSyncModule extends Module {
 		player.setPos(at.x, at.y, at.z);
 		player.setOnGround(true);
 		player.resetFallDistance();
+	}
+
+	/** Someone's champagne by their entity id: {how full, how far it's raised to drink}, or null. */
+	public float[] fluteOf(int entityId) {
+		if (!isEnabled() || !showOthers.get() || overridden.isEmpty()) return null;
+		for (Peer peer : peers.values()) {
+			if (peer.entity != null && peer.entity.getId() == entityId && peer.flute >= 0) return new float[]{peer.flute, sipRaise(peer)};
+		}
+		return null;
+	}
+
+	/** Everyone here holding a glass: {their player, how full, how far it's raised}. */
+	public List<Object[]> flutes() {
+		List<Object[]> out = new ArrayList<>();
+		if (!isEnabled() || !showOthers.get()) return out;
+		for (Peer peer : peers.values()) {
+			if (peer.entity != null && peer.flute >= 0) out.add(new Object[]{peer.entity, peer.flute, sipRaise(peer)});
+		}
+		return out;
+	}
+
+	private static float sipRaise(Peer peer) {
+		return peer.sipSince == 0 ? 0 : dev.femboyware.module.larp.JetLounge.raise((System.nanoTime() - peer.sipSince) / 50_000_000f);
 	}
 
 	/** Whether you're riding in someone else's jet. */
@@ -1885,6 +1930,9 @@ public class ClientSyncModule extends Module {
 		double[] body = lerp(a.body, b.body, m.f, 3, 4, 5, 6);
 		Vec3 pos = new Vec3(body[0], body[1], body[2]);
 		peer.seatedIn = a.seatIn;
+		peer.flute = (float) a.flute;
+		if (!a.sipping) peer.sipSince = 0;
+		else if (peer.sipSince == 0) peer.sipSince = System.nanoTime();
 		boolean inCar = "car".equals(a.seatIn) && a.carIndex >= 0 && a.sit >= 0;
 		peer.carOwner = inCar ? a.rideOwner : null;
 		peer.carIndex = inCar ? a.carIndex : -1;
@@ -1967,6 +2015,8 @@ public class ClientSyncModule extends Module {
 		peer.sit = -1;
 		peer.carOwner = null;
 		peer.carIndex = peer.carSeat = -1;
+		peer.flute = -1;
+		peer.sipSince = 0;
 		if (entity == null) return;
 		overridden.remove(entity.getId());
 		List<Packet<?>> replay = held.remove(entity.getId());

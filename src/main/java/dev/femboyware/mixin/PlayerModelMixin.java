@@ -29,5 +29,7 @@ public class PlayerModelMixin {
 		FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class).posePilots(model, state);
 		FemboyWare.getModules().get(dev.femboyware.module.larp.CarsModule.class).poseRiders(model, state);
 		FemboyWare.getModules().get(dev.femboyware.module.larp.FbiRaidModule.class).pose(model, state);
+		// Last, over a seat's pose: a champagne glass in hand, lifted to drink
+		dev.femboyware.module.larp.JetLounge.pose(model, state);
 	}
 }

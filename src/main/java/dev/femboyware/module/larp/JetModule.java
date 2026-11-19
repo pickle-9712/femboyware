@@ -181,6 +181,18 @@ public class JetModule extends Module {
 				else if (!boarded) ChatUtil.info("Board the jet first, then " + CommandManager.PREFIX + "jet sit (or right-click by a seat)");
 				else sitDown(nearestSeat(local.x, local.z, 0, 0, takenSeats(), Float.MAX_VALUE));
 			}
+			case "champagne", "drink", "bubbly" -> {
+				var sync = FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class);
+				boolean aboard = boarded || sync.ridingJet() || (parked != null && mc.player != null && inCabin(toJet(mc.player.position())));
+				if (!aboard) ChatUtil.info("Board the jet first: the champagne's at the galley");
+				else JetLounge.serve(sitting >= 0 || sync.ridingJet());
+			}
+			case "party", "lights" -> {
+				party = !party;
+				dev.femboyware.util.Mc.addChat(net.minecraft.network.chat.Component.literal(party
+					? "<Captain> Mood lighting's on in the cabin. Enjoy yourselves back there."
+					: "<Captain> Cabin lights back to normal."));
+			}
 			case "stand", "up" -> {
 				var sync = FemboyWare.getModules().get(dev.femboyware.module.client.ClientSyncModule.class);
 				if (sync.ridingJet()) sync.sitInRide(false);
@@ -195,7 +207,7 @@ public class JetModule extends Module {
 				parked = null;
 				removePilot();
 			}
-			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "jet <spawn|fly|sit|stand|land|remove>");
+			default -> ChatUtil.info("Usage: " + CommandManager.PREFIX + "jet <spawn|fly|sit|stand|champagne|party|land|remove>");
 		}
 	}
 
@@ -212,6 +224,7 @@ public class JetModule extends Module {
 		}
 		if (boarded) return;
 		endlessFlight = endless.get();
+		cruiseAnnounced = false;
 		landFrom = -1;
 		buildPath();
 		boarded = true;
@@ -457,9 +470,13 @@ public class JetModule extends Module {
 			wasAboard = aboard;
 			// Right-click the jet to take off: stood inside it, or aiming at it from close by
 			if (larping() && dev.femboyware.util.Mc.screen() == null && (aboard || aimingAtJet())) {
+				Vector3f in = toJet(mc.player.position());
+				boolean galley = aboard && !JetLounge.holding() && JetLounge.nearGalley(in.x, in.z);
 				boolean clicked = false;
 				while (mc.options.keyUse.consumeClick()) clicked = true;
-				if (clicked) board();
+				// At the galley it pours you a glass instead of taking off
+				if (clicked && galley) JetLounge.serve(false);
+				else if (clicked) board();
 			}
 			return;
 		}
@@ -494,6 +511,8 @@ public class JetModule extends Module {
 			else {
 				float[] spot = seatSpot(sitting);
 				local.set(spot[0], spot[1], spot[2]);
+				// Right-click in your seat and the champagne's brought to you
+				if (!JetLounge.holding() && dev.femboyware.util.Mc.screen() == null && consumeUse()) JetLounge.serve(true);
 			}
 		} else {
 			Vec2 input = mc.player.input.getMoveVector();
@@ -502,8 +521,10 @@ public class JetModule extends Module {
 			local.x = Mth.clamp(local.x + (fwdX * input.y + leftX * input.x) * speed, -AISLE, AISLE);
 			local.z = Mth.clamp(local.z + (fwdZ * input.y + leftZ * input.x) * speed, BACK, FRONT);
 			local.y = FLOOR;
-			// Right-click by a seat to sit in it
-			if (dev.femboyware.util.Mc.screen() == null) {
+			// Right-click at the galley for a glass, or by a seat to sit in it
+			if (dev.femboyware.util.Mc.screen() == null && !JetLounge.holding() && JetLounge.nearGalley(local.x, local.z)) {
+				if (consumeUse()) JetLounge.serve(false);
+			} else if (dev.femboyware.util.Mc.screen() == null) {
 				int seat = nearestSeat(local.x, local.z, fwdX, fwdZ, takenSeats(), SEAT_REACH);
 				if (seat >= 0) {
 					boolean clicked = false;
@@ -520,6 +541,12 @@ public class JetModule extends Module {
 		mc.player.setOnGround(true);
 		mc.player.fallDistance = 0;
 
+		if (!cruiseAnnounced && ticks > BOARDING_TICKS && pose.pos.y - parked.y > altitude.get() * 0.85) {
+			cruiseAnnounced = true;
+			dev.femboyware.util.Mc.addChat(net.minecraft.network.chat.Component.literal("<Captain> We've reached our cruising altitude and the seatbelt sign is off. "
+				+ "There's champagne at the galley, or take a seat and right-click and it'll be brought to you."));
+		}
+
 		if (--nextEngineTick <= 0) {
 			LarpSounds.play(LarpSounds.JET_ENGINE, 0.4f);
 			nextEngineTick = 70;
@@ -527,9 +554,29 @@ public class JetModule extends Module {
 	}
 
 	private boolean wasAboard;
+	/** Party lights in the cabin (yours, or someone else's while theirs is drawn: -1 for yours), and whether the captain's said you're at cruise yet. */
+	private boolean party;
+	private int partyOverride = -1;
+	private boolean cruiseAnnounced;
 	/** The seat you're sat in (see {@link #SEATS}), or -1 stood up; and whether sneak was down last tick. */
 	private int sitting = -1;
 	private boolean wasSneaking;
+
+	private boolean consumeUse() {
+		boolean clicked = false;
+		while (mc.options.keyUse.consumeClick()) clicked = true;
+		return clicked;
+	}
+
+	private boolean partyNow() {
+		return partyOverride >= 0 ? partyOverride == 1 : party;
+	}
+
+	/** A party light's colour: the hue wheeling round over time, offset along the cabin. */
+	private static int partyColor(float offset, int alpha) {
+		float hue = (System.currentTimeMillis() % 4000) / 4000f + offset;
+		return (alpha << 24) | (java.awt.Color.HSBtoRGB(hue, 0.85f, 1f) & 0xFFFFFF);
+	}
 
 	/** A world point in the parked jet's own space. */
 	private Vector3f toJet(Vec3 world) {
@@ -810,7 +857,7 @@ public class JetModule extends Module {
 		if (!isEnabled() || parked == null) return null;
 		Pose pose = renderPose();
 		return new double[]{pose.pos.x, pose.pos.y, pose.pos.z, pose.yaw, pose.pitch, pose.roll, doorAmount(), pose.gearDown ? 1 : 0,
-			boarded && ticks >= BOARDING_TICKS ? 1 : 0, boarded ? 1 : 0};
+			boarded && ticks >= BOARDING_TICKS ? 1 : 0, boarded ? 1 : 0, party ? 1 : 0};
 	}
 
 	/** Someone else's parked jet as solid boxes, so you can walk up its airstair and round its cabin; nothing while it's flying. */
@@ -988,13 +1035,16 @@ public class JetModule extends Module {
 	public void drawShared(Render3DEvent event, double[] s, int[] colors) {
 		int[] wasLook = look;
 		float wasDoor = doorOverride;
+		int wasParty = partyOverride;
 		look = colors.length >= 3 ? colors : null;
 		doorOverride = (float) Mth.clamp(s[6], 0, 1);
+		partyOverride = s.length > 10 && s[10] > 0.5 ? 1 : 0;
 		try {
 			drawPose(event, sharedPose(s), false, s[8] > 0.5);
 		} finally {
 			look = wasLook;
 			doorOverride = wasDoor;
+			partyOverride = wasParty;
 		}
 	}
 
@@ -1074,11 +1124,20 @@ public class JetModule extends Module {
 			// Hot exhaust glowing out of the engines
 			for (int side = -1; side <= 1; side += 2) light(event, glow, rot, ox, oy, oz, side * 2.85f, 3.7f, -11.4f, 0.75f, 0x60FFA040);
 		}
+		boolean partying = partyNow();
 		if (inside) {
-			// Warm reading lights over the seats
+			// Reading lights over the seats: warm, or wheeling through colours with the party lights on
 			for (float z = 8.6f; z > -5f; z -= 1.6f) {
-				for (int side = -1; side <= 1; side += 2) light(event, glow, rot, ox, oy, oz, side * 0.95f, 3.85f, z, 0.16f, 0x80FFE2B0);
+				for (int side = -1; side <= 1; side += 2) light(event, glow, rot, ox, oy, oz, side * 0.95f, 3.85f, z, 0.16f, partying ? partyColor(z * 0.04f, 0xA0) : 0x80FFE2B0);
 			}
+		}
+		if (partying && (inside || near)) {
+			// A strip of light down each side of the ceiling, the colour chasing along it
+			for (float z = 9.2f; z > -5.3f; z -= 0.45f) {
+				for (int side = -1; side <= 1; side += 2) light(event, glow, rot, ox, oy, oz, side * 1.18f, 3.72f, z, 0.11f, partyColor(z * 0.06f, 0xC0));
+			}
+			// And a soft glow washing the floor
+			for (float z = 8f; z > -4.5f; z -= 2.5f) light(event, glow, rot, ox, oy, oz, 0, FLOOR + 0.05f, z, 0.9f, partyColor(z * 0.03f + 0.5f, 0x30));
 		}
 		// The cabin TV on the back wall, last since it's its own layer
 		if (inside || near) dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.larp.TvModule.class).drawBuiltIn(event, rot, ox, oy, oz,
