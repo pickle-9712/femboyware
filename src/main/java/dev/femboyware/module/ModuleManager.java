@@ -358,6 +358,7 @@ public class ModuleManager {
 		register(new ShineModule());
 		register(new BackgroundModule());
 		register(new dev.femboyware.module.theme.MenuBackgroundModule());
+		register(new dev.femboyware.module.theme.GuiBackgroundModule());
 		register(new dev.femboyware.module.theme.WallpaperModule());
 		register(new dev.femboyware.module.theme.BrandingModule());
 		register(new AspectModule());

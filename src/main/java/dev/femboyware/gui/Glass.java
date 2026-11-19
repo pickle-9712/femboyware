@@ -100,6 +100,22 @@ public final class Glass {
 		blit(context, new Key(width, height, r, 0, color, 0, 0, 0, 0, 0, Kind.SOLID), x1 * density, y1 * density, density);
 	}
 
+	/**
+	 * A plain rounded rectangle always drawn straight from fills, never cached: for shapes whose
+	 * colour or size animates every frame, which would otherwise bake a new texture each frame.
+	 */
+	public static void live(GuiGraphics context, int x1, int y1, int x2, int y2, int radius, int color) {
+		if ((color >>> 24) == 0) return;
+		int density = UiScale.density();
+		int width = (x2 - x1) * density, height = (y2 - y1) * density;
+		if (width <= 0 || height <= 0) return;
+		int r = Math.min(radius * density, Math.min(width, height) / 2);
+		context.pose().pushMatrix();
+		context.pose().scale(1f / density, 1f / density);
+		pixels(context, x1 * density, y1 * density, x2 * density, y2 * density, r, color);
+		context.pose().popMatrix();
+	}
+
 	/** A soft-edged oval, such as a shadow on the ground, filling {@code x1..x2, y1..y2} in GUI units. */
 	public static void ellipse(GuiGraphics context, int x1, int y1, int x2, int y2, int color) {
 		int density = UiScale.density();

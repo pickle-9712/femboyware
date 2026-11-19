@@ -81,6 +81,8 @@ public class ClickGuiScreen extends Screen {
 	/** Where the content is drawn: eases toward {@link #scroll} so the wheel glides instead of jumping. */
 	private float smooth;
 	private long lastFrame;
+	/** Where the scrolled content starts on screen this frame: the glides keep their place relative to it. */
+	private int contentOrigin;
 	/** The cards in order last frame, and which one has keyboard focus (-1 none). */
 	private final List<Module> cards = new ArrayList<>();
 	private final List<int[]> cardSpots = new ArrayList<>();
@@ -104,6 +106,178 @@ public class ClickGuiScreen extends Screen {
 	private final StringSetting search = new StringSetting("Search", "Search modules by name or description", "");
 	private boolean searching;
 
+	// ---------------------------------------------------------------- animation
+
+	/** Seconds since the last frame, capped so a hitch doesn't jump everything to its end. */
+	private float dt;
+	/** Every eased value, by what it belongs to (see {@link #ease}). */
+	private final Map<Object, float[]> anims = new HashMap<>();
+	/** The highlights that glide from what you'd picked to what you pick next. */
+	private final Glide navGlide = new Glide(), chipGlide = new Glide(), cardGlide = new Glide(), settingGlide = new Glide(), optionGlide = new Glide();
+	/** The card you last clicked or moved to with the keys, and the setting you last clicked. */
+	private Module selected;
+	private Object selectedSetting;
+	/** When the cards last changed (a new section, tab, search or coming back), so they cascade in. */
+	private long cardsAt;
+	private Object cardsKey;
+	/** When a settings page opened, so it slides in; and when a dropdown opened, so it fades in. */
+	private long settingsAt, enumAt;
+	/** When each star was last clicked, so it pops. */
+	private final Map<Module, Long> starPops = new HashMap<>();
+	private final List<Ripple> ripples = new ArrayList<>();
+	/** The tooltip showing and when it came up, so it slides in. */
+	private String tooltipText;
+	private long tooltipAt;
+
+	private record Key(String kind, Object of, int index) {
+	}
+
+	/** A click's ripple: spreading out from where you clicked over the thing you clicked, then fading. */
+	private record Ripple(float x, float y, int x1, int y1, int x2, int y2, int radius, long at, boolean content) {
+	}
+
+	/**
+	 * A highlight that glides: it's aimed at something each frame, and eases its position and size
+	 * there, fading in when it's first aimed and out when nothing is.
+	 */
+	private static final class Glide {
+		float x, y, w, h, alpha;
+		/** How fast it's moving vertically, in GUI units a second, for the stretch while it travels. */
+		float speed;
+		private float tx, ty, tw, th;
+		private boolean aimed;
+
+		void aim(float x, float y, float w, float h) {
+			tx = x;
+			ty = y;
+			tw = w;
+			th = h;
+			aimed = true;
+		}
+
+		/** Moves toward where it was aimed (since the last step), then forgets the aim. */
+		void step(float dt, float rate) {
+			float k = 1 - (float) Math.exp(-dt * rate);
+			if (aimed) {
+				if (alpha < 0.02f) {
+					// Nothing showing: appear where it's wanted rather than flying in from wherever it was
+					x = tx;
+					y = ty;
+					w = tw;
+					h = th;
+					speed = 0;
+				} else {
+					float lastY = y;
+					x += (tx - x) * k;
+					y += (ty - y) * k;
+					w += (tw - w) * k;
+					h += (th - h) * k;
+					speed = dt > 0 ? (y - lastY) / dt : 0;
+					if (Math.abs(tx - x) < 0.05f && Math.abs(ty - y) < 0.05f) {
+						x = tx;
+						y = ty;
+					}
+				}
+				alpha += (1 - alpha) * Math.min(1, k * 1.4f);
+			} else {
+				alpha += (0 - alpha) * k;
+				speed = 0;
+			}
+			aimed = false;
+		}
+
+		boolean visible() {
+			return alpha > 0.01f;
+		}
+	}
+
+	/** Eases the value kept under {@code key} toward {@code target}, {@code rate} being how fast (higher is snappier). */
+	private float ease(Object key, float target, float rate) {
+		float[] v = anims.get(key);
+		if (v == null) {
+			anims.put(key, new float[]{target});
+			return target;
+		}
+		v[0] += (target - v[0]) * (1 - (float) Math.exp(-dt * rate));
+		if (Math.abs(target - v[0]) < 0.002f) v[0] = target;
+		return v[0];
+	}
+
+	private float ease(String kind, Object of, float target, float rate) {
+		return ease(new Key(kind, of, 0), target, rate);
+	}
+
+	/** Between two colours, alpha included: {@code t} 0 is {@code a}, 1 is {@code b}. */
+	private static int mix(int a, int b, float t) {
+		if (t <= 0) return a;
+		if (t >= 1) return b;
+		int out = 0;
+		for (int shift = 0; shift < 32; shift += 8) {
+			int ca = (a >>> shift) & 0xFF, cb = (b >>> shift) & 0xFF;
+			out |= Math.round(ca + (cb - ca) * t) << shift;
+		}
+		return out;
+	}
+
+	/** {@code color} with its alpha scaled by {@code t}. */
+	private static int fade(int color, float t) {
+		if (t >= 1) return color;
+		return ColorUtil.withAlpha(color, Math.round((color >>> 24) * Math.max(0, t)));
+	}
+
+	private static float easeOut(float t) {
+		t = Math.max(0, Math.min(1, t));
+		return 1 - (1 - t) * (1 - t) * (1 - t);
+	}
+
+	private static float seconds(long since) {
+		return (System.nanoTime() - since) / 1e9f;
+	}
+
+	/** Text, unless it's faded too far to draw (the font draws nearly-clear text solid). */
+	private void text(GuiGraphics context, String s, int x, int y, int color) {
+		if ((color >>> 24) < 8) return;
+		context.drawString(font, s, x, y, color);
+	}
+
+	/** Where the content sat when a ripple started: clicks land on last frame's rows. */
+	private void ripple(Row row, double mouseX, double mouseY, int radius, boolean content) {
+		ripples.add(new Ripple((float) mouseX, (float) mouseY, row.x, row.y, row.x + row.width, row.y + row.height, radius, System.nanoTime(), content));
+	}
+
+	/** The ripples on the scrolling content (drawn inside its clip) or on everything else. */
+	private void renderRipples(GuiGraphics context, int accent, boolean content) {
+		for (int i = ripples.size() - 1; i >= 0; i--) {
+			Ripple r = ripples.get(i);
+			if (r.content != content) continue;
+			float t = seconds(r.at) / 0.5f;
+			if (t >= 1) {
+				ripples.remove(i);
+				continue;
+			}
+			float far = (float) Math.max(Math.hypot(r.x - r.x1, r.y - r.y1), Math.max(Math.hypot(r.x - r.x2, r.y - r.y1),
+				Math.max(Math.hypot(r.x - r.x1, r.y - r.y2), Math.hypot(r.x - r.x2, r.y - r.y2))));
+			float radius = far * easeOut(t * 1.4f);
+			int color = ColorUtil.withAlpha(mix(Theme.text(), accent, 0.5f), Math.round(0x46 * (1 - t) * (1 - t)));
+			if ((color >>> 24) == 0) continue;
+			int h = r.y2 - r.y1, cr = Math.min(r.radius, Math.min(r.x2 - r.x1, h) / 2);
+			for (int y = r.y1; y < r.y2; y++) {
+				float dy = y + 0.5f - r.y;
+				if (Math.abs(dy) >= radius) continue;
+				float dx = (float) Math.sqrt(radius * radius - dy * dy);
+				// Kept inside the thing's rounded corners
+				int row = y - r.y1, inset = 0;
+				int fromEdge = Math.min(row, h - 1 - row);
+				if (fromEdge < cr) {
+					double ey = cr - fromEdge - 0.5;
+					inset = (int) Math.round(cr - Math.sqrt(cr * cr - ey * ey));
+				}
+				int left = Math.max(r.x1 + inset, Math.round(r.x - dx)), right = Math.min(r.x2 - inset, Math.round(r.x + dx));
+				if (right > left) context.fill(left, y, right, y + 1, color);
+			}
+		}
+	}
+
 	public ClickGuiScreen(ClickGuiModule module) {
 		super(Component.literal("femboyware"));
 		this.module = module;
@@ -121,6 +295,8 @@ public class ClickGuiScreen extends Screen {
 		super.added();
 		openedAt = System.nanoTime();
 		closeAt = 0;
+		cardsKey = null;
+		settingsAt = openedAt;
 		WorldGui.place(this);
 	}
 
@@ -245,6 +421,7 @@ public class ClickGuiScreen extends Screen {
 		// The dim fades with the window
 		int dim = Theme.dim();
 		context.fill(0, 0, width, height, ColorUtil.withAlpha(dim, (int) ((dim >>> 24) * openness())));
+		dev.femboyware.module.theme.GuiBackgroundModule.drawScreen(context, width, height, openness());
 	}
 
 	/** A click on the world panel, moved to where it lands on the GUI. */
@@ -341,6 +518,9 @@ public class ClickGuiScreen extends Screen {
 	// ---------------------------------------------------------------- the window
 
 	private void renderScaled(GuiGraphics context, int mouseX, int mouseY) {
+		long now = System.nanoTime();
+		dt = lastFrame == 0 ? 0 : Math.min(0.1f, (now - lastFrame) / 1e9f);
+		lastFrame = now;
 		if (slider != null) updateSlider(mouseX);
 		rows.clear();
 		int accent = module.getAccent();
@@ -359,6 +539,8 @@ public class ClickGuiScreen extends Screen {
 		int x1 = (canvasWidth() - w) / 2, y1 = (canvasHeight() - h) / 2, x2 = x1 + w, y2 = y1 + h;
 		// A wallpaper fills the window solid; the glass then only shades it
 		dev.femboyware.module.theme.WallpaperModule.draw(context, x1, y1, x2, y2, Math.max(8, Theme.roundness()));
+		// Your own picture, see-through, under the glass
+		dev.femboyware.module.theme.GuiBackgroundModule.drawWindow(context, x1, y1, x2, y2, Math.max(8, Theme.roundness()));
 		Glass.draw(context, x1, y1, x2, y2, Math.max(8, Theme.roundness()), Theme.panel(), true);
 		renderSidebar(context, x1, y1, y2 - FOOTER, mouseX, mouseY, accent);
 
@@ -371,16 +553,22 @@ public class ClickGuiScreen extends Screen {
 		int bottom = y2 - FOOTER - 6;
 		viewHeight = bottom - top;
 		scroll = Math.max(0, Math.min(scroll, Math.max(0, contentHeight - viewHeight)));
-		long now = System.nanoTime();
-		float dt = lastFrame == 0 ? 0 : Math.min(0.1f, (now - lastFrame) / 1e9f);
-		lastFrame = now;
 		smooth += (scroll - smooth) * (1 - (float) Math.exp(-dt * 16));
 		if (Math.abs(scroll - smooth) < 0.3f) smooth = scroll;
 		int drawn = Math.round(smooth);
 		int first = rows.size();
+		contentOrigin = top - drawn;
 		context.enableScissor(cx1 - 4, top, x2 - 4, bottom);
-		int end = open != null ? renderSettingsPage(context, open, cx1 + 2, top - drawn, cx2, mouseX, mouseY, accent)
-			: renderCards(context, cx1 + 2, top - drawn, cx2, mouseX, mouseY, accent);
+		int end;
+		if (open != null) {
+			// A settings page slides in from the right
+			float slide = 16 * (1 - easeOut(seconds(settingsAt) / 0.28f));
+			context.pose().pushMatrix();
+			context.pose().translate(slide, 0);
+			end = renderSettingsPage(context, open, cx1 + 2, top - drawn, cx2, mouseX, mouseY, accent);
+			context.pose().popMatrix();
+		} else end = renderCards(context, cx1 + 2, top - drawn, cx2, mouseX, mouseY, accent);
+		renderRipples(context, accent, true);
 		context.disableScissor();
 		contentHeight = end + drawn - top;
 		// Rows scrolled out of view can't be clicked
@@ -391,13 +579,18 @@ public class ClickGuiScreen extends Screen {
 		if (contentHeight > viewHeight) {
 			int barH = Math.max(14, viewHeight * viewHeight / contentHeight);
 			int barY = top + (int) ((long) (viewHeight - barH) * drawn / Math.max(1, contentHeight - viewHeight));
-			Glass.rounded(context, x2 - 8, barY, x2 - 6, barY + barH, 1, ColorUtil.withAlpha(accent, 0xA0));
+			// Thickens and brightens under the mouse
+			boolean barHover = mouseX >= x2 - 16 && mouseX < x2 - 2 && mouseY >= top && mouseY < bottom;
+			float bh = ease("bar", "hover", barHover ? 1 : 0, 14);
+			int bw = 2 + Math.round(2 * bh);
+			Glass.live(context, x2 - 6 - bw, barY, x2 - 6, barY + barH, 1, ColorUtil.withAlpha(accent, 0xA0 + Math.round(0x50 * bh)));
 		}
 
 		// The footer: how to drive it
 		String hint = open != null ? "Esc goes back  ·  Right click a setting resets it  ·  Middle click binds"
 			: "Click toggles  ·  Right click or Enter: settings  ·  Space toggles  ·  Tab moves  ·  Middle click binds";
 		context.drawString(font, ellipsize(hint, w - 2 * PAD), x1 + PAD, y2 - FOOTER + 4, Theme.muted());
+		renderRipples(context, accent, false);
 		renderTooltip(context, mouseX, mouseY);
 	}
 
@@ -408,6 +601,20 @@ public class ClickGuiScreen extends Screen {
 		context.drawString(font, ellipsize(dev.femboyware.module.theme.BrandingModule.name(), SIDEBAR - 2 * PAD - 12), x + 12, y, Theme.text());
 		if (dev.femboyware.module.theme.BrandingModule.showVersion()) context.drawString(font, "Version " + FemboyWare.VERSION, x + 12, y + 10, ColorUtil.withAlpha(accent, 0xFF));
 		y += 24;
+		// The selected section's highlight, gliding to wherever you click, its bar stretching as it goes
+		navGlide.step(dt, 16);
+		if (navGlide.visible()) {
+			float a = navGlide.alpha, stretch = Math.min(9, Math.abs(navGlide.speed) * 0.025f);
+			int gw = Math.round(navGlide.w), gh = Math.round(navGlide.h);
+			context.pose().pushMatrix();
+			context.pose().translate(navGlide.x, navGlide.y);
+			Glass.live(context, 0, 0, gw, gh, 5, ColorUtil.withAlpha(accent, Math.round(0x48 * a)));
+			// The bar trails behind the way it's going
+			float lead = navGlide.speed > 0 ? -stretch : 0;
+			context.pose().translate(0, 3 + lead);
+			Glass.live(context, 0, 0, 2, Math.max(2, Math.round(gh - 6 + stretch)), 1, fade(accent, a));
+			context.pose().popMatrix();
+		}
 		y = sectionHeader(context, "FEATURES", x, y);
 		y = navItem(context, RowType.FAVORITES, null, "star", "Favorites", favorites && open == null, x1, y, mouseX, mouseY, accent);
 		y = navItem(context, RowType.ENABLED, null, "enabled", "Enabled (" + enabledModules().size() + ")", enabledView && open == null, x1, y, mouseX, mouseY, accent);
@@ -456,15 +663,21 @@ public class ClickGuiScreen extends Screen {
 	private int navItem(GuiGraphics context, RowType type, Category.Group g, String icon, String label, boolean selected, int x1, int y, int mouseX, int mouseY, int accent) {
 		Row row = new Row(type, x1 + 5, y, SIDEBAR - 8, NAV_HEIGHT, null, null, null, 0, g);
 		rows.add(row);
-		if (selected) {
-			Glass.rounded(context, row.x, y, row.x + row.width, y + NAV_HEIGHT, 5, ColorUtil.withAlpha(accent, 0x48));
-			Glass.rounded(context, row.x, y + 3, row.x + 2, y + NAV_HEIGHT - 3, 1, accent);
-		} else if (row.contains(mouseX, mouseY)) {
-			Glass.rounded(context, row.x, y, row.x + row.width, y + NAV_HEIGHT, 5, Theme.surface());
-		}
-		int color = selected ? Theme.text() : Theme.muted();
-		drawIcon(context, icon, row.x + 8, y + 2, 9, selected ? accent : color);
+		Key key = new Key("nav", g == null ? type : g, type.ordinal());
+		float hover = ease(new Key("navHover", key, 0), row.contains(mouseX, mouseY) ? 1 : 0, 14);
+		float sel = ease(new Key("navSel", key, 0), selected ? 1 : 0, 12);
+		if (selected) navGlide.aim(row.x, y, row.width, NAV_HEIGHT);
+		// Hover shows a soft surface, fading in and out, under the glide
+		float bg = hover * (1 - sel);
+		if (bg > 0.01f) Glass.live(context, row.x, y, row.x + row.width, y + NAV_HEIGHT, 5, fade(Theme.surface(), bg));
+		int color = mix(Theme.muted(), Theme.text(), Math.max(sel, hover * 0.7f));
+		// Nudged right as it's picked or hovered
+		float nudge = 2 * Math.max(sel, hover * 0.6f);
+		context.pose().pushMatrix();
+		context.pose().translate(nudge, 0);
+		drawIcon(context, icon, row.x + 8, y + 2, 9, mix(color, accent, sel));
 		context.drawString(font, label, row.x + 22, y + 3, color);
+		context.pose().popMatrix();
 		return y + NAV_HEIGHT + 1;
 	}
 
@@ -482,9 +695,21 @@ public class ClickGuiScreen extends Screen {
 	private void renderSearch(GuiGraphics context, int x1, int y, int x2, int mouseX, int mouseY, int accent) {
 		Row box = new Row(RowType.SEARCH, x1, y, x2 - x1, SEARCH_HEIGHT, null, null, search, 0, null);
 		rows.add(box);
-		Glass.rounded(context, x1, y, x2, y + SEARCH_HEIGHT, 7, searching ? ColorUtil.withAlpha(accent, 0x30) : box.contains(mouseX, mouseY) ? Theme.surfaceHover() : Theme.surface());
+		float hover = ease("search", "hover", box.contains(mouseX, mouseY) ? 1 : 0, 14);
+		float focused = ease("search", "focus", searching ? 1 : 0, 12);
+		int bg = mix(mix(Theme.surface(), Theme.surfaceHover(), hover), ColorUtil.withAlpha(accent, 0x30), focused);
+		shape(context, x1, y, x2, y + SEARCH_HEIGHT, 7, bg, settled(hover) && settled(focused));
+		// Typing in it: an accent line grows out from the middle along the bottom
+		if (focused > 0.01f) {
+			float half = ((x2 - x1) / 2f - 7) * easeOut(focused);
+			float mid = (x1 + x2) / 2f;
+			context.pose().pushMatrix();
+			context.pose().translate(mid - half, y + SEARCH_HEIGHT - 1);
+			context.fill(0, 0, Math.max(1, Math.round(half * 2)), 1, fade(accent, focused));
+			context.pose().popMatrix();
+		}
 		// A little magnifying glass
-		drawIcon(context, "search", x1 + 7, y + 5, 8, Theme.muted());
+		drawIcon(context, "search", x1 + 7, y + 5, 8, mix(Theme.muted(), accent, focused));
 		if (search.get().isEmpty() && !searching) {
 			context.drawString(font, "Search modules...", x1 + 19, y + 5, Theme.muted());
 		} else {
@@ -497,6 +722,7 @@ public class ClickGuiScreen extends Screen {
 		List<Category> tabs = tabs(group);
 		if (tabs.size() <= 1) return y;
 		Category current = currentTab();
+		List<Row> chips = new ArrayList<>();
 		int x = x1;
 		for (Category c : tabs) {
 			int w = font.width(c.getDisplayName()) + 16;
@@ -504,12 +730,26 @@ public class ClickGuiScreen extends Screen {
 				x = x1;
 				y += CHIP_HEIGHT + 4;
 			}
-			Row chip = new Row(RowType.CHIP, x, y, w, CHIP_HEIGHT, c, null, null, 0, null);
-			rows.add(chip);
-			boolean on = c == current;
-			Glass.rounded(context, x, y, x + w, y + CHIP_HEIGHT, 6, on ? ColorUtil.withAlpha(accent, 0x90) : chip.contains(mouseX, mouseY) ? Theme.surfaceHover() : Theme.surface());
-			context.drawString(font, c.getDisplayName(), x + 8, y + 3, on ? Theme.text() : Theme.muted());
+			chips.add(new Row(RowType.CHIP, x, y, w, CHIP_HEIGHT, c, null, null, 0, null));
 			x += w + 4;
+		}
+		for (Row chip : chips) {
+			float hover = ease("chip", chip.category, chip.contains(mouseX, mouseY) ? 1 : 0, 14);
+			shape(context, chip.x, chip.y, chip.x + chip.width, chip.y + CHIP_HEIGHT, 6, mix(Theme.surface(), Theme.surfaceHover(), hover), settled(hover));
+			if (chip.category == current) chipGlide.aim(chip.x, chip.y, chip.width, CHIP_HEIGHT);
+		}
+		// The chosen tab's fill glides (and stretches to fit) from the last one you picked
+		chipGlide.step(dt, 16);
+		if (chipGlide.visible()) {
+			context.pose().pushMatrix();
+			context.pose().translate(chipGlide.x, chipGlide.y);
+			Glass.live(context, 0, 0, Math.round(chipGlide.w), CHIP_HEIGHT, 6, ColorUtil.withAlpha(accent, Math.round(0x90 * chipGlide.alpha)));
+			context.pose().popMatrix();
+		}
+		for (Row chip : chips) {
+			float on = ease("chipOn", chip.category, chip.category == current ? 1 : 0, 12);
+			context.drawString(font, chip.category.getDisplayName(), chip.x + 8, chip.y + 3, mix(Theme.muted(), Theme.text(), on));
+			rows.add(chip);
 		}
 		return y + CHIP_HEIGHT + 6;
 	}
@@ -551,52 +791,135 @@ public class ClickGuiScreen extends Screen {
 		List<Module> list = shown();
 		cards.clear();
 		cardSpots.clear();
+		// A different set of cards cascades in, one after another
+		Object key = List.of(group, String.valueOf(tab.get(group)), favorites, enabledView, search.get());
+		if (!key.equals(cardsKey)) {
+			cardsKey = key;
+			cardsAt = System.nanoTime();
+		}
+		float since = seconds(cardsAt);
 		if (list.isEmpty()) {
+			cardGlide.step(dt, 16);
 			String empty = enabledView ? "Nothing is on" : favorites ? "Star a module to keep it here" : "Nothing matches";
-			context.drawString(font, empty, x1 + 4, y + 6, Theme.muted());
+			text(context, empty, x1 + 4, y + 6, fade(Theme.muted(), easeOut(since / 0.25f)));
 			return y + 24;
 		}
 		int cardW = (x2 - x1 - GAP) / 2;
+		focus = selected == null ? -1 : list.indexOf(selected);
+		if (focus >= 0) cardGlide.aim((focus % 2) * (cardW + GAP), (focus / 2) * (CARD_HEIGHT + GAP), cardW, CARD_HEIGHT);
+		cardGlide.step(dt, 16);
+		// The picked card: a soft glow under it that breathes, gliding card to card
+		float glow = cardGlide.alpha * (0.85f + 0.15f * (float) Math.sin(System.nanoTime() / 1e9 * 3));
+		if (cardGlide.visible()) {
+			context.pose().pushMatrix();
+			context.pose().translate(x1 + cardGlide.x, y + cardGlide.y);
+			Glass.live(context, -2, -2, cardW + 2, CARD_HEIGHT + 2, 8, ColorUtil.withAlpha(accent, Math.round(0x3A * glow)));
+			context.pose().popMatrix();
+		}
 		for (int i = 0; i < list.size(); i++) {
 			Module m = list.get(i);
 			int x = x1 + (i % 2) * (cardW + GAP), cy = y + (i / 2) * (CARD_HEIGHT + GAP);
 			cards.add(m);
 			cardSpots.add(new int[]{x, cy});
-			renderCard(context, m, x, cy, cardW, mouseX, mouseY, accent, i == focus);
+			float in = easeOut((since - Math.min(i, 18) * 0.022f) / 0.24f);
+			renderCard(context, m, x, cy, cardW, mouseX, mouseY, accent, in);
+		}
+		// And its ring on top
+		if (cardGlide.visible()) {
+			context.pose().pushMatrix();
+			context.pose().translate(x1 + cardGlide.x, y + cardGlide.y);
+			outline(context, 0, 0, cardW, CARD_HEIGHT, fade(accent, cardGlide.alpha));
+			outline(context, -1, -1, cardW + 1, CARD_HEIGHT + 1, ColorUtil.withAlpha(accent, Math.round(0x50 * glow)));
+			context.pose().popMatrix();
 		}
 		return y + ((list.size() + 1) / 2) * (CARD_HEIGHT + GAP);
 	}
 
-	private void renderCard(GuiGraphics context, Module m, int x, int y, int w, int mouseX, int mouseY, int accent, boolean focused) {
+	/** One module's card; {@code in} is how far it's come in (0 to 1) as the cards cascade. */
+	private void renderCard(GuiGraphics context, Module m, int x, int y, int w, int mouseX, int mouseY, int accent, float in) {
 		Row card = new Row(RowType.CARD, x, y, w, CARD_HEIGHT, m.getCategory(), m, null, 0, null);
 		rows.add(card);
-		boolean on = m.isEnabled(), hover = card.contains(mouseX, mouseY);
-		int base = on ? ColorUtil.withAlpha(accent, hover ? 0x58 : 0x44) : hover ? Theme.surfaceHover() : Theme.surface();
-		Glass.rounded(context, x, y, x + w, y + CARD_HEIGHT, 7, base);
-		if (focused) outline(context, x, y, x + w, y + CARD_HEIGHT, accent);
+		if (in <= 0.01f) return;
+		boolean hover = card.contains(mouseX, mouseY);
+		float hoverT = ease("hover", m, hover ? 1 : 0, 14), onT = ease("on", m, m.isEnabled() ? 1 : 0, 12);
+		int off = mix(Theme.surface(), Theme.surfaceHover(), hoverT);
+		int lit = ColorUtil.withAlpha(accent, 0x44 + Math.round(0x14 * hoverT));
+		boolean still = in >= 1 && settled(hoverT) && settled(onT);
+		context.pose().pushMatrix();
+		context.pose().translate(0, 8 * (1 - in));
+		shape(context, x, y, x + w, y + CARD_HEIGHT, 7, fade(mix(off, lit, onT), in), still);
+		// On: a thin accent stripe down the left edge, growing from its middle
+		if (onT > 0.01f) {
+			float half = (CARD_HEIGHT / 2f - 8) * easeOut(onT);
+			context.pose().pushMatrix();
+			context.pose().translate(x + 3, y + CARD_HEIGHT / 2f - half);
+			context.fill(0, 0, 2, Math.max(1, Math.round(half * 2)), fade(accent, in * onT));
+			context.pose().popMatrix();
+		}
 		String name = binding == m ? m.getName() + "  [press a key]" : m.getName();
-		context.drawString(font, name, x + 10, y + 6, Theme.text());
+		text(context, name, x + 10, y + 6, fade(Theme.text(), in));
 		int textRight = x + w - 52;
 		String description = ellipsize(m.getDescription(), textRight - (x + 10));
-		context.drawString(font, description, x + 10, y + 17, Theme.muted());
+		text(context, description, x + 10, y + 17, fade(Theme.muted(), in));
 
 		// The star, then the switch
-		boolean fav = module.isFavorite(m);
 		int sx = x + w - 46, sy = y + (CARD_HEIGHT - 12) / 2;
 		Row star = new Row(RowType.STAR, sx - 2, sy - 2, 14, 16, null, m, null, 0, null);
 		rows.add(star);
-		drawIcon(context, fav ? "star" : "star_outline", sx, sy + 1, 10, fav ? accent : star.contains(mouseX, mouseY) ? Theme.text() : Theme.muted());
+		drawStar(context, m, sx, sy + 1, star.contains(mouseX, mouseY), accent, in);
 		if (m != module) {
 			int tx = x + w - 28, ty = y + (CARD_HEIGHT - 10) / 2;
 			rows.add(new Row(RowType.SWITCH, tx - 2, ty - 3, 24, 16, null, m, null, 0, null));
-			drawSwitch(context, tx, ty, on, accent);
+			drawSwitch(context, tx, ty, onT, accent, in);
 		}
+		context.pose().popMatrix();
 	}
 
-	private static void drawSwitch(GuiGraphics context, int x, int y, boolean on, int accent) {
-		Glass.rounded(context, x, y, x + 20, y + 10, 5, on ? accent : Theme.switchOff());
-		int knob = on ? x + 11 : x + 1;
-		Glass.rounded(context, knob, y + 1, knob + 8, y + 9, 4, Theme.knob());
+	/** A module's favourite star, which pops when you click it and brightens under the mouse. */
+	private void drawStar(GuiGraphics context, Module m, int x, int y, boolean hover, int accent, float in) {
+		boolean fav = module.isFavorite(m);
+		float h = ease("star", m, hover ? 1 : 0, 16), f = ease("fav", m, fav ? 1 : 0, 12);
+		int color = mix(mix(Theme.muted(), Theme.text(), h), accent, f);
+		Long popped = starPops.get(m);
+		float scale = 1;
+		if (popped != null) {
+			float t = seconds(popped) / 0.38f;
+			if (t >= 1) starPops.remove(m);
+			else scale = 1 + 0.5f * (float) Math.sin(Math.PI * t) * (1 - t * 0.4f);
+		}
+		scale += 0.12f * h;
+		context.pose().pushMatrix();
+		context.pose().translate(x + 5, y + 5);
+		context.pose().scale(scale, scale);
+		drawIcon(context, fav ? "star" : "star_outline", -5, -5, 10, fade(color, in));
+		context.pose().popMatrix();
+	}
+
+	/**
+	 * A switch, {@code t} of the way on (0 off, 1 on, in between while it slides): the track's colour
+	 * blends across and the knob slides, stretching a little in the middle of its travel.
+	 */
+	private static void drawSwitch(GuiGraphics context, int x, int y, float t, int accent, float in) {
+		boolean still = in >= 1 && settled(t);
+		shape(context, x, y, x + 20, y + 10, 5, fade(mix(Theme.switchOff(), accent, t), in), still);
+		float stretch = 3 * (float) Math.sin(Math.PI * t);
+		context.pose().pushMatrix();
+		context.pose().translate(x + 1 + (10 - stretch) * t, y + 1);
+		shape(context, 0, 0, Math.round(8 + stretch), 8, 4, fade(Theme.knob(), in), still);
+		context.pose().popMatrix();
+	}
+
+	private static boolean settled(float t) {
+		return t <= 0 || t >= 1;
+	}
+
+	/**
+	 * A rounded shape: from the cache while it's {@code still}, so it keeps its smooth corners, and
+	 * straight from fills while it animates, so a changing colour doesn't bake a texture a frame.
+	 */
+	private static void shape(GuiGraphics context, int x1, int y1, int x2, int y2, int radius, int color, boolean still) {
+		if (still) Glass.rounded(context, x1, y1, x2, y2, radius, color);
+		else Glass.live(context, x1, y1, x2, y2, radius, color);
 	}
 
 	private static void outline(GuiGraphics context, int x1, int y1, int x2, int y2, int color) {
@@ -650,18 +973,22 @@ public class ClickGuiScreen extends Screen {
 		// Back, the name with its switch, and what it does
 		Row back = new Row(RowType.BACK, x1, y, font.width("Back") + 20, 14, null, null, null, 0, null);
 		rows.add(back);
-		Glass.rounded(context, back.x, y, back.x + back.width, y + 14, 6, back.contains(mouseX, mouseY) ? Theme.surfaceHover() : Theme.surface());
+		float backHover = ease("back", "hover", back.contains(mouseX, mouseY) ? 1 : 0, 14);
+		shape(context, back.x, y, back.x + back.width, y + 14, 6, mix(Theme.surface(), Theme.surfaceHover(), backHover), settled(backHover));
+		// The arrow leans back the way it goes
+		context.pose().pushMatrix();
+		context.pose().translate(-1.5f * backHover, 0);
 		drawIcon(context, "back", back.x + 5, y + 3, 8, Theme.text());
+		context.pose().popMatrix();
 		context.drawString(font, "Back", back.x + 14, y + 3, Theme.text());
 		context.drawString(font, m.getName(), back.x + back.width + 8, y + 3, Theme.text());
-		boolean fav = module.isFavorite(m);
 		int sx = x2 - 46;
 		Row star = new Row(RowType.STAR, sx - 2, y - 1, 14, 16, null, m, null, 0, null);
 		rows.add(star);
-		drawIcon(context, fav ? "star" : "star_outline", sx, y + 2, 10, fav ? accent : star.contains(mouseX, mouseY) ? Theme.text() : Theme.muted());
+		drawStar(context, m, sx, y + 2, star.contains(mouseX, mouseY), accent, 1);
 		if (m != module) {
 			rows.add(new Row(RowType.HEADER_SWITCH, x2 - 30, y - 1, 24, 16, null, m, null, 0, null));
-			drawSwitch(context, x2 - 28, y + 2, m.isEnabled(), accent);
+			drawSwitch(context, x2 - 28, y + 2, ease("on", m, m.isEnabled() ? 1 : 0, 12), accent, 1);
 		}
 		y += 18;
 		for (String line : wrap(m.getDescription(), w - 4)) {
@@ -694,9 +1021,11 @@ public class ClickGuiScreen extends Screen {
 		int right = x + w - 6;
 
 		Glass.rounded(context, x, y, x + w, y + ROW_HEIGHT + 2, 4, Theme.settingRow());
+		Row bind = new Row(RowType.BIND, x, y, w, ROW_HEIGHT + 2, null, m, null, 0, null);
+		hoverRow(context, bind, new Key("bind", m, 0), mouseX, mouseY);
 		String bindText = binding == m ? "Bind: press a key..." : "Bind: " + keyName(m.getKey());
 		context.drawString(font, bindText, left, y + 4, Theme.muted());
-		rows.add(new Row(RowType.BIND, x, y, w, ROW_HEIGHT + 2, null, m, null, 0, null));
+		rows.add(bind);
 		y += ROW_HEIGHT + 5;
 
 		for (Setting<?> setting : m.getSettings()) {
@@ -707,10 +1036,11 @@ public class ClickGuiScreen extends Screen {
 				context.drawString(font, color.getName(), left, y + 3, Theme.text());
 				Glass.rounded(context, right - 14, y + 2, right, y + ROW_HEIGHT - 2, 2, color.get() | 0xFF000000);
 				rows.add(new Row(RowType.COLOR, x, y, w, ROW_HEIGHT, null, m, color, -1, null));
+				if (color.equals(selectedSetting)) settingGlide.aim(x, y - contentOrigin, w, ROW_HEIGHT * 5);
 				y += ROW_HEIGHT;
 				for (int i = 0; i < 4; i++) {
 					int value = color.getChannel(CHANNEL_SHIFTS[i]);
-					drawSlider(context, x, y, w, CHANNEL_NAMES[i], String.valueOf(value), value / 255.0, accent, 4);
+					drawSlider(context, x, y, w, CHANNEL_NAMES[i], String.valueOf(value), value / 255.0, accent, 4, new Key("slider", color, CHANNEL_SHIFTS[i]), mouseX, mouseY);
 					rows.add(new Row(RowType.COLOR, x, y, w, ROW_HEIGHT, null, m, color, CHANNEL_SHIFTS[i], null));
 					y += ROW_HEIGHT;
 				}
@@ -722,19 +1052,21 @@ public class ClickGuiScreen extends Screen {
 				case BoolSetting bool -> {
 					context.fill(x, y, x + w, y + ROW_HEIGHT, Theme.settingRow());
 					context.drawString(font, bool.getName(), left, y + 3, Theme.text());
-					drawSwitch(context, right - 20, y + 2, bool.get(), accent);
+					drawSwitch(context, right - 20, y + 2, ease("switch", setting, bool.get() ? 1 : 0, 14), accent, 1);
 					yield new Row(RowType.BOOL, x, y, w, ROW_HEIGHT, null, m, setting, 0, null);
 				}
 				case NumberSetting number -> {
 					double fraction = (number.get() - number.getMin()) / (number.getMax() - number.getMin());
 					String value = number.isInteger() ? String.valueOf(number.getInt()) : trim(number.get());
-					drawSlider(context, x, y, w, number.getName(), value, fraction, accent, 0);
+					drawSlider(context, x, y, w, number.getName(), value, fraction, accent, 0, new Key("slider", setting, 0), mouseX, mouseY);
 					yield new Row(RowType.NUMBER, x, y, w, ROW_HEIGHT, null, m, setting, 0, null);
 				}
 				case ButtonSetting button -> {
 					context.fill(x, y, x + w, y + ROW_HEIGHT, Theme.settingRow());
-					Glass.rounded(context, left - 2, y + 1, right, y + ROW_HEIGHT - 1, 3, Theme.surface());
-					context.drawString(font, button.getName(), (left + right - font.width(button.getName())) / 2, y + 3, accent);
+					boolean over = mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + ROW_HEIGHT;
+					float press = ease("button", setting, over ? 1 : 0, 14);
+					shape(context, left - 2, y + 1, right, y + ROW_HEIGHT - 1, 3, mix(Theme.surface(), ColorUtil.withAlpha(accent, 0x40), press), settled(press));
+					context.drawString(font, button.getName(), (left + right - font.width(button.getName())) / 2, y + 3, mix(accent, Theme.text(), press));
 					yield new Row(RowType.BUTTON, x, y, w, ROW_HEIGHT, null, m, setting, 0, null);
 				}
 				case Choice mode -> {
@@ -763,36 +1095,88 @@ public class ClickGuiScreen extends Screen {
 				default -> null;
 			};
 			if (row == null) continue;
-			if (row.contains(mouseX, mouseY)) context.fill(row.x, row.y, row.x + row.width, row.y + row.height, Theme.surface());
+			hoverRow(context, row, new Key("row", setting, 0), mouseX, mouseY);
+			if (setting.equals(selectedSetting)) settingGlide.aim(row.x, row.y - contentOrigin, row.width, row.height);
 			rows.add(row);
 			y += row.height;
 			if (setting instanceof Choice mode && openEnum == mode) {
 				java.util.List<String> options = mode.optionNames();
-				int selected = mode.selectedIndex();
-				for (int i = 0; i < options.size(); i++) {
-					boolean current = i == selected;
-					context.fill(x, y, x + w, y + ROW_HEIGHT, Theme.settingRow());
-					context.fill(left - 2, y, left - 1, y + ROW_HEIGHT, current ? accent : Theme.divider());
-					context.drawString(font, options.get(i), left + 4, y + 3, current ? accent : Theme.muted());
-					Row option = new Row(RowType.ENUM_OPTION, x, y, w, ROW_HEIGHT, null, m, setting, i, null);
-					if (option.contains(mouseX, mouseY)) context.fill(x, y, x + w, y + ROW_HEIGHT, Theme.surface());
-					rows.add(option);
+				int chosen = mode.selectedIndex(), n = options.size();
+				context.fill(x, y, x + w, y + ROW_HEIGHT * n, Theme.settingRow());
+				// A highlight that follows the mouse down the list, resting on the chosen one
+				boolean inList = mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + ROW_HEIGHT * n;
+				int target = inList ? Math.min(n - 1, (mouseY - y) / ROW_HEIGHT) : chosen;
+				optionGlide.aim(x, y + target * ROW_HEIGHT - contentOrigin, w, ROW_HEIGHT);
+				optionGlide.step(dt, 22);
+				if (optionGlide.visible()) {
+					context.pose().pushMatrix();
+					context.pose().translate(optionGlide.x, optionGlide.y + contentOrigin);
+					Glass.live(context, 2, 1, Math.round(optionGlide.w) - 2, ROW_HEIGHT - 1, 3, ColorUtil.withAlpha(accent, Math.round(0x2C * optionGlide.alpha)));
+					context.pose().popMatrix();
+				}
+				float since = seconds(enumAt);
+				for (int i = 0; i < n; i++) {
+					boolean current = i == chosen;
+					// Each option slides and fades in just after the one above
+					float in = easeOut((since - i * 0.018f) / 0.18f);
+					context.fill(left - 2, y, left - 1, y + ROW_HEIGHT, fade(current ? accent : Theme.divider(), in));
+					context.pose().pushMatrix();
+					context.pose().translate(6 * (1 - in), 0);
+					text(context, options.get(i), left + 4, y + 3, fade(current ? accent : mix(Theme.muted(), Theme.text(), ease("option", new Key("o", mode, i), i == target && inList ? 1 : 0, 16)), in));
+					context.pose().popMatrix();
+					rows.add(new Row(RowType.ENUM_OPTION, x, y, w, ROW_HEIGHT, null, m, setting, i, null));
 					y += ROW_HEIGHT;
 				}
 			}
 		}
+		// The setting you last clicked: tinted, with an accent bar, gliding from the one before
+		settingGlide.step(dt, 16);
+		if (settingGlide.visible()) {
+			float a = settingGlide.alpha, stretch = Math.min(8, Math.abs(settingGlide.speed) * 0.02f);
+			context.pose().pushMatrix();
+			context.pose().translate(settingGlide.x, settingGlide.y + contentOrigin);
+			int gw = Math.round(settingGlide.w), gh = Math.round(settingGlide.h);
+			context.fill(0, 0, gw, gh, ColorUtil.withAlpha(accent, Math.round(0x1C * a)));
+			context.pose().translate(0, settingGlide.speed > 0 ? -stretch : 0);
+			context.fill(0, 0, 2, Math.max(2, Math.round(gh + stretch)), fade(accent, a));
+			context.pose().popMatrix();
+		}
 		return y + 6;
 	}
 
-	private void drawSlider(GuiGraphics context, int x, int y, int w, String name, String value, double fraction, int accent, int indent) {
+	private void drawSlider(GuiGraphics context, int x, int y, int w, String name, String value, double fraction, int accent, int indent, Key key, int mouseX, int mouseY) {
 		int left = x + 8 + indent;
 		int right = x + w - 6;
 		context.fill(x, y, x + w, y + ROW_HEIGHT, Theme.settingRow());
-		int filled = left + (int) Math.round((right - left) * Math.max(0, Math.min(1, fraction)));
+		// The fill eases to the value (quick while you drag it), and a knob shows at its end under the mouse
+		boolean dragging = slider != null && slider.setting != null && new Key("slider", slider.setting, slider.type == RowType.COLOR ? slider.shift : 0).equals(key);
+		float shown = ease(key, (float) Math.max(0, Math.min(1, fraction)), dragging ? 40 : 14);
+		boolean over = mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + ROW_HEIGHT;
+		float knob = ease(new Key("knob", key, 0), over || dragging ? 1 : 0, 14);
+		float end = left + (right - left) * shown;
 		Glass.rounded(context, left, y + ROW_HEIGHT - 3, right, y + ROW_HEIGHT - 1, 1, Theme.track());
-		if (filled > left) Glass.rounded(context, left, y + ROW_HEIGHT - 3, filled, y + ROW_HEIGHT - 1, 1, accent);
+		if (end > left + 0.5f) {
+			context.pose().pushMatrix();
+			context.pose().translate(left, y + ROW_HEIGHT - 3);
+			Glass.live(context, 0, 0, Math.max(1, Math.round(end - left)), 2, 1, accent);
+			context.pose().popMatrix();
+		}
+		if (knob > 0.01f) {
+			float size = 2 + 3 * easeOut(knob);
+			context.pose().pushMatrix();
+			context.pose().translate(end, y + ROW_HEIGHT - 2);
+			context.pose().scale(size / 6f, size / 6f);
+			Glass.live(context, -3, -3, 3, 3, 3, fade(Theme.knob(), knob));
+			context.pose().popMatrix();
+		}
 		context.drawString(font, name, left, y + 1, Theme.text());
 		context.drawString(font, value, right - font.width(value), y + 1, Theme.muted());
+	}
+
+	/** A settings row's hover tint, fading in and out. */
+	private void hoverRow(GuiGraphics context, Row row, Key key, int mouseX, int mouseY) {
+		float t = ease(new Key("rowHover", key, 0), row.contains(mouseX, mouseY) ? 1 : 0, 16);
+		if (t > 0.01f) context.fill(row.x, row.y, row.x + row.width, row.y + row.height, fade(Theme.surface(), t));
 	}
 
 	private void renderTooltip(GuiGraphics context, int mouseX, int mouseY) {
@@ -804,23 +1188,43 @@ public class ClickGuiScreen extends Screen {
 				: row.type == RowType.BIND ? "Click, then press a key. Escape or Delete unbinds"
 				: row.type == RowType.STAR ? (module.isFavorite(row.module) ? "Unfavourite" : "Favourite")
 				: row.type == RowType.CARD && font.width(row.module.getDescription()) > row.width - 62 ? row.module.getDescription() : null;
-			if (description == null || description.isEmpty()) return;
+			if (description == null || description.isEmpty()) break;
+			if (!description.equals(tooltipText)) {
+				tooltipText = description;
+				tooltipAt = System.nanoTime();
+			}
 			int textWidth = font.width(description);
 			int x = Math.min(mouseX + 8, canvasWidth() - textWidth - 6);
 			int y = mouseY + 10;
+			context.pose().pushMatrix();
+			context.pose().translate(0, 5 * (1 - easeOut(seconds(tooltipAt) / 0.16f)));
 			Glass.draw(context, x - 4, y - 3, x + textWidth + 4, y + font.lineHeight + 2, Math.min(4, Theme.roundness()), Theme.tooltip(), true);
 			context.drawString(font, description, x, y, Theme.text());
+			context.pose().popMatrix();
 			return;
 		}
+		tooltipText = null;
 	}
 
 	// ---------------------------------------------------------------- input
 
 	private void openSettings(Module m) {
+		if (open != m) settingsAt = System.nanoTime();
 		open = m;
 		openEnum = null;
+		selectedSetting = null;
+		settingGlide.alpha = 0;
+		// Coming back, the cards cascade in again
+		cardsKey = null;
 		scroll = 0;
 		smooth = 0;
+	}
+
+	/** The card at {@code i} picked with the keys: highlighted, and kept in view. */
+	private void focusCard(int i) {
+		focus = i;
+		selected = i >= 0 && i < cards.size() ? cards.get(i) : null;
+		scrollToFocus();
 	}
 
 	private void showGroup(Category.Group g, boolean favs) {
@@ -863,6 +1267,26 @@ public class ClickGuiScreen extends Screen {
 			if (!row.contains(mouseX, mouseY)) continue;
 			boolean left = button == GLFW.GLFW_MOUSE_BUTTON_LEFT, right = button == GLFW.GLFW_MOUSE_BUTTON_RIGHT;
 			switch (row.type) {
+				case NAV, FAVORITES, ENABLED, HUD_EDIT, GUI_SETTINGS -> ripple(row, mouseX, mouseY, 5, false);
+				case CHIP -> ripple(row, mouseX, mouseY, 6, false);
+				case CARD -> ripple(row, mouseX, mouseY, 7, true);
+				case BACK -> ripple(row, mouseX, mouseY, 6, true);
+				case BIND, KEY, BUTTON, BOOL, ENUM, ENUM_OPTION -> ripple(row, mouseX, mouseY, 3, true);
+				default -> {
+				}
+			}
+			// What you click stays highlighted, the highlight gliding over from the last thing
+			switch (row.type) {
+				case CARD, STAR, SWITCH -> {
+					if (open == null) selected = row.module;
+				}
+				case BIND -> selectedSetting = new Key("bind", row.module, 0);
+				case KEY, BUTTON, BOOL, ENUM, ENUM_OPTION, STRING, NUMBER, COLOR -> selectedSetting = row.setting;
+				default -> {
+				}
+			}
+			if (row.type == RowType.STAR) starPops.put(row.module, System.nanoTime());
+			switch (row.type) {
 				case NAV -> showGroup(row.group, false);
 				case FAVORITES -> showGroup(null, true);
 				case ENABLED -> showGroup(null, false, true);
@@ -886,6 +1310,7 @@ public class ClickGuiScreen extends Screen {
 				case SWITCH, HEADER_SWITCH -> row.module.toggle();
 				case BACK -> {
 					open = null;
+					cardsKey = null;
 					scroll = 0;
 					smooth = 0;
 				}
@@ -906,7 +1331,11 @@ public class ClickGuiScreen extends Screen {
 					if (right) {
 						mode.reset();
 						openEnum = null;
-					} else openEnum = openEnum == mode ? null : mode;
+					} else {
+						openEnum = openEnum == mode ? null : mode;
+						enumAt = System.nanoTime();
+						optionGlide.alpha = 0;
+					}
 				}
 				case ENUM_OPTION -> {
 					((Choice) row.setting).setIndex(row.shift);
@@ -1054,10 +1483,7 @@ public class ClickGuiScreen extends Screen {
 			}
 			if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER || key == GLFW.GLFW_KEY_TAB) {
 				searching = false;
-				if (key == GLFW.GLFW_KEY_TAB) {
-					focus = 0;
-					scrollToFocus();
-				}
+				if (key == GLFW.GLFW_KEY_TAB) focusCard(0);
 				return true;
 			}
 			editor(search).keyPressed(input);
@@ -1071,6 +1497,7 @@ public class ClickGuiScreen extends Screen {
 		}
 		if (key == GLFW.GLFW_KEY_ESCAPE && open != null) {
 			open = null;
+			cardsKey = null;
 			scroll = 0;
 			smooth = 0;
 			return true;
@@ -1084,14 +1511,12 @@ public class ClickGuiScreen extends Screen {
 			int n = cards.size();
 			switch (key) {
 				case GLFW.GLFW_KEY_TAB -> {
-					focus = focus < 0 ? 0 : (focus + (input.hasShiftDown() ? n - 1 : 1)) % n;
-					scrollToFocus();
+					focusCard(focus < 0 ? 0 : (focus + (input.hasShiftDown() ? n - 1 : 1)) % n);
 					return true;
 				}
 				case GLFW.GLFW_KEY_RIGHT, GLFW.GLFW_KEY_LEFT, GLFW.GLFW_KEY_DOWN, GLFW.GLFW_KEY_UP -> {
 					int step = key == GLFW.GLFW_KEY_RIGHT ? 1 : key == GLFW.GLFW_KEY_LEFT ? -1 : key == GLFW.GLFW_KEY_DOWN ? 2 : -2;
-					focus = focus < 0 ? 0 : Math.max(0, Math.min(n - 1, focus + step));
-					scrollToFocus();
+					focusCard(focus < 0 ? 0 : Math.max(0, Math.min(n - 1, focus + step)));
 					return true;
 				}
 				case 32 -> { // space
