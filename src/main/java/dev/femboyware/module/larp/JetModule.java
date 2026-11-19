@@ -38,6 +38,8 @@ public class JetModule extends Module {
 	private final dev.femboyware.setting.BoolSetting farGround = add(new dev.femboyware.setting.BoolSetting("Far Ground",
 		"While flying, draws a stand-in ground where the server hasn't sent any (Server Larp keeps you where you boarded)", false));
 	private final NumberSetting altitude = add(new NumberSetting("Altitude", "How high it cruises, in blocks", 45, 20, 90, 5));
+	private final dev.femboyware.setting.BoolSetting endless = add(new dev.femboyware.setting.BoolSetting("Endless",
+		"Never lands: keeps flying laps until you say " + CommandManager.PREFIX + "jet land (or turn this off), then comes down on the next lap", false));
 
 	/** Cruise speed (blocks a second), the takeoff roll, where the wheels leave, the climb and descent, the final approach and the rollout. */
 	private double SPEED = 30, RUNWAY = 130, LIFTOFF = 95, CLIMB = 300, DESCENT = 380, APPROACH = 220, ROLLOUT = 110, RADIUS = 70;
@@ -63,6 +65,13 @@ public class JetModule extends Module {
 
 	private final List<Segment> path = new ArrayList<>();
 	private double pathLength;
+	/**
+	 * Endless flights: whether this one is, one lap's length (the path is built with two laps, the
+	 * first flown round and round), and from what distance along it comes in for the last lap, or -1
+	 * while it's still circling.
+	 */
+	private boolean endlessFlight;
+	private double lapLength, landFrom = -1;
 
 	private boolean boarded;
 	/** The airstair door: whether it's swinging open (or shut), and when it started. */
@@ -93,7 +102,7 @@ public class JetModule extends Module {
 
 	@Override
 	public String getInfo() {
-		return boarded ? (ticks < BOARDING_TICKS ? "Boarding" : "Flying") : parked != null ? "Parked" : null;
+		return boarded ? (ticks < BOARDING_TICKS ? "Boarding" : endlessFlight && landFrom < 0 ? "Endless" : "Flying") : parked != null ? "Parked" : null;
 	}
 
 	/** Whether a jet's parked, for the emote wheel to offer boarding it. */
@@ -178,7 +187,8 @@ public class JetModule extends Module {
 				else standUp();
 			}
 			case "land", "stop" -> {
-				if (boarded) disembark("Back on the ground");
+				if (boarded && endlessFlight && landFrom < 0 && ticks >= BOARDING_TICKS && distanceAt(flightSeconds(ticks)) > LIFTOFF) comeDown();
+				else if (boarded) disembark("Back on the ground");
 			}
 			case "remove", "clear" -> {
 				if (boarded) disembark(null);
@@ -201,6 +211,8 @@ public class JetModule extends Module {
 			return;
 		}
 		if (boarded) return;
+		endlessFlight = endless.get();
+		landFrom = -1;
 		buildPath();
 		boarded = true;
 		ticks = 0;
@@ -280,7 +292,7 @@ public class JetModule extends Module {
 		double fx = -Math.sin(rad), fz = Math.cos(rad), rx = -Math.cos(rad), rz = -Math.sin(rad);
 		double sx = parked.x, sz = parked.z;
 		addLine(sx, sz, fx, fz, RUNWAY);
-		int count = laps.getInt();
+		int count = endlessFlight ? 2 : laps.getInt();
 		for (int lap = 0; lap < count; lap++) {
 			double bx = sx + fx * RUNWAY, bz = sz + fz * RUNWAY;
 			addArc(bx + rx * RADIUS, bz + rz * RADIUS, bx, bz, fx, fz);
@@ -294,6 +306,33 @@ public class JetModule extends Module {
 		}
 		pathLength = 0;
 		for (Segment s : path) pathLength += s.length;
+		// One lap that comes back round to its start: the four pieces after the runway
+		lapLength = 0;
+		for (int i = 1; i <= 4 && i < path.size(); i++) lapLength += path.get(i).length;
+	}
+
+	/**
+	 * Where along the built path a distance flown is. Endless, the first lap's flown round and round;
+	 * once it's coming down, it carries on into the second, which lands.
+	 */
+	private double along(double d) {
+		if (!endlessFlight || d <= RUNWAY) return d;
+		if (landFrom >= 0 && d >= landFrom) return RUNWAY + lapLength + (d - landFrom);
+		return RUNWAY + (d - RUNWAY) % lapLength;
+	}
+
+	/** The whole flight's length in distance flown: endless and still circling, it never ends. */
+	private double flownLength() {
+		if (!endlessFlight) return pathLength;
+		if (landFrom < 0) return Double.MAX_VALUE / 4;
+		return landFrom + (pathLength - RUNWAY - lapLength);
+	}
+
+	/** Endless: comes in to land on the next lap, from where that lap starts. */
+	private void comeDown() {
+		double d = distanceAt(flightSeconds(ticks));
+		landFrom = RUNWAY + Math.ceil((d - RUNWAY) / lapLength + 1e-6) * lapLength;
+		dev.femboyware.util.Mc.addChat(net.minecraft.network.chat.Component.literal("<Captain> Very good. We'll begin our descent on this next lap."));
 	}
 
 	private void addLine(double x, double z, double dx, double dz, double length) {
@@ -316,17 +355,17 @@ public class JetModule extends Module {
 	}
 
 	private double flightTime() {
-		return rollTime() + (pathLength - RUNWAY - ROLLOUT) / SPEED + stopTime();
+		return rollTime() + (flownLength() - RUNWAY - ROLLOUT) / SPEED + stopTime();
 	}
 
 	/** How far along the path it is after {@code seconds}: speeding up down the runway, slowing to a stop after touchdown. */
 	private double distanceAt(double seconds) {
-		double roll = rollTime(), cruiseEnd = roll + (pathLength - RUNWAY - ROLLOUT) / SPEED;
+		double length = flownLength(), roll = rollTime(), cruiseEnd = roll + (length - RUNWAY - ROLLOUT) / SPEED;
 		if (seconds <= 0) return 0;
 		if (seconds < roll) return 0.5 * (SPEED / roll) * seconds * seconds;
 		if (seconds < cruiseEnd) return RUNWAY + SPEED * (seconds - roll);
 		double tau = Math.min(seconds - cruiseEnd, stopTime());
-		return pathLength - ROLLOUT + SPEED * tau - 0.5 * (SPEED / stopTime()) * tau * tau;
+		return length - ROLLOUT + SPEED * tau - 0.5 * (SPEED / stopTime()) * tau * tau;
 	}
 
 	private double touchdown() {
@@ -334,10 +373,11 @@ public class JetModule extends Module {
 	}
 
 	/** Height above the ground at distance {@code d}: a long shallow climb after liftoff, cruise with a gentle rise and fall, and a long descent to touchdown. */
-	private double heightAt(double d) {
+	private double heightAt(double flown) {
+		double d = along(flown);
 		double cruise = altitude.get(), touchdown = touchdown();
-		if (d < LIFTOFF || d >= touchdown) return 0;
-		double up = smooth((d - LIFTOFF) / CLIMB), down = smooth((touchdown - d) / DESCENT);
+		if (flown < LIFTOFF || d >= touchdown) return 0;
+		double up = smooth((flown - LIFTOFF) / CLIMB), down = smooth((touchdown - d) / DESCENT);
 		return Math.min(up, down) * (cruise + 3 * Math.sin(d * 0.02));
 	}
 
@@ -349,7 +389,8 @@ public class JetModule extends Module {
 	/** Where the jet is and how it's turned: position, yaw, pitch, roll (degrees), and whether its gear's down. */
 	private record Pose(Vec3 pos, float yaw, float pitch, float roll, boolean gearDown) {}
 
-	private Pose poseAt(double d) {
+	private Pose poseAt(double flown) {
+		double d = along(flown);
 		double left = d;
 		Segment segment = path.getLast();
 		for (Segment s : path) {
@@ -360,13 +401,13 @@ public class JetModule extends Module {
 			left -= s.length;
 		}
 		double[] p = segment.point(Math.min(left, segment.length));
-		double height = heightAt(d), slope = (heightAt(d + 2) - height) / 2;
+		double height = heightAt(flown), slope = (heightAt(flown + 2) - height) / 2;
 		float yaw = (float) Math.toDegrees(Math.atan2(-p[2], p[3]));
 		// Nose up with the climb; nearly level coming down, like a real approach
 		float pitch = (float) Math.toDegrees(Math.atan(slope));
 		if (pitch < 0) pitch *= 0.35f;
 		// Rotating: the nose comes up just before the wheels leave the runway
-		if (d > LIFTOFF - 30 && d < LIFTOFF + 70) pitch = Math.max(pitch, (float) (8 * smooth((d - (LIFTOFF - 30)) / 30)));
+		if (flown > LIFTOFF - 30 && flown < LIFTOFF + 70) pitch = Math.max(pitch, (float) (8 * smooth((flown - (LIFTOFF - 30)) / 30)));
 		// The flare before touchdown, and the nose settling after
 		double touchdown = touchdown();
 		if (d > touchdown - 45 && d < touchdown) pitch = Math.max(pitch, (float) (4 * smooth((d - (touchdown - 45)) / 35)));
@@ -428,6 +469,7 @@ public class JetModule extends Module {
 		}
 		ticks++;
 		lastTickNanos = System.nanoTime();
+		if (endlessFlight && landFrom < 0 && !endless.get() && ticks >= BOARDING_TICKS && distanceAt(flightSeconds(ticks)) > LIFTOFF) comeDown();
 		double seconds = flightSeconds(ticks);
 		if (seconds >= flightTime() && !doorOpening) swingDoor(true);
 		if (seconds >= flightTime() + DOOR_NANOS / 1e9 + 0.3) {

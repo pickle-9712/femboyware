@@ -515,6 +515,15 @@ public class CarsModule extends Module {
 		return new Vec3(car[1] - Math.cos(rad) * side, car[2], car[3] - Math.sin(rad) * side);
 	}
 
+	/** Where the chauffeur sits in a shared Maybach (x, y, z, yaw), for others' screens; null for the Jesko, which has none. */
+	public static double[] chauffeurIn(double[] car) {
+		if (modelOf(car) != Model.SUV) return null;
+		double rad = Math.toRadians(car[4]);
+		double rx = -Math.cos(rad), rz = -Math.sin(rad), fx = -Math.sin(rad), fz = Math.cos(rad);
+		float[] s = MAYBACH_DRIVER;
+		return new double[]{car[1] + rx * s[0] + fx * s[2], car[2] + s[1], car[3] + rz * s[0] + fz * s[2], car[4]};
+	}
+
 	/** Whether a shared car is the Jesko and seat 0, the driver's (so the arms go to the wheel). */
 	public static boolean driverSeat(double[] car, int seat) {
 		return seat == 0 && modelOf(car) == Model.JESKO;

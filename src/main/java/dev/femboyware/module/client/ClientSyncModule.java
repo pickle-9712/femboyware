@@ -139,7 +139,7 @@ public class ClientSyncModule extends Module {
 		UUID carOwner;
 		int carIndex = -1, carSeat = -1;
 		/** Their captains and valets, here as stand-ins moved to match theirs. */
-		RemotePlayer jetPilot, heliPilot;
+		RemotePlayer jetPilot, heliPilot, chauffeur;
 		final List<RemotePlayer> valets = new ArrayList<>();
 		final List<Float> valetWalk = new ArrayList<>();
 		/** Their fake players, here as stand-ins with the same names and skins. */
@@ -1174,7 +1174,7 @@ public class ClientSyncModule extends Module {
 	private int nextActorId = -40000;
 	/** Stand-ins by entity id: captains (seated or not) and valets, for their skins and poses. */
 	private final Set<Integer> captains = new java.util.HashSet<>(), seatedJetCaptains = new java.util.HashSet<>(),
-		heliCaptains = new java.util.HashSet<>(), valetIds = new java.util.HashSet<>();
+		heliCaptains = new java.util.HashSet<>(), valetIds = new java.util.HashSet<>(), chauffeurIds = new java.util.HashSet<>();
 
 	private RemotePlayer spawnActor(String name, double[] at) {
 		RemotePlayer actor = new RemotePlayer(mc.level, new com.mojang.authlib.GameProfile(UUID.randomUUID(), name));
@@ -1190,6 +1190,7 @@ public class ClientSyncModule extends Module {
 		seatedJetCaptains.remove(actor.getId());
 		heliCaptains.remove(actor.getId());
 		valetIds.remove(actor.getId());
+		chauffeurIds.remove(actor.getId());
 		fakeNames.remove(actor.getId());
 		if (actor.level() == mc.level && !actor.isRemoved()) mc.level.removeEntity(actor.getId(), net.minecraft.world.entity.Entity.RemovalReason.DISCARDED);
 	}
@@ -1197,6 +1198,16 @@ public class ClientSyncModule extends Module {
 	/** Their captains come and go with their jet and helicopter, and their valets walk where theirs do. */
 	private void tickActors(Peer peer, Moment m, Map<Integer, EmotesModule.Shared> nextEmotes) {
 		tickFakes(peer, m, nextEmotes);
+		// Their chauffeur, at the wheel of their Maybach while they're sat in the back of it
+		double[] driven = m != null && peer.carSeat == 0 && peer.carOwner == null ? carOf(peer, System.nanoTime() - DELAY) : null;
+		double[] chauffeurAt = driven == null ? null : CarsModule.chauffeurIn(driven);
+		if (chauffeurAt == null && peer.chauffeur != null) {
+			removeActor(peer.chauffeur);
+			peer.chauffeur = null;
+		} else if (chauffeurAt != null && (peer.chauffeur == null || peer.chauffeur.isRemoved())) {
+			peer.chauffeur = spawnActor("Chauffeur", chauffeurAt);
+			chauffeurIds.add(peer.chauffeur.getId());
+		}
 		double[] jet = m == null ? null : m.a.jet, heli = m == null ? null : m.a.heli;
 		if (jet == null && peer.jetPilot != null) {
 			removeActor(peer.jetPilot);
@@ -1649,6 +1660,12 @@ public class ClientSyncModule extends Module {
 			}
 		}
 		for (Peer peer : peers.values()) {
+			if (peer.chauffeur == null) continue;
+			double[] car = carOf(peer, now);
+			double[] at = car == null ? null : CarsModule.chauffeurIn(car);
+			if (at != null) seat(peer.chauffeur, at);
+		}
+		for (Peer peer : peers.values()) {
 			if (peer.jetPilot == null && peer.heliPilot == null) continue;
 			Moment m = at(peer, now);
 			if (m == null) continue;
@@ -1677,7 +1694,7 @@ public class ClientSyncModule extends Module {
 		if (furry != null && furry.skin()) return dev.femboyware.module.render.FurryModule.fursonaSkin(textures);
 		if (player.getId() >= 0) return textures;
 		if (captains.contains(player.getId())) return JetModule.CAPTAIN;
-		if (valetIds.contains(player.getId())) return CarsModule.SUIT;
+		if (valetIds.contains(player.getId()) || chauffeurIds.contains(player.getId())) return CarsModule.SUIT;
 		String fakeName = fakeNames.get(player.getId());
 		if (fakeName != null) {
 			var skin = dev.femboyware.util.AccountSkins.get(fakeName);
@@ -1712,7 +1729,8 @@ public class ClientSyncModule extends Module {
 			}
 		}
 		if (state.id >= 0) return;
-		if (seatedJetCaptains.contains(state.id)) JetModule.poseSeatedPilot(model);
+		if (chauffeurIds.contains(state.id)) CarsModule.poseInCar(model, true);
+		else if (seatedJetCaptains.contains(state.id)) JetModule.poseSeatedPilot(model);
 		else if (heliCaptains.contains(state.id)) HelicopterModule.poseSeatedPilot(model, true);
 	}
 
@@ -1816,6 +1834,8 @@ public class ClientSyncModule extends Module {
 		release(peer, restore);
 		removeActor(peer.jetPilot);
 		removeActor(peer.heliPilot);
+		removeActor(peer.chauffeur);
+		peer.chauffeur = null;
 		for (RemotePlayer valet : peer.valets) removeActor(valet);
 		for (RemotePlayer fake : peer.fakes) removeActor(fake);
 		peer.fakes.clear();
