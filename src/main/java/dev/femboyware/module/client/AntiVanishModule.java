@@ -126,6 +126,7 @@ public class AntiVanishModule extends Module {
 		returning.clear();
 		hidden.clear();
 		invisibleSaid.clear();
+		bodySaid.clear();
 		if (server) {
 			recentChat.clear();
 			leaveMessages = false;
@@ -289,6 +290,7 @@ public class AntiVanishModule extends Module {
 		checkLeaving();
 		checkReturning();
 		checkInvisible();
+		checkBodies();
 		if (probe.get() && ticks >= nextProbe) sendProbe();
 	}
 
@@ -313,6 +315,7 @@ public class AntiVanishModule extends Module {
 			Player body = mc.level.getPlayerByUUID(id);
 			if (body != null) {
 				vanished.add(id);
+				bodySaid.put(id, ticks);
 				double far = body.position().distanceTo(mc.player.position());
 				if (vanish.get()) alert(who + " vanished but is still here, " + Math.round(far) + " blocks from you");
 				if (far <= watchDistance.get()) watching(who, far, false);
@@ -365,6 +368,38 @@ public class AntiVanishModule extends Module {
 			alert(p.getName().getString() + " is invisible " + Math.round(far) + " blocks from you");
 		}
 	}
+
+	/**
+	 * The surest sign there is: a player's body in the world with no tab list entry. On DonutSMP a
+	 * vanished staff member's body is still sent to you, only their tab entry is hidden, so this
+	 * catches them however they got there (teleported in already vanished, or there when you
+	 * arrived). NPCs (shopkeepers and such) have version 2 ids and are left out.
+	 */
+	private void checkBodies() {
+		if (!vanish.get() || !settled() || ticks % 10 != 0 || mc.getConnection() == null) return;
+		Set<UUID> here = new HashSet<>();
+		for (Player p : mc.level.players()) {
+			UUID id = p.getUUID();
+			if (p == mc.player || id.version() == 2 || mc.getConnection().getPlayerInfo(id) != null) continue;
+			String name = p.getGameProfile().name();
+			if (name == null || !NAME.matcher(name).matches()) continue;
+			names.putIfAbsent(id, name);
+			if (staffOnly() && !isStaff(name, id)) continue;
+			here.add(id);
+			Integer said = bodySaid.get(id);
+			// Once when they turn up, then a reminder every minute they're still about
+			if (said != null && ticks - said < 20 * 60) continue;
+			bodySaid.put(id, ticks);
+			vanished.add(id);
+			double far = p.position().distanceTo(mc.player.position());
+			alert(name + " is vanished here (body nearby, " + Math.round(far) + " blocks from you)");
+			if (far <= watchDistance.get() && said == null) watching(name, far, false);
+		}
+		// Gone from around you: a fresh alert if they come back later
+		bodySaid.keySet().removeIf(id -> !here.contains(id) && ticks - bodySaid.get(id) > 20 * 10);
+	}
+
+	private final Map<UUID, Integer> bodySaid = new HashMap<>();
 
 	private void forget(UUID id) {
 		modes.remove(id);
