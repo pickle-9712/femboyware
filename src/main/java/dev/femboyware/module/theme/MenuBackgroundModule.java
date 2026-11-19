@@ -20,7 +20,13 @@ import net.minecraft.resources.Identifier;
  * .minecraft/femboyware/backgrounds and type its name in File.
  */
 public class MenuBackgroundModule extends Module {
-	private final StringSetting file = add(new StringSetting("File", "A PNG or JPG in .minecraft/femboyware/backgrounds", "background.png"));
+	private final StringSetting file = add(new StringSetting("File", "A PNG or JPG in .minecraft/femboyware/backgrounds, or a full path", "background.png"));
+	private final dev.femboyware.setting.ButtonSetting choose = add(new dev.femboyware.setting.ButtonSetting("Choose Picture", "Pick a PNG or JPG from your computer for the menu",
+		() -> dev.femboyware.util.FilePicker.pick("Choose a menu background", "Pictures", dev.femboyware.util.FilePicker.PICTURES, path -> {
+			file.set(path.toString());
+			if (!isEnabled()) setEnabled(true);
+			FemboyWare.getConfig().save();
+		})));
 	private final NumberSetting dim = add(new NumberSetting("Dim", "How much darker to make it so the menu stays readable", 0.25, 0, 0.9, 0.05));
 
 	private Identifier texture;

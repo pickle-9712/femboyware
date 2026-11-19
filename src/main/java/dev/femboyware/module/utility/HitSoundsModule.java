@@ -88,6 +88,8 @@ public class HitSoundsModule extends Module {
 	private final NumberSetting pitch = add(new NumberSetting("Pitch", "Higher or lower", 1, 0.5, 2, 0.05));
 	private final NumberSetting variation = add(new NumberSetting("Pitch Variation", "A little random pitch each time, so repeats don't sound the same", 0.08, 0, 0.3, 0.01));
 	private final BoolSetting openFolder = add(new BoolSetting("Open Folder", "Turn on to open the sounds folder", false));
+	private final dev.femboyware.setting.ButtonSetting addHurt = add(new dev.femboyware.setting.ButtonSetting("Add Hurt Sound", "Pick an OGG or WAV from your computer to play when you're hurt (copied into the sounds folder)", () -> addSound("hurt")));
+	private final dev.femboyware.setting.ButtonSetting addKill = add(new dev.femboyware.setting.ButtonSetting("Add Kill Sound", "Pick an OGG or WAV from your computer to play when you get a kill (copied into the sounds folder)", () -> addSound("kill")));
 
 	private final Random random = new Random();
 	/** Decoded sound files, kept until the file changes. */
@@ -113,6 +115,24 @@ public class HitSoundsModule extends Module {
 			Files.createDirectories(FOLDER);
 		} catch (IOException ignored) {
 		}
+	}
+
+	/** Copies a sound you pick into the folder for {@code kind}, where it joins the ones that play. */
+	private void addSound(String kind) {
+		dev.femboyware.util.FilePicker.pick("Choose a " + kind + " sound", "Sounds", List.of("ogg", "wav"), path -> {
+			String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+			if (!name.endsWith(".ogg") && !name.endsWith(".wav")) {
+				ChatUtil.info("Hit Sounds plays OGG or WAV files");
+				return;
+			}
+			Path copy = dev.femboyware.util.FilePicker.copyInto(path, FOLDER.resolve(kind), null);
+			if (copy == null) return;
+			source.set(Source.CUSTOM_FILES);
+			if (kind.equals("hurt")) hurt.set(true);
+			else kill.set(true);
+			if (!isEnabled()) setEnabled(true);
+			ChatUtil.info("Added " + copy.getFileName() + " as a " + kind + " sound");
+		});
 	}
 
 	/** Noted before the hit lands, so a hit that kills on the spot still counts. */

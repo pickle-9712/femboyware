@@ -146,6 +146,7 @@ public class ColorsModule extends Module {
 	private final StringSetting saveName = add(new StringSetting("Save As", "Name to save the current colours under; empty uses the selected theme, or the client name", ""));
 	private final ButtonSetting save = add(new ButtonSetting("Save Theme", "Saves every colour here as a theme; a theme with the same name is overwritten", this::save));
 	private final ButtonSetting delete = add(new ButtonSetting("Delete Theme", "Deletes the selected theme", this::delete)).visibleWhen(() -> !theme.get().equals(CUSTOM));
+	private final ButtonSetting importTheme = add(new ButtonSetting("Import Theme", "Pick a theme's .json from your computer (one someone sent you) and use it", this::importTheme));
 
 	private final class ThemeChoice extends ChoiceSetting {
 		ThemeChoice() {
@@ -282,7 +283,7 @@ public class ColorsModule extends Module {
 
 	/** Colours and colour modes are what a theme holds. */
 	private boolean inTheme(Setting<?> setting) {
-		return setting != theme && setting != saveName && setting != save && setting != delete && setting != page;
+		return setting != theme && setting != saveName && setting != save && setting != delete && setting != importTheme && setting != page;
 	}
 
 	private static Path file(String name) {
@@ -383,6 +384,24 @@ public class ColorsModule extends Module {
 		saveName.set("");
 		theme.select(name);
 		BrandingModule.rename(name);
+	}
+
+	/** Copies a theme file you pick into the themes folder and switches to it. */
+	private void importTheme() {
+		dev.femboyware.util.FilePicker.pick("Choose a theme", "Themes", List.of("json"), path -> {
+			String file = path.getFileName().toString();
+			String name = clean(file.toLowerCase(java.util.Locale.ROOT).endsWith(".json") ? file.substring(0, file.length() - 5) : file);
+			if (name.isEmpty() || name.equalsIgnoreCase(CUSTOM)) name = "Imported";
+			try {
+				com.google.gson.JsonParser.parseString(Files.readString(path)).getAsJsonObject();
+			} catch (Exception e) {
+				dev.femboyware.util.ChatUtil.info("That isn't a theme file");
+				return;
+			}
+			if (dev.femboyware.util.FilePicker.copyInto(path, THEMES, name + ".json") == null) return;
+			refresh();
+			theme.select(name);
+		});
 	}
 
 	private void delete() {

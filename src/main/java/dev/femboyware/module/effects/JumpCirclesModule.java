@@ -47,8 +47,13 @@ public class JumpCirclesModule extends PlayerFxModule {
 
 	private final EnumSetting<Style> style = add(new EnumSetting<>("Style", "Ring: one ripple. Double: two, one after the other. Shockwave: a filled disc. Image: a picture", Style.RING));
 	private final EnumSetting<Picture> picture = add(new EnumSetting<>("Image", "Which picture, or File for your own", Picture.STAR_OF_DAVID)).visibleWhen(() -> style.is(Style.IMAGE));
-	private final StringSetting file = add(new StringSetting("File", "A PNG or JPG in .minecraft/femboyware/jumpcircles", "circle.png"))
+	private final StringSetting file = add(new StringSetting("File", "A PNG or JPG in .minecraft/femboyware/jumpcircles, or a full path", "circle.png"))
 		.visibleWhen(() -> style.is(Style.IMAGE) && picture.is(Picture.FILE));
+	private final dev.femboyware.setting.ButtonSetting choose = add(new dev.femboyware.setting.ButtonSetting("Choose Picture", "Pick a PNG or JPG from your computer for the circles",
+		() -> dev.femboyware.util.FilePicker.pick("Choose a jump circle picture", "Pictures", dev.femboyware.util.FilePicker.PICTURES, path -> {
+			file.set(path.toString());
+			picture.set(Picture.FILE);
+		}))).visibleWhen(() -> style.is(Style.IMAGE) && picture.is(Picture.FILE));
 	private final BoolSetting tint = add(new BoolSetting("Tint", "Colour the picture with the palette (off keeps a file's own colours)", true)).visibleWhen(() -> style.is(Style.IMAGE));
 	private final BoolSetting glow = add(new BoolSetting("Glow", "Add the picture as light, so it shines in the dark", true)).visibleWhen(() -> style.is(Style.IMAGE));
 	private final NumberSetting spin = add(new NumberSetting("Spin", "How far the picture turns as it spreads, in degrees", 90, -360, 360, 5)).visibleWhen(() -> style.is(Style.IMAGE));

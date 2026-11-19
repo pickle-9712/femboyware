@@ -43,7 +43,7 @@ public class SavedSkinsScreen extends Screen {
 	private long deleteUntil;
 
 	private EditBox nameBox;
-	private Button saveCurrent, saveChosen, use, delete, previous, next;
+	private Button saveCurrent, saveChosen, use, delete, previous, next, importSkin;
 	private String status = "";
 	private int statusColor = INFO;
 
@@ -84,6 +84,7 @@ public class SavedSkinsScreen extends Screen {
 			page++;
 			updateButtons();
 		}).bounds(left + 34, top + 206, 20, 20).build());
+		importSkin = addRenderableWidget(Button.builder(Component.literal("Import PNG..."), b -> importSkin()).bounds(left + 58, top + 206, 78, 20).build());
 		use = addRenderableWidget(Button.builder(Component.literal("Use"), b -> useSelected()).bounds(left + 140, top + 206, 80, 20).build());
 		delete = addRenderableWidget(Button.builder(Component.literal("Delete"), b -> deleteSelected()).bounds(left + 224, top + 206, 80, 20).build());
 		addRenderableWidget(Button.builder(Component.literal("Back"), b -> onClose()).bounds(left + 310, top + 206, 80, 20).build());
@@ -166,6 +167,28 @@ public class SavedSkinsScreen extends Screen {
 			} catch (Exception ignored) {
 			}
 		}
+	}
+
+	/** A skin PNG from your computer, saved under the name typed (or the file's own name). */
+	private void importSkin() {
+		dev.femboyware.util.FilePicker.pick("Choose a skin to save", "PNG skins", List.of("png"), path -> {
+			try {
+				byte[] bytes = Files.readAllBytes(path);
+				try (com.mojang.blaze3d.platform.NativeImage image = com.mojang.blaze3d.platform.NativeImage.read(bytes)) {
+					if (image.getWidth() != 64 || (image.getHeight() != 64 && image.getHeight() != 32)) {
+						setStatus("A skin is 64x64 (or 64x32)", BAD);
+						return;
+					}
+				}
+				if (!VALID.matcher(nameBox.getValue().trim()).matches()) {
+					String stem = path.getFileName().toString().replaceAll("(?i)(\\.slim)?\\.png$", "").replaceAll("[^A-Za-z0-9_ -]", "").trim();
+					nameBox.setValue(stem.isEmpty() ? "imported" : stem.substring(0, Math.min(32, stem.length())));
+				}
+				save(bytes, path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".slim.png"));
+			} catch (Exception e) {
+				setStatus("Couldn't read that PNG", BAD);
+			}
+		});
 	}
 
 	private void save(byte[] bytes, boolean slim) {

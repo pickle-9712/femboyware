@@ -28,7 +28,13 @@ public class CustomSkyModule extends SkyFxModule {
 	private static final int RINGS = 18, SEGMENTS = 48;
 
 	private final EnumSetting<Sky> sky = add(new EnumSetting<>("Sky", "A built-in sky, or File for your own picture", Sky.GALAXY));
-	private final StringSetting file = add(new StringSetting("File", "A PNG or JPG in .minecraft/femboyware/skies (a 2:1 panorama looks best)", "sky.png")).visibleWhen(() -> sky.is(Sky.FILE));
+	private final StringSetting file = add(new StringSetting("File", "A PNG or JPG in .minecraft/femboyware/skies, or a full path (a 2:1 panorama looks best)", "sky.png")).visibleWhen(() -> sky.is(Sky.FILE));
+	private final dev.femboyware.setting.ButtonSetting choose = add(new dev.femboyware.setting.ButtonSetting("Choose Picture", "Pick a PNG or JPG from your computer for the sky",
+		() -> dev.femboyware.util.FilePicker.pick("Choose a sky picture", "Pictures", dev.femboyware.util.FilePicker.PICTURES, path -> {
+			file.set(path.toString());
+			sky.set(Sky.FILE);
+			if (!isEnabled()) setEnabled(true);
+		}))).visibleWhen(() -> sky.is(Sky.FILE));
 	private final NumberSetting opacity = add(new NumberSetting("Opacity", "How much it covers the real sky", 1, 0.1, 1, 0.05));
 	private final NumberSetting rotation = add(new NumberSetting("Rotation", "How fast it turns", 0.2, 0, 5, 0.05));
 	private final NumberSetting tilt = add(new NumberSetting("Horizon", "Moves the picture's horizon up or down, in degrees", 0, -30, 30, 1));

@@ -11,10 +11,8 @@ import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.StringSetting;
 import dev.femboyware.util.ChatUtil;
 import java.io.ByteArrayOutputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.RenderPipelines;
@@ -163,31 +161,11 @@ public class GuiBackgroundModule extends Module {
 		return NativeImage.read(png.toByteArray());
 	}
 
-	/** Windows' own Open dialog, on top of the game, run off the render thread so the menu keeps drawing. */
 	private void chooseFile() {
-		if (!System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")) {
-			ChatUtil.info("Choosing a picture only works on Windows; type its name in File instead");
-			return;
-		}
-		String script = "Add-Type -AssemblyName System.Windows.Forms;"
-			+ "$owner = New-Object System.Windows.Forms.Form -Property @{TopMost = $true};"
-			+ "$dialog = New-Object System.Windows.Forms.OpenFileDialog -Property @{Filter = 'Pictures (*.png;*.jpg;*.jpeg)|*.png;*.jpg;*.jpeg'; Title = 'Choose a ClickGUI background'};"
-			+ "if ($dialog.ShowDialog($owner) -eq 'OK') { [Console]::Out.Write($dialog.FileName) }";
-		CompletableFuture.supplyAsync(() -> {
-			try {
-				Process process = new ProcessBuilder("powershell", "-NoProfile", "-STA", "-Command", script).redirectErrorStream(false).start();
-				process.getOutputStream().close();
-				String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
-				process.waitFor();
-				return out;
-			} catch (Exception e) {
-				return "";
-			}
-		}).thenAccept(picked -> mc.execute(() -> {
-			if (picked.isEmpty()) return;
-			file.set(picked);
+		dev.femboyware.util.FilePicker.pick("Choose a ClickGUI background", "Pictures", dev.femboyware.util.FilePicker.PICTURES, picked -> {
+			file.set(picked.toString());
 			if (!isEnabled()) setEnabled(true);
 			FemboyWare.getConfig().save();
-		}));
+		});
 	}
 }

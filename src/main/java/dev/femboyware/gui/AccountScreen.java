@@ -467,29 +467,11 @@ public class AccountScreen extends Screen {
 
 	/** Windows' own Open dialog, on top of the game, run off the render thread so the game keeps drawing. */
 	private void chooseFile() {
-		if (!System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")) {
+		if (!dev.femboyware.util.FilePicker.supported()) {
 			setStatus("Choosing a file only works on Windows for now", BAD);
 			return;
 		}
-		chooseSkin.active = false;
-		String script = "Add-Type -AssemblyName System.Windows.Forms;"
-			+ "$owner = New-Object System.Windows.Forms.Form -Property @{TopMost = $true};"
-			+ "$dialog = New-Object System.Windows.Forms.OpenFileDialog -Property @{Filter = 'PNG skins (*.png)|*.png'; Title = 'Choose a skin'};"
-			+ "if ($dialog.ShowDialog($owner) -eq 'OK') { [Console]::Out.Write($dialog.FileName) }";
-		CompletableFuture.supplyAsync(() -> {
-			try {
-				Process process = new ProcessBuilder("powershell", "-NoProfile", "-STA", "-Command", script).redirectErrorStream(false).start();
-				process.getOutputStream().close();
-				String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
-				process.waitFor();
-				return out;
-			} catch (Exception e) {
-				return "";
-			}
-		}).thenAccept(picked -> minecraft.execute(() -> {
-			updateButtons();
-			if (!picked.isEmpty()) loadChosen(picked);
-		}));
+		dev.femboyware.util.FilePicker.pick("Choose a skin", "PNG skins", java.util.List.of("png"), picked -> loadChosen(picked.toString()));
 	}
 
 	private void loadChosen(String picked) {

@@ -52,6 +52,18 @@ public class TvModule extends Module {
 	private final NumberSetting cropRight = add(new NumberSetting("Crop Right", "While mirroring a window: how much of its right side to cut off, in percent", 0, 0, 45, 1)).visibleWhen(this::mirroring);
 	private final NumberSetting cropTop = add(new NumberSetting("Crop Top", "While mirroring a window: how much of its top to cut off, in percent", 0, 0, 45, 1)).visibleWhen(this::mirroring);
 	private final NumberSetting cropBottom = add(new NumberSetting("Crop Bottom", "While mirroring a window: how much of its bottom to cut off, in percent", 0, 0, 45, 1)).visibleWhen(this::mirroring);
+	private final dev.femboyware.setting.ButtonSetting choose = add(new dev.femboyware.setting.ButtonSetting("Choose File", "Pick a video, song or picture from your computer and put it on your TV (" + CommandManager.PREFIX + "tv pick does too)", this::pick));
+
+	/** Plays a video, song or picture you pick from anywhere on your computer. */
+	private void pick() {
+		dev.femboyware.util.FilePicker.pick("Choose something to play on the TV", "Videos, songs and pictures", List.of("mp4", "m4a", "png", "jpg", "jpeg"), file -> {
+			if (!playable(file)) {
+				ChatUtil.info("The TV plays MP4 (H.264), M4A and PNG/JPG");
+				return;
+			}
+			play(file);
+		});
+	}
 
 	/** The files a TV plays, and the folder made for them. */
 	private static final List<String> TYPES = List.of("mp4", "m4v", "mov", "m4a", "aac", "png", "jpg", "jpeg");
@@ -222,6 +234,7 @@ public class TvModule extends Module {
 					for (Path p : all.subList(0, Math.min(30, all.size()))) ChatUtil.info("  " + p.getFileName() + "  (" + Math.max(1, sizeOf(p) / 1_000_000) + " MB)");
 				}
 			}
+			case "pick", "choose", "browse" -> pick();
 			case "folder", "dir" -> {
 				try {
 					Files.createDirectories(folder());
@@ -235,7 +248,7 @@ public class TvModule extends Module {
 				}
 			}
 			default -> {
-				ChatUtil.info("Usage: " + CommandManager.PREFIX + "tv <place|play <file>|tiktok [link]|mirror [window]|next|prev|pause|resume|seek <time>|restart|stop|remove|list|folder>");
+				ChatUtil.info("Usage: " + CommandManager.PREFIX + "tv <place|play <file>|pick|tiktok [link]|mirror [window]|next|prev|pause|resume|seek <time>|restart|stop|remove|list|folder>");
 				ChatUtil.info(CommandManager.PREFIX + "tv tiktok (or " + CommandManager.PREFIX + "mirror) puts TikTok's For You feed on the TV, no browser needed; look at it and scroll to swipe. Add a TikTok link to play that one");
 				ChatUtil.info(CommandManager.PREFIX + "tv mirror shows your screen (Windows and Mac; " + CommandManager.PREFIX + "tv mirror screen 2 for another), " + CommandManager.PREFIX + "tv mirror <window> copies one window (Windows)");
 				ChatUtil.info("Plays MP4 (H.264), M4A and PNG/JPG from " + folder() + ", Videos, Music, Pictures or Downloads. 480p or 720p plays smoothest");
