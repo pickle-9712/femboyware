@@ -14,6 +14,12 @@ public class TridentItemMixin {
 		return wet || FemboyWare.getModules().get(TridentBoostModule.class).anywhere();
 	}
 
+	/** Charge Scale (from the Anubis client's Trident Util, GPL-3.0, 4ldenz). */
+	@ModifyExpressionValue(method = "releaseUsing", at = @At(value = "CONSTANT", args = "intValue=10"), require = 0)
+	private int femboyware$chargeTicks(int vanilla) {
+		return FemboyWare.getModules().get(TridentBoostModule.class).chargeTicks(vanilla);
+	}
+
 	@ModifyExpressionValue(method = "releaseUsing", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/item/enchantment/EnchantmentHelper;getTridentSpinAttackStrength(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/entity/LivingEntity;)F"))
 	private float femboyware$riptideStrength(float strength) {
 		return FemboyWare.getModules().get(TridentBoostModule.class).modifyStrength(strength);

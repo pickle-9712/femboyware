@@ -17,6 +17,7 @@ import net.minecraft.world.phys.EntityHitResult;
  */
 public class FriendsModule extends Module {
 	private final BoolSetting protect = add(new BoolSetting("Don't Attack", "Combat modules never target friends", true));
+	private final BoolSetting guard = add(new BoolSetting("Block My Hits", "Your own hits on a friend don't go through either (Friend Guard, from the Anubis client)", false));
 	private final BoolSetting middleClick = add(new BoolSetting("Middle Click", "Middle click a player to add or remove them as a friend", true));
 	private final ColorSetting color = add(new ColorSetting("Color", "How friends show in ESP and Tracers", 0xFF66E0FF));
 
@@ -34,6 +35,24 @@ public class FriendsModule extends Module {
 	public static boolean protects(Entity entity) {
 		FriendsModule module = FemboyWare.getModules().get(FriendsModule.class);
 		return module.isEnabled() && module.protect.get() && FemboyWare.getFriends().isFriend(entity);
+	}
+
+	private long lastHint;
+
+	/**
+	 * Friend Guard, ported from the Anubis client (GPL-3.0, by 4ldenz,
+	 * https://github.com/4ldenz/Anubis-client): true cancels your own hit on a friend.
+	 */
+	public static boolean blocksHit(Player attacker, Entity target) {
+		FriendsModule module = FemboyWare.getModules().get(FriendsModule.class);
+		if (!module.isEnabled() || !module.guard.get() || attacker != mc.player || !(target instanceof Player friend) || friend == attacker) return false;
+		if (!FemboyWare.getFriends().isFriend(friend)) return false;
+		long now = System.currentTimeMillis();
+		if (now - module.lastHint >= 1500) {
+			module.lastHint = now;
+			Mc.actionBar("Held back your hit on " + friend.getGameProfile().name());
+		}
+		return true;
 	}
 
 	/** The friend colour for {@code entity}, or {@code fallback} if they aren't a friend. */

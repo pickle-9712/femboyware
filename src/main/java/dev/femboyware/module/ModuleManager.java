@@ -552,6 +552,16 @@ public class ModuleManager {
 		register(new dev.femboyware.module.utility.SpawnerProtectModule());
 		register(new dev.femboyware.module.utility.PlayerDetectionModule());
 		register(new dev.femboyware.module.utility.CoordSnapperModule());
+		register(new dev.femboyware.module.combat.KnockbackDelayModule());
+		register(new dev.femboyware.module.combat.KeyThrowModule());
+		register(new dev.femboyware.module.render.LowHealthWarningModule());
+		register(new dev.femboyware.module.utility.WeatherNotifierModule());
+		register(new dev.femboyware.module.movement.AutoJumpModule());
+		register(new dev.femboyware.module.movement.ClickTpModule());
+		register(new dev.femboyware.module.utility.BlockNotifierModule());
+		register(new dev.femboyware.module.utility.ChatMacroModule());
+		register(new dev.femboyware.module.utility.SpamModule());
+		register(new dev.femboyware.module.utility.TpMacroModule());
 		register(new dev.femboyware.module.client.LarpOnlyModule());
 		register(new WatermarkModule());
 		register(new ModuleListModule());

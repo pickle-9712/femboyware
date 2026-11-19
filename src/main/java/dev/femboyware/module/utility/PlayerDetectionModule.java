@@ -93,11 +93,7 @@ public class PlayerDetectionModule extends Module {
 		String names = String.join(", ", players);
 		if (notify.get() != Notify.TOAST) ChatUtil.chat((players.size() == 1 ? "Player detected: " : "Players detected: ") + names);
 		if (notify.get() != Notify.CHAT)
-			//? if >=26.1 {
-			/*SystemToast.addOrUpdate(mc.gui.toastManager(), SystemToast.SystemToastId.PERIODIC_NOTIFICATION, Component.literal(getName()), Component.literal("Player detected: " + names));
-			*///?} else {
-			SystemToast.addOrUpdate(mc.getToastManager(), SystemToast.SystemToastId.PERIODIC_NOTIFICATION, Component.literal(getName()), Component.literal("Player detected: " + names));
-			//?}
+			dev.femboyware.util.Toasts.show(getName(), "Player detected: " + names);
 		for (Module module : modulesToToggle()) module.toggle();
 		if (webhook.get()) sendWebhook(players);
 		if (turnOff.get()) setEnabled(false);

@@ -28,6 +28,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public class ClientPlayerInteractionManagerMixin {
 	@Inject(method = "attack", at = @At("HEAD"), cancellable = true)
 	private void femboyware$onAttackEntity(Player player, Entity target, CallbackInfo ci) {
+		if (dev.femboyware.module.utility.FriendsModule.blocksHit(player, target)) {
+			ci.cancel();
+			return;
+		}
 		FemboyWare.getModules().onPreAttack(target);
 		if (FemboyWare.getModules().get(ServerLarpModule.class).onAttack(target)
 			|| FemboyWare.getModules().get(FakePlayerModule.class).onAttack(player, target)) {
