@@ -4,6 +4,10 @@
 	"package": "dev.femboyware.mixin",
 	"compatibilityLevel": "JAVA_${java}",
 	"client": [
+		"HandModelLayerAccessor",
+		"HandModelStateAccessor",
+		"HandModelRendererMixin",
+		"CustomGlintMixin",
 		"BoatNoclipOverlayMixin",
 		"EntityControlMobMixin",
 		"EntityControlRideMixin",
