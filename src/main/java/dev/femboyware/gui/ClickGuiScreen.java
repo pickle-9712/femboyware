@@ -1581,16 +1581,26 @@ public class ClickGuiScreen extends Screen {
 		}
 		double mouseX = rawX / UiScale.scale();
 		double mouseY = rawY / UiScale.scale();
+		// A text box only takes the wheel while you're typing in it (or for sideways scrolling), so
+		// scrolling down a page doesn't stop dead every time the mouse passes over one
 		for (Row row : rows) {
 			if (row.type != RowType.STRING || mouseX < row.x + 8 || mouseX >= row.x + row.width - 6
 				|| mouseY < row.y + ROW_HEIGHT || mouseY >= row.y + ROW_HEIGHT * 2) continue;
-			int pixels = (int) ((horizontalAmount - verticalAmount) * 12);
+			if (typing != row.setting && horizontalAmount == 0) break;
+			int pixels = (int) Math.round((horizontalAmount - (typing == row.setting ? verticalAmount : 0)) * 12);
 			editor((StringSetting) row.setting).scrollBy(font, pixels, row.width - 14 - 4);
 			return true;
 		}
-		scroll = Math.max(0, Math.min(Math.max(0, contentHeight - viewHeight), scroll - (int) (verticalAmount * 22)));
+		// Smooth-scrolling mice and touchpads send small fractions: kept until they add up to a pixel
+		wheelLeft += verticalAmount * 22;
+		int pixels = (int) wheelLeft;
+		wheelLeft -= pixels;
+		scroll = Math.max(0, Math.min(Math.max(0, contentHeight - viewHeight), scroll - pixels));
 		return true;
 	}
+
+	/** Wheel movement too small to scroll a whole pixel yet. */
+	private double wheelLeft;
 
 	private void updateSlider(double mouseX) {
 		Row row = slider;
