@@ -59,6 +59,8 @@ public class StaffListModule extends HudElement {
 		if (mc.player.tickCount % 10 != 0) return;
 		List<String> names = new ArrayList<>(), ranks = new ArrayList<>();
 		for (String n : extra.get().split(",")) if (!n.isBlank()) names.add(n.trim().toLowerCase(Locale.ROOT));
+		// On DonutSMP, its known staff too (ranks there don't always show in the tab list)
+		if (dev.femboyware.util.DonutStaff.onDonut()) for (String n : dev.femboyware.util.DonutStaff.DEFAULT) names.add(n.toLowerCase(Locale.ROOT));
 		for (String r : extraRanks.get().split(",")) if (!r.isBlank()) ranks.add(r.trim().toLowerCase(Locale.ROOT));
 		List<Staff> found = new ArrayList<>();
 		for (PlayerInfo info : mc.getConnection().getOnlinePlayers()) {
@@ -79,6 +81,11 @@ public class StaffListModule extends HudElement {
 		first = false;
 		seen.clear();
 		seen.putAll(now);
+	}
+
+	/** Whether someone in the tab list is staff by their rank (for Anti Vanish). */
+	public static boolean staffRank(PlayerInfo info) {
+		return info != null && rank(info, List.of()) != null;
 	}
 
 	/** Their staff rank as written, or null if they're not staff. */
