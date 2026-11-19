@@ -17,3 +17,16 @@ what was changed. Ported files:
     Jump Reset, Reduce and Grim modes)
   src/main/java/dev/femboyware/module/combat/AuraModule.java (target priority, fail swing
     and auto block)
+
+It also includes code ported from the Anubis client (https://github.com/4ldenz/Anubis-client),
+by 4ldenz, licensed under the GNU General Public License v3 only. The ported code was
+decompiled from the released Anubis Client 1.0 jar, translated to Mojang mappings and modified
+to fit femboyware (Panic Pay was left out). Each ported file says so in its Javadoc. Ported files:
+
+  src/main/java/dev/femboyware/module/utility/SpawnerProtectModule.java
+  src/main/java/dev/femboyware/module/utility/PlayerDetectionModule.java
+  src/main/java/dev/femboyware/module/utility/CoordSnapperModule.java
+  src/main/java/dev/femboyware/module/movement/NoFallModule.java (Donut mode)
+  src/main/java/dev/femboyware/util/Webhook.java
+  src/main/java/dev/femboyware/util/DonutStaff.java (DonutSMP staff names)
+  src/main/java/dev/femboyware/module/client/AntiVanishModule.java (detection approach)

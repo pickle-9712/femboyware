@@ -48,7 +48,7 @@ public abstract class DisconnectedScreenMixin extends Screen {
 	@Override
 	public void tick() {
 		AutoReconnectModule module = femboyware$module();
-		if (!module.isEnabled() || !module.hasLastServer()) return;
+		if (!module.isEnabled() || !module.hasLastServer() || AutoReconnectModule.held()) return;
 		if (femboyware$ticksLeft <= 0) {
 			module.reconnect();
 			return;

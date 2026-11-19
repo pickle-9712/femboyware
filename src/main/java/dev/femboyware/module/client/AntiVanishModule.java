@@ -381,6 +381,7 @@ public class AntiVanishModule extends Module {
 		for (Player p : mc.level.players()) {
 			UUID id = p.getUUID();
 			if (p == mc.player || id.version() == 2 || mc.getConnection().getPlayerInfo(id) != null) continue;
+			if (dev.femboyware.FemboyWare.getModules().get(FakePlayerModule.class).isFake(p.getId())) continue;
 			String name = p.getGameProfile().name();
 			if (name == null || !NAME.matcher(name).matches()) continue;
 			names.putIfAbsent(id, name);

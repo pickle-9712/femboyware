@@ -549,6 +549,9 @@ public class ModuleManager {
 		register(new ClickGuiModule());
 		register(new dev.femboyware.module.client.ConfigsModule());
 		register(new dev.femboyware.module.client.AntiVanishModule());
+		register(new dev.femboyware.module.utility.SpawnerProtectModule());
+		register(new dev.femboyware.module.utility.PlayerDetectionModule());
+		register(new dev.femboyware.module.utility.CoordSnapperModule());
 		register(new dev.femboyware.module.client.LarpOnlyModule());
 		register(new WatermarkModule());
 		register(new ModuleListModule());

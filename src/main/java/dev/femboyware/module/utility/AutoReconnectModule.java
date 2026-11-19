@@ -27,8 +27,20 @@ public class AutoReconnectModule extends Module {
 
 	/** Called from ConnectScreenMixin whenever we start joining a server. */
 	public void onConnect(ServerAddress address, ServerData info) {
+		hold = false;
 		lastAddress = address;
 		lastInfo = info;
+	}
+
+	private static boolean hold;
+
+	/** Skip the automatic reconnect after this disconnect (Spawner Protect, Player Detection leaving on purpose). */
+	public static void holdOff() {
+		hold = true;
+	}
+
+	public static boolean held() {
+		return hold;
 	}
 
 	public boolean hasLastServer() {
