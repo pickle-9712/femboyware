@@ -92,6 +92,12 @@ public class EntityMixin {
 
 	@ModifyReturnValue(method = "getTeamColor", at = @At("RETURN"))
 	private int femboyware$popChamsColor(int color) {
+		// Glow ESP's outline colour
+		dev.femboyware.module.render.GlowEspModule glow = dev.femboyware.module.render.GlowEspModule.active();
+		if (glow != null) {
+			int tint = glow.glow((Entity) (Object) this);
+			if (tint != 0) return tint & 0xFFFFFF;
+		}
 		if (!FemboyWare.isEnabled(PopChamsModule.class)) return color;
 		PopChamsModule popChams = FemboyWare.getModules().get(PopChamsModule.class);
 		return popChams.isGhost((Entity) (Object) this) ? popChams.getColor() : color;

@@ -4,6 +4,7 @@
 	"package": "dev.femboyware.mixin",
 	"compatibilityLevel": "JAVA_${java}",
 	"client": [
+		"GlowEspMixin",
 		"HandModelLayerAccessor",
 		"HandModelStateAccessor",
 		"HandModelRendererMixin",
