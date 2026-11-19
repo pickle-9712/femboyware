@@ -65,6 +65,41 @@ public final class FilePicker {
 		}));
 	}
 
+	/** Windows' Save As dialog, for a {@code .extension} file named {@code suggested} to start with. */
+	public static void saveAs(String title, String kind, String extension, String suggested, Consumer<Path> chosen) {
+		if (!supported()) {
+			ChatUtil.info("Choosing where to save only works on Windows");
+			return;
+		}
+		if (!OPEN.compareAndSet(false, true)) return;
+		String ext = extension.replaceAll("[^A-Za-z0-9]", "");
+		String script = "Add-Type -AssemblyName System.Windows.Forms;"
+			+ "$owner = New-Object System.Windows.Forms.Form -Property @{TopMost = $true};"
+			+ "$dialog = New-Object System.Windows.Forms.SaveFileDialog -Property @{Filter = '" + quote(kind + " (*." + ext + ")|*." + ext) + "'; Title = '" + quote(title)
+			+ "'; FileName = '" + quote(suggested) + "'; DefaultExt = '" + ext + "'; AddExtension = $true; OverwritePrompt = $true};"
+			+ "if ($dialog.ShowDialog($owner) -eq 'OK') { [Console]::Out.Write($dialog.FileName) }";
+		run(script, out -> {
+			if (!out.isEmpty()) chosen.accept(Path.of(out));
+		});
+	}
+
+	private static void run(String script, Consumer<String> done) {
+		CompletableFuture.supplyAsync(() -> {
+			try {
+				Process process = new ProcessBuilder("powershell", "-NoProfile", "-STA", "-Command", script).redirectErrorStream(false).start();
+				process.getOutputStream().close();
+				String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+				process.waitFor();
+				return out;
+			} catch (Exception e) {
+				return "";
+			}
+		}).thenAccept(out -> Minecraft.getInstance().execute(() -> {
+			OPEN.set(false);
+			done.accept(out);
+		}));
+	}
+
 	/**
 	 * Copies a picked file into one of femboyware's folders (under {@code name}, or its own name),
 	 * returning the copy, or null with a message if it couldn't.

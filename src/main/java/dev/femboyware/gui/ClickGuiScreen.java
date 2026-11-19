@@ -53,7 +53,7 @@ public class ClickGuiScreen extends Screen {
 	private static final String[] CHANNEL_NAMES = {"Red", "Green", "Blue", "Alpha"};
 	private static final int[] CHANNEL_SHIFTS = {16, 8, 0, 24};
 
-	private enum RowType { NAV, FAVORITES, ENABLED, HUD_EDIT, GUI_SETTINGS, HUD_DONE, CHIP, CARD, STAR, SWITCH, BACK, HEADER_SWITCH, SEARCH, BIND, BOOL, BUTTON, NUMBER, ENUM, ENUM_OPTION, STRING, COLOR, KEY }
+	private enum RowType { NAV, FAVORITES, ENABLED, HUD_EDIT, GUI_SETTINGS, CONFIGS, RESET_ALL, HUD_DONE, CHIP, CARD, STAR, SWITCH, BACK, HEADER_SWITCH, SEARCH, BIND, BOOL, BUTTON, NUMBER, ENUM, ENUM_OPTION, STRING, COLOR, KEY }
 
 	private record Row(RowType type, int x, int y, int width, int height, Category category, Module module, Setting<?> setting, int shift, Category.Group group) {
 		boolean contains(double mouseX, double mouseY) {
@@ -130,6 +130,68 @@ public class ClickGuiScreen extends Screen {
 	private long tooltipAt;
 
 	private record Key(String kind, Object of, int index) {
+	}
+
+	// ---------------------------------------------------------------- search, undo
+
+	/** Search results found by a setting's name: which of their settings matched. */
+	private final Map<Module, List<Setting<?>>> settingHits = new HashMap<>();
+	/** A setting to bring into view once its page is drawn (opened from a search). */
+	private Setting<?> scrollToSetting;
+
+	/** A module as it was before a change in the menu, to go back to. */
+	private record Change(Module module, com.google.gson.JsonObject before) {
+	}
+
+	private final java.util.ArrayDeque<Change> undo = new java.util.ArrayDeque<>(), redo = new java.util.ArrayDeque<>();
+	private static final int UNDO_KEPT = 100;
+	/** A note in the footer for a moment (what was undone, reset...), and when it was shown. */
+	private String flash;
+	private long flashAt;
+
+	/** Remembers {@code m} as it is, before something in the menu changes it. */
+	private void remember(Module m) {
+		if (m == null) return;
+		undo.push(new Change(m, FemboyWare.getConfig().snapshot(m, false)));
+		while (undo.size() > UNDO_KEPT) undo.removeLast();
+		redo.clear();
+	}
+
+	/** Ctrl+Z (or Ctrl+Y / Ctrl+Shift+Z to redo): puts the module last changed back how it was. */
+	private void undo(boolean redoing) {
+		java.util.ArrayDeque<Change> from = redoing ? redo : undo, to = redoing ? undo : redo;
+		Change change = from.poll();
+		if (change == null) {
+			flash(redoing ? "Nothing to redo" : "Nothing to undo");
+			return;
+		}
+		to.push(new Change(change.module, FemboyWare.getConfig().snapshot(change.module, false)));
+		FemboyWare.getConfig().apply(change.module, change.before, true);
+		// Text boxes show the restored text
+		editors.keySet().removeIf(setting -> setting != search);
+		flash((redoing ? "Redid " : "Undid ") + change.module.getName() + (redoing ? "" : "  ·  Ctrl+Y redoes"));
+	}
+
+	private void flash(String text) {
+		flash = text;
+		flashAt = System.nanoTime();
+	}
+
+	/** Modules that are opened rather than turned on: this menu itself, and Configs. */
+	private boolean settingsOnly(Module m) {
+		return m == module || m instanceof dev.femboyware.module.client.ConfigsModule;
+	}
+
+	/** Every setting of {@code m} back to how it came, less saved data (the phone's balance and such). */
+	private void resetAll(Module m) {
+		remember(m);
+		for (Setting<?> setting : m.getSettings()) {
+			if (setting.getDescription() == null || setting.getDescription().isEmpty() || setting instanceof ButtonSetting) continue;
+			setting.reset();
+		}
+		editors.keySet().removeIf(setting -> setting != search);
+		openEnum = null;
+		flash("Reset " + m.getName() + "  ·  Ctrl+Z undoes it");
 	}
 
 	/** A click's ripple: spreading out from where you clicked over the thing you clicked, then fading. */
@@ -587,9 +649,21 @@ public class ClickGuiScreen extends Screen {
 		}
 
 		// The footer: how to drive it
-		String hint = open != null ? "Esc goes back  ·  Right click a setting resets it  ·  Middle click binds"
-			: "Click toggles  ·  Right click or Enter: settings  ·  Space toggles  ·  Tab moves  ·  Middle click binds";
-		context.drawString(font, ellipsize(hint, w - 2 * PAD), x1 + PAD, y2 - FOOTER + 4, Theme.muted());
+		String hint = open != null ? "Esc goes back  ·  Right click a setting resets it  ·  Ctrl+Z undoes  ·  Middle click binds"
+			: "Click toggles  ·  Right click or Enter: settings  ·  Ctrl+Z undoes  ·  Tab moves  ·  Middle click binds";
+		float flashT = flash == null ? 1 : seconds(flashAt) / 2.6f;
+		if (flashT < 1) {
+			// A note slides in over the hint, then fades back to it
+			float in = easeOut(flashT * 10), out = flashT > 0.8f ? (1 - flashT) / 0.2f : 1;
+			context.pose().pushMatrix();
+			context.pose().translate(0, 4 * (1 - in));
+			text(context, ellipsize(flash, w - 2 * PAD), x1 + PAD, y2 - FOOTER + 4, fade(accent | 0xFF000000, in * out));
+			context.pose().popMatrix();
+			text(context, ellipsize(hint, w - 2 * PAD), x1 + PAD, y2 - FOOTER + 4, fade(Theme.muted(), 1 - in * out));
+		} else {
+			flash = null;
+			context.drawString(font, ellipsize(hint, w - 2 * PAD), x1 + PAD, y2 - FOOTER + 4, Theme.muted());
+		}
 		renderRipples(context, accent, false);
 		renderTooltip(context, mouseX, mouseY);
 	}
@@ -627,6 +701,7 @@ public class ClickGuiScreen extends Screen {
 		y = navItem(context, RowType.HUD_EDIT, null, "hud_editor", "HUD Editor", false, x1, y, mouseX, mouseY, accent);
 		// The ClickGUI's own settings: open and close animations and how long they take
 		y = navItem(context, RowType.GUI_SETTINGS, null, "customize", "Animations", open instanceof dev.femboyware.module.client.ClickGuiModule, x1, y, mouseX, mouseY, accent);
+		y = navItem(context, RowType.CONFIGS, null, "configs", "Configs", open instanceof dev.femboyware.module.client.ConfigsModule, x1, y, mouseX, mouseY, accent);
 
 		// You, at the bottom
 		if (mc().player != null && y <= bottom - 20) {
@@ -859,15 +934,23 @@ public class ClickGuiScreen extends Screen {
 		String name = binding == m ? m.getName() + "  [press a key]" : m.getName();
 		text(context, name, x + 10, y + 6, fade(Theme.text(), in));
 		int textRight = x + w - 52;
-		String description = ellipsize(m.getDescription(), textRight - (x + 10));
-		text(context, description, x + 10, y + 17, fade(Theme.muted(), in));
+		List<Setting<?>> hits = search.get().isBlank() ? null : settingHits.get(m);
+		if (hits != null) {
+			// Found by a setting: say which
+			StringBuilder found = new StringBuilder("Setting: ");
+			for (int i = 0; i < hits.size(); i++) found.append(i == 0 ? "" : ", ").append(hits.get(i).getName());
+			text(context, ellipsize(found.toString(), textRight - (x + 10)), x + 10, y + 17, fade(mix(Theme.muted(), accent | 0xFF000000, 0.75f), in));
+		} else {
+			String description = ellipsize(m.getDescription(), textRight - (x + 10));
+			text(context, description, x + 10, y + 17, fade(Theme.muted(), in));
+		}
 
 		// The star, then the switch
 		int sx = x + w - 46, sy = y + (CARD_HEIGHT - 12) / 2;
 		Row star = new Row(RowType.STAR, sx - 2, sy - 2, 14, 16, null, m, null, 0, null);
 		rows.add(star);
 		drawStar(context, m, sx, sy + 1, star.contains(mouseX, mouseY), accent, in);
-		if (m != module) {
+		if (!settingsOnly(m)) {
 			int tx = x + w - 28, ty = y + (CARD_HEIGHT - 10) / 2;
 			rows.add(new Row(RowType.SWITCH, tx - 2, ty - 3, 24, 16, null, m, null, 0, null));
 			drawSwitch(context, tx, ty, onT, accent, in);
@@ -937,18 +1020,60 @@ public class ClickGuiScreen extends Screen {
 		return text.substring(0, end).stripTrailing() + dots;
 	}
 
-	/** Every module whose name or description contains {@code query}, name matches first. */
-	private static List<Module> matches(String query) {
-		List<Module> byName = new ArrayList<>();
-		List<Module> byDescription = new ArrayList<>();
+	/**
+	 * What a search finds, best first: names starting with it, then containing it, then initials
+	 * ("ka" for Kill Aura), then modules with a setting called that (noted in {@link #settingHits}),
+	 * then descriptions, then names with its letters in order ("klar" for Kill Aura).
+	 */
+	private List<Module> matches(String query) {
+		settingHits.clear();
+		String squashed = query.replace(" ", "");
+		List<List<Module>> tiers = new ArrayList<>();
+		for (int i = 0; i < 6; i++) tiers.add(new ArrayList<>());
 		for (Module m : FemboyWare.getModules().getModules()) {
 			if (LarpOnlyModule.hides(m)) continue;
-			if (m.getName().toLowerCase().contains(query)) byName.add(m);
-			else if (m.getDescription().toLowerCase().contains(query)) byDescription.add(m);
+			String name = m.getName().toLowerCase();
+			if (name.startsWith(query)) tiers.get(0).add(m);
+			else if (name.contains(query)) tiers.get(1).add(m);
+			else if (squashed.length() >= 2 && initials(name).startsWith(squashed)) tiers.get(2).add(m);
+			else {
+				List<Setting<?>> hits = new ArrayList<>();
+				if (query.length() >= 2) {
+					for (Setting<?> setting : m.getSettings()) {
+						if (setting.getDescription() == null || setting.getDescription().isEmpty()) continue;
+						if (setting.getName().toLowerCase().contains(query)) hits.add(setting);
+					}
+				}
+				if (!hits.isEmpty()) {
+					settingHits.put(m, hits);
+					tiers.get(3).add(m);
+				} else if (m.getDescription().toLowerCase().contains(query)) tiers.get(4).add(m);
+				else if (squashed.length() >= 3 && inOrder(squashed, name.replace(" ", ""))) tiers.get(5).add(m);
+			}
 		}
-		byName.sort((a, b) -> a.getName().compareToIgnoreCase(b.getName()));
-		byName.addAll(byDescription);
-		return byName;
+		List<Module> out = new ArrayList<>();
+		for (List<Module> tier : tiers) {
+			tier.sort((a, b) -> a.getName().compareToIgnoreCase(b.getName()));
+			out.addAll(tier);
+		}
+		return out;
+	}
+
+	private static String initials(String name) {
+		StringBuilder out = new StringBuilder();
+		for (String word : name.split("[ \\-]+")) if (!word.isEmpty()) out.append(word.charAt(0));
+		return out.toString();
+	}
+
+	/** Whether every letter of {@code query} turns up in {@code text}, in order. */
+	private static boolean inOrder(String query, String text) {
+		int at = 0;
+		for (int i = 0; i < query.length(); i++) {
+			at = text.indexOf(query.charAt(i), at);
+			if (at < 0) return false;
+			at++;
+		}
+		return true;
 	}
 
 	/** Tabs of {@code group} that have at least one module; empty tabs are hidden. */
@@ -986,7 +1111,16 @@ public class ClickGuiScreen extends Screen {
 		Row star = new Row(RowType.STAR, sx - 2, y - 1, 14, 16, null, m, null, 0, null);
 		rows.add(star);
 		drawStar(context, m, sx, y + 2, star.contains(mouseX, mouseY), accent, 1);
-		if (m != module) {
+		if (!(m instanceof dev.femboyware.module.client.ConfigsModule)) {
+			// Every setting back to how it came (Ctrl+Z brings yours back)
+			int rw = font.width("Reset") + 12, rx = sx - 8 - rw;
+			Row reset = new Row(RowType.RESET_ALL, rx, y, rw, 14, null, m, null, 0, null);
+			rows.add(reset);
+			float rh = ease("reset", m, reset.contains(mouseX, mouseY) ? 1 : 0, 14);
+			shape(context, rx, y, rx + rw, y + 14, 6, mix(Theme.surface(), ColorUtil.withAlpha(accent, 0x50), rh), settled(rh));
+			context.drawString(font, "Reset", rx + 6, y + 3, mix(Theme.muted(), Theme.text(), rh));
+		}
+		if (!settingsOnly(m)) {
 			rows.add(new Row(RowType.HEADER_SWITCH, x2 - 30, y - 1, 24, 16, null, m, null, 0, null));
 			drawSwitch(context, x2 - 28, y + 2, ease("on", m, m.isEnabled() ? 1 : 0, 12), accent, 1);
 		}
@@ -1037,6 +1171,10 @@ public class ClickGuiScreen extends Screen {
 				Glass.rounded(context, right - 14, y + 2, right, y + ROW_HEIGHT - 2, 2, color.get() | 0xFF000000);
 				rows.add(new Row(RowType.COLOR, x, y, w, ROW_HEIGHT, null, m, color, -1, null));
 				if (color.equals(selectedSetting)) settingGlide.aim(x, y - contentOrigin, w, ROW_HEIGHT * 5);
+				if (color == scrollToSetting) {
+					scroll = Math.max(0, y - contentOrigin - 30);
+					scrollToSetting = null;
+				}
 				y += ROW_HEIGHT;
 				for (int i = 0; i < 4; i++) {
 					int value = color.getChannel(CHANNEL_SHIFTS[i]);
@@ -1097,6 +1235,10 @@ public class ClickGuiScreen extends Screen {
 			if (row == null) continue;
 			hoverRow(context, row, new Key("row", setting, 0), mouseX, mouseY);
 			if (setting.equals(selectedSetting)) settingGlide.aim(row.x, row.y - contentOrigin, row.width, row.height);
+			if (setting == scrollToSetting) {
+				scroll = Math.max(0, row.y - contentOrigin - 30);
+				scrollToSetting = null;
+			}
 			rows.add(row);
 			y += row.height;
 			if (setting instanceof Choice mode && openEnum == mode) {
@@ -1214,6 +1356,12 @@ public class ClickGuiScreen extends Screen {
 		openEnum = null;
 		selectedSetting = null;
 		settingGlide.alpha = 0;
+		scrollToSetting = null;
+		List<Setting<?>> hits = search.get().isBlank() ? null : settingHits.get(m);
+		if (hits != null && !hits.isEmpty()) {
+			selectedSetting = hits.getFirst();
+			scrollToSetting = hits.getFirst();
+		}
 		// Coming back, the cards cascade in again
 		cardsKey = null;
 		scroll = 0;
@@ -1267,7 +1415,8 @@ public class ClickGuiScreen extends Screen {
 			if (!row.contains(mouseX, mouseY)) continue;
 			boolean left = button == GLFW.GLFW_MOUSE_BUTTON_LEFT, right = button == GLFW.GLFW_MOUSE_BUTTON_RIGHT;
 			switch (row.type) {
-				case NAV, FAVORITES, ENABLED, HUD_EDIT, GUI_SETTINGS -> ripple(row, mouseX, mouseY, 5, false);
+				case NAV, FAVORITES, ENABLED, HUD_EDIT, GUI_SETTINGS, CONFIGS -> ripple(row, mouseX, mouseY, 5, false);
+				case RESET_ALL -> ripple(row, mouseX, mouseY, 6, true);
 				case CHIP -> ripple(row, mouseX, mouseY, 6, false);
 				case CARD -> ripple(row, mouseX, mouseY, 7, true);
 				case BACK -> ripple(row, mouseX, mouseY, 6, true);
@@ -1286,12 +1435,24 @@ public class ClickGuiScreen extends Screen {
 				}
 			}
 			if (row.type == RowType.STAR) starPops.put(row.module, System.nanoTime());
+			// Changes the menu can take back with Ctrl+Z
+			boolean changes = switch (row.type) {
+				case CARD -> !right && !settingsOnly(row.module);
+				case SWITCH, HEADER_SWITCH, BIND, KEY, BOOL, ENUM_OPTION -> true;
+				case ENUM -> right;
+				case STRING -> right || wasTyping != row.setting;
+				case NUMBER, COLOR -> right || (left && row.shift != -1);
+				default -> false;
+			};
+			if (changes) remember(row.module);
 			switch (row.type) {
 				case NAV -> showGroup(row.group, false);
 				case FAVORITES -> showGroup(null, true);
 				case ENABLED -> showGroup(null, false, true);
 				case HUD_EDIT -> hudEditing = true;
 				case GUI_SETTINGS -> openSettings(dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.client.ClickGuiModule.class));
+				case CONFIGS -> openSettings(dev.femboyware.FemboyWare.getModules().get(dev.femboyware.module.client.ConfigsModule.class));
+				case RESET_ALL -> resetAll(row.module);
 				case HUD_DONE -> hudEditing = false;
 				case CHIP -> {
 					clearSearch();
@@ -1302,7 +1463,8 @@ public class ClickGuiScreen extends Screen {
 					focus = -1;
 				}
 				case CARD -> {
-					if (left && row.module != module) row.module.toggle();
+					if (left && settingsOnly(row.module)) openSettings(row.module);
+					else if (left) row.module.toggle();
 					else if (right) openSettings(row.module);
 					else if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) binding = row.module;
 				}
@@ -1491,6 +1653,10 @@ public class ClickGuiScreen extends Screen {
 			smooth = 0;
 			return true;
 		}
+		if (input.hasControlDown() && (key == 90 || key == 89)) {
+			undo(key == 89 || input.hasShiftDown()); // Z, Y
+			return true;
+		}
 		if (key == GLFW.GLFW_KEY_F && input.hasControlDown()) {
 			searching = true;
 			return true;
@@ -1520,7 +1686,10 @@ public class ClickGuiScreen extends Screen {
 					return true;
 				}
 				case 32 -> { // space
-					if (focus >= 0 && focus < n && cards.get(focus) != module) cards.get(focus).toggle();
+					if (focus >= 0 && focus < n && !settingsOnly(cards.get(focus))) {
+						remember(cards.get(focus));
+						cards.get(focus).toggle();
+					}
 					return true;
 				}
 				case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> {

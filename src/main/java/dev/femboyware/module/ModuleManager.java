@@ -547,6 +547,7 @@ public class ModuleManager {
 		register(new dev.femboyware.module.utility.StreamProofModule());
 		register(new dev.femboyware.module.utility.PerformanceModule());
 		register(new ClickGuiModule());
+		register(new dev.femboyware.module.client.ConfigsModule());
 		register(new dev.femboyware.module.client.LarpOnlyModule());
 		register(new WatermarkModule());
 		register(new ModuleListModule());

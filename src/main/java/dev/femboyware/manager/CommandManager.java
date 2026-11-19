@@ -58,6 +58,7 @@ public class CommandManager {
 			case "pilot", "autopilot", "fly" -> FemboyWare.getModules().get(dev.femboyware.module.movement.AutoElytraPilotModule.class).command(args);
 			case "phone" -> FemboyWare.getModules().get(dev.femboyware.module.larp.PhoneModule.class).command(args);
 			case "fpphone" -> FemboyWare.getModules().get(dev.femboyware.module.larp.PhoneModule.class).fakeContacts(args.length > 1 ? args[1] : "");
+			case "config", "configs", "cfg", "profile" -> FemboyWare.getModules().get(dev.femboyware.module.client.ConfigsModule.class).command(args);
 			case "ledger", "wallet" -> FemboyWare.getModules().get(dev.femboyware.module.larp.LedgerModule.class).command(args);
 			case "cosmetics", "cos" -> FemboyWare.getModules().get(dev.femboyware.module.render.CosmeticsModule.class).command(args);
 			case "fakespawner", "fakespawners", "spawner" -> FemboyWare.getModules().get(dev.femboyware.module.larp.FakeSpawnerModule.class).command(args);
@@ -158,6 +159,7 @@ public class CommandManager {
 		ChatUtil.info(PREFIX + "car <spawn [suv|jesko]|remove|clear>  (park flex cars next to you; only you see them)");
 		ChatUtil.info(PREFIX + "phone <open|give|clear|fake [on|off]|dm [name] [message]|bank [amount]|robux [amount]>  (the fake phone: DMs, bank, stocks, Roblox; only you see it)");
 		ChatUtil.info(PREFIX + "ledger <open|give|clear|deposit [coin] [amount]|set <coin> <amount>|price <coin> <dollars>|history [clear]|reset|total>  (the fake crypto wallet; only you see it)");
+		ChatUtil.info(PREFIX + "config <list|save <name>|load <name>|delete <name>|import|export|folder>  (whole setups: switch, share and back up; also in the ClickGUI under Configs)");
 		ChatUtil.info(PREFIX + "cos <give|take|list|clear> [name] [fiery|frozen|poisoned|random|none|same]  (give a player your Korblox, headless and horns; only you see them)");
 		ChatUtil.info(PREFIX + "area <pos1|pos2|clear>  (mark a box for Auto Area Miner to dig out; marks the block you look at)");
 		ChatUtil.info(PREFIX + "pilot <x> <z> | stop  (Auto Elytra Pilot flies you there and lands; ~ for where you are)");
