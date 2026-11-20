@@ -24,6 +24,9 @@ decompiled from the released Anubis Client 1.0 jar, translated to Mojang mapping
 to fit femboyware (Panic Pay was left out). Each ported file says so in its Javadoc. Ported files:
 
   src/main/java/dev/femboyware/module/utility/SpawnerProtectModule.java
+  src/main/java/dev/femboyware/module/render/ChunkScannerModule.java (without the seed-based Advanced Scanner)
+  src/main/java/dev/femboyware/module/render/SpawnerNametagsModule.java
+  src/main/java/dev/femboyware/mixin/SpawnerRangeAccessor.java
   src/main/java/dev/femboyware/module/render/PrimeChunkFinderModule.java (from the anubisclient.cc source viewer)
   src/main/java/dev/femboyware/module/utility/RenderDistanceToggleModule.java (from the anubisclient.cc source viewer)
   src/main/java/dev/femboyware/module/utility/PlayerDetectionModule.java
