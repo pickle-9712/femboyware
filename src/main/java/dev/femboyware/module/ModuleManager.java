@@ -552,6 +552,8 @@ public class ModuleManager {
 		register(new dev.femboyware.module.utility.SpawnerProtectModule());
 		register(new dev.femboyware.module.utility.PlayerDetectionModule());
 		register(new dev.femboyware.module.utility.CoordSnapperModule());
+		register(new dev.femboyware.module.render.PrimeChunkFinderModule());
+		register(new dev.femboyware.module.utility.RenderDistanceToggleModule());
 		register(new dev.femboyware.module.donut.AutoTpaHereModule());
 		register(new dev.femboyware.module.donut.AhSellModule());
 		register(new dev.femboyware.module.donut.AhSniperModule());
@@ -704,6 +706,10 @@ public class ModuleManager {
 
 	public void onPostAttack(Entity target) {
 		dispatch(module -> module.onPostAttack(target));
+	}
+
+	public void onBlockChange(BlockPos pos, BlockState previous, BlockState state) {
+		if (previous != state) dispatch(module -> module.onBlockChange(pos, previous, state));
 	}
 
 	public void onBlockUpdate(BlockPos pos, BlockState state) {

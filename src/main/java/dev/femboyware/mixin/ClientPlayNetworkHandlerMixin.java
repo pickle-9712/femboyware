@@ -28,6 +28,21 @@ public class ClientPlayNetworkHandlerMixin {
 		if (FemboyWare.getCommands() != null && FemboyWare.getCommands().handle(message)) ci.cancel();
 	}
 
+	/** Before the change lands, so modules see the block that was there (main thread only: the first call is on netty and bounces). */
+	@Inject(method = "handleBlockUpdate", at = @At("HEAD"))
+	private void femboyware$beforeBlockUpdate(ClientboundBlockUpdatePacket packet, CallbackInfo ci) {
+		net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+		if (!mc.isSameThread() || mc.level == null) return;
+		FemboyWare.getModules().onBlockChange(packet.getPos(), mc.level.getBlockState(packet.getPos()), packet.getBlockState());
+	}
+
+	@Inject(method = "handleChunkBlocksUpdate", at = @At("HEAD"))
+	private void femboyware$beforeChunkDeltaUpdate(ClientboundSectionBlocksUpdatePacket packet, CallbackInfo ci) {
+		net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+		if (!mc.isSameThread() || mc.level == null) return;
+		packet.runUpdates((pos, state) -> FemboyWare.getModules().onBlockChange(pos.immutable(), mc.level.getBlockState(pos), state));
+	}
+
 	@Inject(method = "handleBlockUpdate", at = @At("TAIL"))
 	private void femboyware$onBlockUpdate(ClientboundBlockUpdatePacket packet, CallbackInfo ci) {
 		FemboyWare.getModules().onBlockUpdate(packet.getPos(), packet.getBlockState());

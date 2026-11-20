@@ -146,6 +146,10 @@ public abstract class Module {
 	public void onPacketSend(PacketEvent event) {
 	}
 
+	/** Called on the main thread just before a server block change is applied, with the block that was there. */
+	public void onBlockChange(BlockPos pos, BlockState previous, BlockState state) {
+	}
+
 	/** Called on the main thread after a server block change was applied to the client world. */
 	public void onBlockUpdate(BlockPos pos, BlockState state) {
 	}

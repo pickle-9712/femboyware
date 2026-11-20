@@ -24,11 +24,13 @@ decompiled from the released Anubis Client 1.0 jar, translated to Mojang mapping
 to fit femboyware (Panic Pay was left out). Each ported file says so in its Javadoc. Ported files:
 
   src/main/java/dev/femboyware/module/utility/SpawnerProtectModule.java
+  src/main/java/dev/femboyware/module/render/PrimeChunkFinderModule.java (from the anubisclient.cc source viewer)
+  src/main/java/dev/femboyware/module/utility/RenderDistanceToggleModule.java (from the anubisclient.cc source viewer)
   src/main/java/dev/femboyware/module/utility/PlayerDetectionModule.java
   src/main/java/dev/femboyware/module/utility/CoordSnapperModule.java
   src/main/java/dev/femboyware/module/movement/NoFallModule.java (Donut mode)
   src/main/java/dev/femboyware/util/Webhook.java
-  src/main/java/dev/femboyware/util/DonutStaff.java (DonutSMP staff names)
+  src/main/java/dev/femboyware/util/DonutStaff.java (originally the DonutSMP staff names; now detects staff by tab list star)
   src/main/java/dev/femboyware/module/client/AntiVanishModule.java (detection approach)
   src/main/java/dev/femboyware/gui/GoliathPickerScreen.java
   src/main/java/dev/femboyware/mixin/AntiGhostBlockGameModeMixin.java
