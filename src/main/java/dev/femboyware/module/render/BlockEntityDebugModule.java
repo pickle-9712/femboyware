@@ -48,6 +48,8 @@ public class BlockEntityDebugModule extends Module {
 	private final BoolSetting showNbt = add(new BoolSetting("Show NBT", "Add the block entity's data to the chat message", true));
 	private final BoolSetting hints = add(new BoolSetting("Hidden Block Hints", "Blocks given away by events and sounds", true));
 	private final BoolSetting lightLeaks = add(new BoolSetting("Light Leaks", "Hidden blocks given away by their light", true));
+	private final NumberSetting minLight = add(new NumberSetting("Min Leak Light", "Ignore leaks dimmer than this; natural glowing blocks like glow lichen give 7 at most, torches and lanterns 14 or more", 8, 1, 15, 1));
+	private final BoolSetting ignorePvp = add(new BoolSetting("Ignore Ender Chests", "Ender chests are PvP gear people place anywhere, not a base", true));
 	private final ColorSetting color = add(new ColorSetting("Color", "Block entities the server sent", 0xFFFF8C1A));
 	private final ColorSetting hintColor = add(new ColorSetting("Hint Color", "Blocks only given away by events, sounds or light", 0xFF6EC8FF));
 	private final NumberSetting range = add(new NumberSetting("Range", "Furthest to draw", 256, 16, 1024, 16));
@@ -62,11 +64,13 @@ public class BlockEntityDebugModule extends Module {
 	private int seenGeneration = -1;
 	private String lastFilter = "";
 	private boolean lastLight;
+	private int lastMinLight = -1;
 
 	public BlockEntityDebugModule() {
 		super("Block Entity Debug", "Boxes block entities, even ones anti-xray hides", Category.ESP);
 		showNbt.visibleWhen(chat::get);
 		lightLeaks.visibleWhen(hints::get);
+		minLight.visibleWhen(() -> hints.get() && lightLeaks.get());
 		blocks.visibleWhen(blockFilter::get);
 		minDepth.visibleWhen(underground::get);
 	}
@@ -91,11 +95,12 @@ public class BlockEntityDebugModule extends Module {
 
 	private void restartLightScan() {
 		lightScanner.clear();
+		lightScanner.minLight(minLight.getInt());
 		if (lightLeaksOn() && mc.level != null && mc.player != null) lightScanner.queueLoaded(mc.level, mc.player.blockPosition(), mc.options.getEffectiveRenderDistance());
 	}
 
 	private String filterKey() {
-		return maxY.get() + "|" + underground.get() + "|" + minDepth.get() + "|" + blockFilter.get() + blocks.get() + hints.get() + lightLeaks.get();
+		return minLight.get() + "|" + ignorePvp.get() + "|" + maxY.get() + "|" + underground.get() + "|" + minDepth.get() + "|" + blockFilter.get() + blocks.get() + hints.get() + lightLeaks.get();
 	}
 
 	private void resync() {
@@ -123,11 +128,15 @@ public class BlockEntityDebugModule extends Module {
 
 	@Override
 	public void onTick() {
-		if (lightLeaksOn() != lastLight) {
+		if (lightLeaksOn() != lastLight || minLight.getInt() != lastMinLight) {
 			lastLight = lightLeaksOn();
+			lastMinLight = minLight.getInt();
 			restartLightScan();
 		}
-		if (lightLeaksOn() && mc.level != null) lightScanner.tick(mc.level);
+		if (lightLeaksOn() && mc.level != null) {
+			lightScanner.minLight(minLight.getInt());
+			lightScanner.tick(mc.level);
+		}
 		if (BlockEntityLeakTracker.generation() != seenGeneration || !filterKey().equals(lastFilter)) {
 			resync();
 			return;
@@ -161,6 +170,7 @@ public class BlockEntityDebugModule extends Module {
 		if (!entry.real() && !(hints.get() && (entry.source() != BlockEntityLeakTracker.Source.LIGHT || lightLeaks.get()))) return false;
 		if (!passesDetection(pos)) return false;
 		Block block = entry.block();
+		if (ignorePvp.get() && block == Blocks.ENDER_CHEST) return false;
 		if (blockFilter.get() && block != Blocks.AIR && !filterBlocks().contains(block)) return false;
 		found.put(pos.asLong(), new Found(pos.immutable(), block, entry.real()));
 		return true;

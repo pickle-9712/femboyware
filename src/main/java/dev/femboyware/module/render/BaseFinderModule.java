@@ -68,8 +68,10 @@ public class BaseFinderModule extends Module {
 	private static int weight(BlockState state) {
 		return WEIGHTS.computeIfAbsent(state.getBlock(), block -> {
 			if (block == Blocks.BEACON || block == Blocks.CONDUIT || block == Blocks.DRAGON_EGG) return 40;
-			if (block == Blocks.ENCHANTING_TABLE || block == Blocks.RESPAWN_ANCHOR) return 15;
-			if (block == Blocks.ENDER_CHEST || block == Blocks.LODESTONE || block == Blocks.NETHERITE_BLOCK || block == Blocks.DIAMOND_BLOCK) return 12;
+			// Ender chests, respawn anchors and the like are PvP gear people place anywhere, not signs of a base
+			if (block == Blocks.ENDER_CHEST || block == Blocks.RESPAWN_ANCHOR || block == Blocks.CRYING_OBSIDIAN || block == Blocks.OBSIDIAN || block == Blocks.COBWEB) return 0;
+			if (block == Blocks.ENCHANTING_TABLE) return 15;
+			if (block == Blocks.LODESTONE || block == Blocks.NETHERITE_BLOCK || block == Blocks.DIAMOND_BLOCK) return 12;
 			if (state.is(BlockTags.SHULKER_BOXES)) return 10;
 			if (state.is(BlockTags.ANVIL) || block == Blocks.SMITHING_TABLE || block == Blocks.GRINDSTONE) return 6;
 			if (block == Blocks.BREWING_STAND || block == Blocks.HOPPER || block == Blocks.OBSERVER || block == Blocks.STICKY_PISTON

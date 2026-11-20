@@ -24,6 +24,12 @@ public final class LightLeakScanner {
 	private static final long BUDGET_NANOS = 1500000L;
 	private static final int NOISY_CHUNK = 512;
 	private final LongLinkedOpenHashSet queue = new LongLinkedOpenHashSet();
+	private int minLight = 8;
+
+	/** Leaks dimmer than this are ignored: natural glowing blocks (glow lichen gives 7) can hide behind anti-xray too. */
+	public void minLight(int value) {
+		this.minLight = value;
+	}
 
 	public void clear() {
 		this.queue.clear();
@@ -71,13 +77,13 @@ public final class LightLeakScanner {
 
 			while (!this.queue.isEmpty() && System.nanoTime() < deadline) {
 				long key = this.queue.removeFirstLong();
-				scan(level, ChunkPos.getX(key), ChunkPos.getZ(key));
+				scan(level, ChunkPos.getX(key), ChunkPos.getZ(key), this.minLight);
 			}
 
 		}
 	}
 
-	private static void scan(ClientLevel level, int chunkX, int chunkZ) {
+	private static void scan(ClientLevel level, int chunkX, int chunkZ, int minLight) {
 		LevelChunk chunk = level.getChunkSource().getChunk(chunkX, chunkZ, ChunkStatus.FULL, false);
 		if (chunk != null) {
 			LevelChunkSection[] sections = chunk.getSections();
@@ -102,7 +108,8 @@ public final class LightLeakScanner {
 			java.util.Map<Long, LongArrayList> emitters = new java.util.HashMap<>();
 			for (int i = 0; i < found.size(); i++) {
 				BlockPos pos = BlockPos.of(found.getLong(i));
-				if (explained(level, pos, needed(level, light, pos), emitters)) continue;
+				int needed = needed(level, light, pos);
+				if (needed < minLight || explained(level, pos, needed, emitters)) continue;
 				BlockEntityLeakTracker.hint(pos, Blocks.AIR, BlockEntityLeakTracker.Source.LIGHT);
 			}
 		}

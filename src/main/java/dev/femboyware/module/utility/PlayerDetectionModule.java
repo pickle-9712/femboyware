@@ -5,6 +5,7 @@ import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
 import dev.femboyware.setting.EnumSetting;
+import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.StringSetting;
 import dev.femboyware.util.ChatUtil;
 import dev.femboyware.util.Webhook;
@@ -37,12 +38,18 @@ public class PlayerDetectionModule extends Module {
 	private final BoolSetting disconnect = add(new BoolSetting("Disconnect", "Leave the server half a second after someone shows up (Auto Reconnect won't rejoin)", true));
 	private final BoolSetting turnOff = add(new BoolSetting("Turn Off", "Turn this off after it goes off once", true));
 	private final StringSetting toggle = add(new StringSetting("Modules To Toggle", "Modules to flip on or off when someone shows up, comma separated", ""));
+	private final NumberSetting range = add(new NumberSetting("Range", "Only players this close count (0 = anyone loaded)", 0, 0, 256, 8));
+	private final NumberSetting confirmTicks = add(new NumberSetting("Confirm Ticks", "They must stay loaded this long first, so anticheat bots and people flying past the edge don't set it off", 10, 0, 100, 1));
+	private final BoolSetting ignoreFriends = add(new BoolSetting("Ignore Friends", "Your friends list doesn't count", true));
 	private final StringSetting whitelist = add(new StringSetting("Whitelist", "Names to ignore (your alts, friends), comma separated", ""));
 	private final BoolSetting webhook = add(new BoolSetting("Webhook", "Also post to a Discord webhook", false));
 	private final StringSetting webhookUrl = add(new StringSetting("Webhook URL", "Your Discord webhook link", ""));
 	private final StringSetting discordId = add(new StringSetting("Ping ID", "Your Discord user ID, to be pinged (blank for no ping)", ""));
 
 	private final Set<String> detected = new HashSet<>();
+	/** How many ticks each candidate has stayed loaded, by name. */
+	private final java.util.Map<String, Integer> seenFor = new java.util.HashMap<>();
+	private static final java.util.regex.Pattern REAL_NAME = java.util.regex.Pattern.compile("[A-Za-z0-9_.]{1,17}");
 	private ClientLevel lastLevel;
 
 	public PlayerDetectionModule() {
@@ -52,6 +59,7 @@ public class PlayerDetectionModule extends Module {
 	@Override
 	protected void onEnable() {
 		detected.clear();
+		seenFor.clear();
 		lastLevel = null;
 	}
 
@@ -75,8 +83,15 @@ public class PlayerDetectionModule extends Module {
 			String name = player.getGameProfile().name();
 			if (name == null || name.equals(self) || name.equalsIgnoreCase("freecamera")) continue;
 			if (FemboyWare.getModules().get(dev.femboyware.module.client.FakePlayerModule.class).isFake(player.getId())) continue;
+			if (!isRealPlayer(player)) continue;
+			if (range.get() > 0 && player.distanceTo(mc.player) > range.get()) continue;
+			if (ignoreFriends.get() && FemboyWare.getFriends().isFriend(player)) continue;
 			if (!ignored.contains(name.toLowerCase(Locale.ROOT))) now.add(name);
 		}
+		// Count up how long each one's been here; only those past Confirm Ticks go on
+		seenFor.keySet().retainAll(now);
+		for (String name : now) seenFor.merge(name, 1, Integer::sum);
+		now.removeIf(name -> seenFor.get(name) < confirmTicks.getInt());
 		if (now.isEmpty()) {
 			detected.clear();
 			return;
@@ -87,6 +102,17 @@ public class PlayerDetectionModule extends Module {
 		detected.clear();
 		detected.addAll(now);
 		if (someoneNew) fire(now);
+	}
+
+	/**
+	 * A real player, not an NPC, hologram or anticheat bot: in the tab list, an ordinary account id
+	 * (NPC plugins hand out version 2 ids) and a name a real account can have (Bedrock names start with a dot).
+	 */
+	private boolean isRealPlayer(AbstractClientPlayer player) {
+		String name = player.getGameProfile().name();
+		if (name == null || !REAL_NAME.matcher(name).matches()) return false;
+		if (player.getUUID().version() == 2) return false;
+		return mc.getConnection() != null && mc.getConnection().getPlayerInfo(player.getUUID()) != null;
 	}
 
 	private void fire(Set<String> players) {

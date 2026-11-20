@@ -47,7 +47,7 @@ public class BaseEspModule extends Module {
 	private final NumberSetting range = add(new NumberSetting("Range", "Scan radius in chunks", 8, 1, 16, 1));
 	private final NumberSetting minScore = add(new NumberSetting("Min Score", "Strong blocks count 3, weak blocks 1; flag chunks scoring at least this", 6, 1, 100, 1));
 	private final StringSetting strongBlocks = add(new StringSetting("Strong Blocks", "Comma separated ids or #tags of blocks that never generate",
-		"ender_chest, #shulker_boxes, beacon, respawn_anchor, enchanting_table, lodestone, conduit, netherite_block, diamond_block, emerald_block"));
+		"#shulker_boxes, beacon, enchanting_table, lodestone, conduit, netherite_block, diamond_block, emerald_block"));
 	private final StringSetting weakBlocks = add(new StringSetting("Weak Blocks", "Comma separated ids or #tags of player blocks that villages also have",
 		"crafting_table, furnace, blast_furnace, smoker, #beds, #all_signs, #banners, anvil, chipped_anvil, damaged_anvil, brewing_stand, jukebox, note_block"));
 	private final BoolSetting ignoreVillages = add(new BoolSetting("Ignore Villages", "Only count strong blocks within a chunk of a bell", true));
