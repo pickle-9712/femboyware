@@ -5,7 +5,6 @@ import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
-import dev.femboyware.setting.ChoiceSetting;
 import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.setting.StringSetting;
@@ -39,7 +38,10 @@ import net.minecraft.world.phys.Vec3;
 public class BlockEntityDebugModule extends Module {
 	private static final int MAX_CHAT_PER_TICK = 5, MAX_NBT_CHARS = 200;
 
-	private final ChoiceSetting detection = add(new ChoiceSetting("Detection", "Only show ones deep underground", "All", () -> List.of("All", "Below Zero", "Below -20", "Below -30")));
+	private final NumberSetting maxY = add(new NumberSetting("Max Y", "Only show things at or below this height (320 shows everything)", 0, -64, 320, 1));
+	private final BoolSetting underground = add(new BoolSetting("Underground Only", "Only things buried under real ground (leaves don't count), which drops trees, caves' open air and surface builds", true));
+	private final NumberSetting minDepth = add(new NumberSetting("Min Depth", "Blocks of ground above it, at least", 6, 1, 64, 1));
+	private final BoolSetting groupTracers = add(new BoolSetting("Group Tracers", "One tracer per cluster instead of one per block", true));
 	private final BoolSetting blockFilter = add(new BoolSetting("Block Filter", "Only the blocks listed in Blocks", false));
 	private final StringSetting blocks = add(new StringSetting("Blocks", "Block ids, comma separated", "chest,trapped_chest,barrel,shulker_box,spawner,ender_chest,hopper,furnace,beacon"));
 	private final BoolSetting chat = add(new BoolSetting("Chat Notifications", "Say in chat when a new one is found", false));
@@ -66,6 +68,7 @@ public class BlockEntityDebugModule extends Module {
 		showNbt.visibleWhen(chat::get);
 		lightLeaks.visibleWhen(hints::get);
 		blocks.visibleWhen(blockFilter::get);
+		minDepth.visibleWhen(underground::get);
 	}
 
 	@Override
@@ -92,7 +95,7 @@ public class BlockEntityDebugModule extends Module {
 	}
 
 	private String filterKey() {
-		return detection.get() + blockFilter.get() + blocks.get() + hints.get() + lightLeaks.get();
+		return maxY.get() + "|" + underground.get() + "|" + minDepth.get() + "|" + blockFilter.get() + blocks.get() + hints.get() + lightLeaks.get();
 	}
 
 	private void resync() {
@@ -164,12 +167,12 @@ public class BlockEntityDebugModule extends Module {
 	}
 
 	private boolean passesDetection(BlockPos pos) {
-		return switch (detection.get()) {
-			case "Below Zero" -> pos.getY() < 0;
-			case "Below -20" -> pos.getY() < -20;
-			case "Below -30" -> pos.getY() < -30;
-			default -> true;
-		};
+		if (pos.getY() > maxY.get()) return false;
+		if (!underground.get() || mc.level == null) return true;
+		// The ground's top here, not counting leaves; unloaded columns count as deep enough
+		if (!mc.level.hasChunk(pos.getX() >> 4, pos.getZ() >> 4)) return true;
+		int ground = mc.level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, pos.getX(), pos.getZ());
+		return ground - 1 - pos.getY() >= minDepth.getInt();
 	}
 
 	private void announce(BlockPos pos, BlockEntityLeakTracker.Entry entry) {
@@ -193,12 +196,15 @@ public class BlockEntityDebugModule extends Module {
 		double rangeSq = range.get() * range.get();
 		Vec3 from = RenderUtil.tracerOrigin(event);
 		List<Found> spawners = new ArrayList<>();
+		Set<Long> traced = new HashSet<>();
 		for (Found f : found.values()) {
 			BlockPos pos = f.pos();
 			if (eye.distanceToSqr(Vec3.atCenterOf(pos)) > rangeSq) continue;
 			int c = f.real() ? color.get() : hintColor.get();
 			RenderUtil.drawBox(event, new AABB(pos), (c & 0xFFFFFF) | 0x50000000, c | 0xFF000000, 1.5f, true);
-			if (tracers.get()) RenderUtil.drawLine(event, from, Vec3.atCenterOf(pos), c | 0xFF000000, 1.5f, true);
+			// Clusters (a lit room, a chest wall) share one tracer: one per 8 block cell
+			boolean first = !groupTracers.get() || traced.add(BlockPos.asLong(pos.getX() >> 3, pos.getY() >> 3, pos.getZ() >> 3));
+			if (tracers.get() && first) RenderUtil.drawLine(event, from, Vec3.atCenterOf(pos), c | 0xFF000000, 1.5f, true);
 			if (f.block() == Blocks.SPAWNER) spawners.add(f);
 		}
 		if (spawnerBeams.get())
