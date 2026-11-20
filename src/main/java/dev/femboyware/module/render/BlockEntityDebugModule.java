@@ -49,6 +49,7 @@ public class BlockEntityDebugModule extends Module {
 	private final BoolSetting hints = add(new BoolSetting("Hidden Block Hints", "Blocks given away by events and sounds", true));
 	private final BoolSetting lightLeaks = add(new BoolSetting("Light Leaks", "Hidden blocks given away by their light", true));
 	private final NumberSetting minLight = add(new NumberSetting("Min Leak Light", "Ignore leaks dimmer than this; natural glowing blocks like glow lichen give 7 at most, torches and lanterns 14 or more", 8, 1, 15, 1));
+	private final BoolSetting naturalLight = add(new BoolSetting("Natural Light Filter", "Ignore light that lava, lit redstone ore, glow berries, trial chambers, ancient cities or strongholds give off behind anti-xray", true));
 	private final BoolSetting ignorePvp = add(new BoolSetting("Ignore Ender Chests", "Ender chests are PvP gear people place anywhere, not a base", true));
 	private final ColorSetting color = add(new ColorSetting("Color", "Block entities the server sent", 0xFFFF8C1A));
 	private final ColorSetting hintColor = add(new ColorSetting("Hint Color", "Blocks only given away by events, sounds or light", 0xFF6EC8FF));
@@ -72,6 +73,7 @@ public class BlockEntityDebugModule extends Module {
 		showNbt.visibleWhen(chat::get);
 		lightLeaks.visibleWhen(hints::get);
 		minLight.visibleWhen(() -> hints.get() && lightLeaks.get());
+		naturalLight.visibleWhen(() -> hints.get() && lightLeaks.get());
 		blocks.visibleWhen(blockFilter::get);
 		minDepth.visibleWhen(underground::get);
 	}
@@ -97,11 +99,12 @@ public class BlockEntityDebugModule extends Module {
 	private void restartLightScan() {
 		lightScanner.clear();
 		lightScanner.minLight(minLight.getInt());
+		lightScanner.naturalFilter(naturalLight.get());
 		if (lightLeaksOn() && mc.level != null && mc.player != null) lightScanner.queueLoaded(mc.level, mc.player.blockPosition(), mc.options.getEffectiveRenderDistance());
 	}
 
 	private String filterKey() {
-		return minLight.get() + "|" + ignorePvp.get() + "|" + maxY.get() + "|" + underground.get() + "|" + minDepth.get() + "|" + blockFilter.get() + blocks.get() + hints.get() + lightLeaks.get();
+		return minLight.get() + "|" + naturalLight.get() + "|" + ignorePvp.get() + "|" + maxY.get() + "|" + underground.get() + "|" + minDepth.get() + "|" + blockFilter.get() + blocks.get() + hints.get() + lightLeaks.get();
 	}
 
 	private void resync() {
@@ -136,6 +139,7 @@ public class BlockEntityDebugModule extends Module {
 		}
 		if (lightLeaksOn() && mc.level != null) {
 			lightScanner.minLight(minLight.getInt());
+			lightScanner.naturalFilter(naturalLight.get());
 			lightScanner.tick(mc.level);
 		}
 		if (BlockEntityLeakTracker.generation() != seenGeneration || !filterKey().equals(lastFilter)) {

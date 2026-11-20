@@ -29,6 +29,8 @@ final class AntiXrayReveal {
 		// air first and breaking leaves air (gravel falling leaves air too). Covers stone -> grass_block on
 		// the surface and gravel -> water on the sea floor
 		if (natural(previous) && !tickable(previous) && (natural(now) || !now.getFluidState().isEmpty())) return true;
+		// Stone straight into any block (a tree, a chest...) can't be a player either: they'd break it to air first
+		if (filler(previous) && !now.isAir()) return true;
 		if (filler(previous) && now.isAir()) return batch;
 		// Fake ores (some anti-xray modes scatter them) turning back into air
 		if (fakeOre(previous) && now.isAir()) return true;
@@ -43,7 +45,7 @@ final class AntiXrayReveal {
 	}
 
 	private static final java.util.Set<String> TICKABLE_IDS = java.util.Set.of(
-		"dirt", "grass_block", "mycelium", "podzol", "ice", "snow_block", "powder_snow", "mud", "dirt_path", "magma_block");
+		"dirt", "grass_block", "mycelium", "podzol", "ice", "powder_snow", "mud", "dirt_path", "magma_block");
 
 	/** What anti-xray shows hidden blocks as. */
 	private static boolean filler(BlockState state) {

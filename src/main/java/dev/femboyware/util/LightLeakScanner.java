@@ -31,6 +31,13 @@ public final class LightLeakScanner {
 		this.minLight = value;
 	}
 
+	private boolean naturalFilter = true;
+
+	/** Skip leaks that lava, lit ores, glow berries or a lit structure (trial chamber, ancient city...) explain. */
+	public void naturalFilter(boolean value) {
+		this.naturalFilter = value;
+	}
+
 	public void clear() {
 		this.queue.clear();
 	}
@@ -77,13 +84,13 @@ public final class LightLeakScanner {
 
 			while (!this.queue.isEmpty() && System.nanoTime() < deadline) {
 				long key = this.queue.removeFirstLong();
-				scan(level, ChunkPos.getX(key), ChunkPos.getZ(key), this.minLight);
+				scan(level, ChunkPos.getX(key), ChunkPos.getZ(key), this.minLight, this.naturalFilter);
 			}
 
 		}
 	}
 
-	private static void scan(ClientLevel level, int chunkX, int chunkZ, int minLight) {
+	private static void scan(ClientLevel level, int chunkX, int chunkZ, int minLight, boolean naturalFilter) {
 		LevelChunk chunk = level.getChunkSource().getChunk(chunkX, chunkZ, ChunkStatus.FULL, false);
 		if (chunk != null) {
 			LevelChunkSection[] sections = chunk.getSections();
@@ -106,10 +113,12 @@ public final class LightLeakScanner {
 
 			// Light that a block you can see (lava, magma, glow lichen, torches...) would give off isn't a hidden block
 			java.util.Map<Long, LongArrayList> emitters = new java.util.HashMap<>();
+			java.util.Map<Long, Integer> natural = new java.util.HashMap<>();
 			for (int i = 0; i < found.size(); i++) {
 				BlockPos pos = BlockPos.of(found.getLong(i));
 				int needed = needed(level, light, pos);
 				if (needed < minLight || explained(level, pos, needed, emitters)) continue;
+				if (naturalFilter && NaturalLight.explain(level, light, pos, natural) != null) continue;
 				BlockEntityLeakTracker.hint(pos, Blocks.AIR, BlockEntityLeakTracker.Source.LIGHT);
 			}
 		}
