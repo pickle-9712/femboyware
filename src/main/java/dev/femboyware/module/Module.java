@@ -90,6 +90,11 @@ public abstract class Module {
 		if (FemboyWare.getModules() != null) dev.femboyware.module.hud.ModuleNotificationsModule.onToggle(this);
 	}
 
+	/** False for bots that spend money or click menus: they stay off when the game starts or a config loads. */
+	public boolean persistsEnabled() {
+		return true;
+	}
+
 	/** Extra text shown next to the module name in the array list. */
 	public String getInfo() {
 		return null;

@@ -552,6 +552,9 @@ public class ModuleManager {
 		register(new dev.femboyware.module.utility.SpawnerProtectModule());
 		register(new dev.femboyware.module.utility.PlayerDetectionModule());
 		register(new dev.femboyware.module.utility.CoordSnapperModule());
+		register(new dev.femboyware.module.donut.AhSellModule());
+		register(new dev.femboyware.module.donut.AhSniperModule());
+		register(new dev.femboyware.module.donut.OrderAhSellerModule());
 		register(new dev.femboyware.module.utility.PlayerBypassModule());
 		register(new dev.femboyware.module.client.NoInvLeakModule());
 		register(new dev.femboyware.module.render.GlowEspModule());

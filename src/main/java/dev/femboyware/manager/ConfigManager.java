@@ -39,7 +39,7 @@ public class ConfigManager {
 	/** One module's state, keybind and settings. */
 	public JsonObject snapshot(Module module, boolean sharing) {
 		JsonObject moduleJson = new JsonObject();
-		moduleJson.addProperty("enabled", module.isEnabled());
+		moduleJson.addProperty("enabled", module.persistsEnabled() && module.isEnabled());
 		moduleJson.addProperty("key", module.getKey());
 		JsonObject settingsJson = new JsonObject();
 		for (Setting<?> setting : module.getSettings()) {
@@ -110,7 +110,7 @@ public class ConfigManager {
 		}
 		if (!startup && module instanceof dev.femboyware.module.client.ClickGuiModule) return;
 		try {
-			if (moduleJson.has("enabled") && moduleJson.get("enabled").getAsBoolean() != module.isEnabled()) module.setEnabled(moduleJson.get("enabled").getAsBoolean());
+			if (module.persistsEnabled() && moduleJson.has("enabled") && moduleJson.get("enabled").getAsBoolean() != module.isEnabled()) module.setEnabled(moduleJson.get("enabled").getAsBoolean());
 		} catch (RuntimeException e) {
 			FemboyWare.LOGGER.warn("Couldn't turn {} on or off from a config", module.getName(), e);
 		}
