@@ -23,8 +23,7 @@ import net.minecraft.world.phys.Vec3;
 
 /**
  * Chunks with the quiet signs of someone underground, the kind that don't show up in a normal ESP:
- * deepslate lying on its side (it only ever generates upright, so sideways means placed), cobbled
- * deepslate deep down (not cobblestone: dungeons and mineshafts), torches below the deepslate line and dirt paths far below
+ * deepslate lying on its side (it only ever generates upright, so sideways means placed), torches below the deepslate line and dirt paths far below
  * the surface. Each chunk with enough of them is boxed and labelled with what was found.
  */
 public class SusChunkFinderModule extends Module {
@@ -74,7 +73,7 @@ public class SusChunkFinderModule extends Module {
 	}
 
 	private static boolean interesting(BlockState state) {
-		return state.is(Blocks.DEEPSLATE) || state.is(Blocks.COBBLED_DEEPSLATE)
+		return state.is(Blocks.DEEPSLATE)
 			|| state.is(Blocks.TORCH) || state.is(Blocks.WALL_TORCH) || state.is(Blocks.DIRT_PATH);
 	}
 
@@ -88,12 +87,6 @@ public class SusChunkFinderModule extends Module {
 			if (state.is(Blocks.DEEPSLATE)) {
 				if (state.getValue(BlockStateProperties.AXIS) != Direction.Axis.Y) {
 					c[0]++;
-					hit = true;
-				}
-			} else if (state.is(Blocks.COBBLED_DEEPSLATE)) {
-				// Dungeons and ancient cities have these too, so only deep and only as a little weight
-				if (pos.getY() < 0) {
-					c[1]++;
 					hit = true;
 				}
 			} else if (state.is(Blocks.DIRT_PATH)) {
