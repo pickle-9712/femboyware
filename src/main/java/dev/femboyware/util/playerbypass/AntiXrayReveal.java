@@ -25,6 +25,8 @@ final class AntiXrayReveal {
 	 *              block changing on its own (what mining looks like) still counts when it opens air
 	 */
 	static boolean is(BlockState previous, BlockState now, boolean batch) {
+		// Stone turning into anything (air included) is never counted: anti-xray reveals far too many
+		if (previous.is(Blocks.STONE)) return true;
 		// One natural block straight into another, or into water or lava, is never a player: placing needs
 		// air first and breaking leaves air (gravel falling leaves air too). Covers stone -> grass_block on
 		// the surface and gravel -> water on the sea floor
