@@ -4,6 +4,10 @@
 	"package": "dev.femboyware.mixin",
 	"compatibilityLevel": "JAVA_${java}",
 	"client": [
+		"NoInvLeakEquipmentMixin",
+		"NoInvLeakModelMixin",
+		"NoInvLeakHudMixin",
+		"NoInvLeakScreenMixin",
 		"GlowEspMixin",
 		"HandModelLayerAccessor",
 		"HandModelStateAccessor",
