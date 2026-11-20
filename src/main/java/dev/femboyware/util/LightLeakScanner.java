@@ -98,8 +98,12 @@ public final class LightLeakScanner {
 				}
 			}
 
+			// Light that a block you can see (lava, magma, glow lichen, torches...) would give off isn't a hidden block
+			java.util.Map<Long, LongArrayList> emitters = new java.util.HashMap<>();
 			for (int i = 0; i < found.size(); i++) {
-				BlockEntityLeakTracker.hint(BlockPos.of(found.getLong(i)), Blocks.AIR, BlockEntityLeakTracker.Source.LIGHT);
+				BlockPos pos = BlockPos.of(found.getLong(i));
+				if (explained(level, pos, needed(level, light, pos), emitters)) continue;
+				BlockEntityLeakTracker.hint(pos, Blocks.AIR, BlockEntityLeakTracker.Source.LIGHT);
 			}
 		}
 	}
@@ -123,6 +127,54 @@ public final class LightLeakScanner {
 				}
 			}
 		}
+	}
+
+	/** The light a visible source would have to reach here: the brightest of the block and its neighbours. */
+	private static int needed(ClientLevel level, LayerLightEventListener light, BlockPos pos) {
+		int best = light.getLightValue(pos);
+		for (BlockPos next : new BlockPos[]{pos.above(), pos.below(), pos.north(), pos.south(), pos.east(), pos.west()}) {
+			best = Math.max(best, light.getLightValue(next) - 1);
+		}
+		return best;
+	}
+
+	/** Whether a light source you can see, within reach, could light {@code pos} to {@code needed}. */
+	private static boolean explained(ClientLevel level, BlockPos pos, int needed, java.util.Map<Long, LongArrayList> cache) {
+		if (needed <= 0) return true;
+		int sx = pos.getX() >> 4, sy = pos.getY() >> 4, sz = pos.getZ() >> 4;
+		for (int dx = -1; dx <= 1; dx++)
+			for (int dy = -1; dy <= 1; dy++)
+				for (int dz = -1; dz <= 1; dz++) {
+					LongArrayList list = cache.computeIfAbsent(SectionPos.asLong(sx + dx, sy + dy, sz + dz), key -> emittersIn(level, SectionPos.x(key), SectionPos.y(key), SectionPos.z(key)));
+					for (int i = 0; i < list.size(); i += 2) {
+						int emission = (int) list.getLong(i + 1);
+						BlockPos at = BlockPos.of(list.getLong(i));
+						int distance = Math.abs(at.getX() - pos.getX()) + Math.abs(at.getY() - pos.getY()) + Math.abs(at.getZ() - pos.getZ());
+						if (emission - distance >= needed) return true;
+					}
+				}
+		return false;
+	}
+
+	/** Every light-giving block the client sees in a section, as pairs: BlockPos.asLong, then its emission. */
+	private static LongArrayList emittersIn(ClientLevel level, int sx, int sy, int sz) {
+		LongArrayList out = new LongArrayList();
+		LevelChunk chunk = level.getChunkSource().getChunk(sx, sz, ChunkStatus.FULL, false);
+		if (chunk == null) return out;
+		int index = chunk.getSectionIndexFromSectionY(sy);
+		if (index < 0 || index >= chunk.getSections().length) return out;
+		LevelChunkSection section = chunk.getSection(index);
+		if (section.hasOnlyAir() || !section.maybeHas(state -> state.getLightEmission() > 0)) return out;
+		for (int y = 0; y < 16; y++)
+			for (int z = 0; z < 16; z++)
+				for (int x = 0; x < 16; x++) {
+					int emission = section.getBlockState(x, y, z).getLightEmission();
+					if (emission > 0) {
+						out.add(BlockPos.asLong((sx << 4) + x, (sy << 4) + y, (sz << 4) + z));
+						out.add(emission);
+					}
+				}
+		return out;
 	}
 
 	private static int brightestInside(DataLayer data, int x, int y, int z) {

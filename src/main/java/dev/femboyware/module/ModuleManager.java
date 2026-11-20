@@ -725,6 +725,12 @@ public class ModuleManager {
 		// Our labels and nametags use the clean font even though Minecraft's in-game text doesn't
 		UiScale.beginClient();
 		try {
+			// Aura Sky first, flushed on its own: drawn in the same batch it could paint over ESP and tracers
+			var sky = get(dev.femboyware.module.effects.AuraSkyModule.class);
+			if (sky != null && sky.isEnabled() && !Module.nullCheck()) {
+				sky.renderSky(event);
+				event.consumers().endBatch();
+			}
 			dispatch(module -> module.onRender3D(event));
 			// Champagne glasses in people's hands
 			dev.femboyware.module.larp.JetLounge.draw(event);

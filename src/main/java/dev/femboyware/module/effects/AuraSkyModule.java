@@ -113,8 +113,8 @@ public class AuraSkyModule extends SkyFxModule {
 		repeating.clear();
 	}
 
-	@Override
-	public void onRender3D(Render3DEvent event) {
+	/** Drawn by ModuleManager in a pass of its own before every other module, so ESP and tracers stay on top of the sky. */
+	public void renderSky(Render3DEvent event) {
 		if (!hasSky()) return;
 		Style s = style.get();
 		float distance = skyDistance();
