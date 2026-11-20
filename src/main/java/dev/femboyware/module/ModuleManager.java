@@ -552,6 +552,7 @@ public class ModuleManager {
 		register(new dev.femboyware.module.utility.SpawnerProtectModule());
 		register(new dev.femboyware.module.utility.PlayerDetectionModule());
 		register(new dev.femboyware.module.utility.CoordSnapperModule());
+		register(new dev.femboyware.module.donut.AutoTpaHereModule());
 		register(new dev.femboyware.module.donut.AhSellModule());
 		register(new dev.femboyware.module.donut.AhSniperModule());
 		register(new dev.femboyware.module.donut.OrderAhSellerModule());
@@ -753,6 +754,11 @@ public class ModuleManager {
 	public boolean onPacketReceive(PacketEvent event) {
 		// Block Entity Debug's tracker listens all the time, so it knows chunks loaded before you turn it on
 		dev.femboyware.util.BlockEntityLeakTracker.ingest(event.getPacket());
+		// Tpahere Kill Bot's tab-completion lookups: drop the replies to its own requests so they don't reach the chat box
+		if (dev.femboyware.module.donut.CompletionChannel.onReceive(event.getPacket())) {
+			event.cancel();
+			return true;
+		}
 		dispatch(module -> module.onPacketReceive(event));
 		return event.isCancelled();
 	}
@@ -763,6 +769,7 @@ public class ModuleManager {
 			event.cancel();
 			return true;
 		}
+		dev.femboyware.module.donut.CompletionChannel.onSend(event.getPacket());
 		dispatch(module -> module.onPacketSend(event));
 		return event.isCancelled();
 	}
