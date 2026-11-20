@@ -451,21 +451,21 @@ public final class SimulationSignals {
 
 	public static void onBlockUpdate(ClientboundBlockUpdatePacket packet) {
 		if (active) {
-			block(packet.getPos(), packet.getBlockState());
+			block(packet.getPos(), packet.getBlockState(), false);
 		}
 	}
 
 	public static void onSectionUpdate(ClientboundSectionBlocksUpdatePacket packet) {
 		if (active) {
-			packet.runUpdates(SimulationSignals::block);
+			packet.runUpdates((pos, state) -> block(pos, state, true));
 		}
 	}
 
-	private static void block(BlockPos pos, BlockState state) {
+	private static void block(BlockPos pos, BlockState state, boolean batch) {
 		ClientLevel level = Minecraft.getInstance().level;
 		if (level != null) {
 			BlockState previous = level.getBlockState(pos);
-			if (previous != state) {
+			if (previous != state && !AntiXrayReveal.is(previous, state, batch)) {
 				if (!ignored(previous) && !ignored(state)) {
 					if (settled(pos)) {
 						SimulationSignals.Kind kind = ticked(previous, state) ? SimulationSignals.Kind.TICK : SimulationSignals.Kind.BLOCK;
