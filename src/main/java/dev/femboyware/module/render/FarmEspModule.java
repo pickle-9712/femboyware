@@ -68,7 +68,7 @@ public class FarmEspModule extends Module {
 	private final StringSetting strongBlocks = add(new StringSetting("Strong Blocks", "Comma separated ids or #tags of farm blocks that never generate",
 		"observer, comparator, daylight_detector, beehive, melon_stem, attached_melon_stem, pumpkin_stem, attached_pumpkin_stem"));
 	private final StringSetting weakBlocks = add(new StringSetting("Weak Blocks", "Comma separated ids or #tags of farm blocks that villages or temples also have",
-		"farmland, wheat, carrots, potatoes, beetroots, nether_wart, composter, piston, sticky_piston, hopper, repeater"));
+		"wheat, carrots, potatoes, beetroots, nether_wart, composter, piston, sticky_piston, hopper, repeater"));
 	private final NumberSetting minAnimals = add(new NumberSetting("Min Animals", "Animals in one chunk that make a pen, natural herds are 2 to 4", 12, 3, 100, 1));
 	private final NumberSetting minVillagers = add(new NumberSetting("Min Villagers", "Villagers in one chunk that make a trading hall or breeder", 6, 2, 50, 1));
 	private final NumberSetting minGolems = add(new NumberSetting("Min Golems", "Iron golems in one chunk that make an iron farm", 3, 2, 20, 1));
