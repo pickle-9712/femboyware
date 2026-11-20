@@ -39,6 +39,7 @@ public class BaseFinderModule extends Module {
 
 	private final NumberSetting range = add(new NumberSetting("Range", "Scan radius in chunks", 8, 1, 16, 1));
 	private final NumberSetting minScore = add(new NumberSetting("Min Score", "How base-like a chunk must be to show", 40, 5, 300, 5));
+	private final NumberSetting yLimit = add(new NumberSetting("Max Y", "Only count blocks below this height (bases hide under y 0 on DonutSMP)", 0, -64, 320, 1));
 	private final BoolSetting tracers = add(new BoolSetting("Tracers", "Lines to bases", true));
 	private final BoolSetting notify = add(new BoolSetting("Notify", "Tell you when a base is found", true));
 	private final ColorSetting color = add(new ColorSetting("Color", "Highlight colour", 0xFFFF55AA));
@@ -89,7 +90,9 @@ public class BaseFinderModule extends Module {
 	private Base scan(LevelChunk chunk) {
 		int[] score = {0}, minY = {Integer.MAX_VALUE}, maxY = {Integer.MIN_VALUE};
 		Map<String, Integer> found = new HashMap<>();
+		int top = yLimit.getInt();
 		ChunkScanner.forEachBlock(chunk, state -> weight(state) > 0, (pos, state) -> {
+			if (pos.getY() >= top) return;
 			int w = weight(state);
 			score[0] += w;
 			minY[0] = Math.min(minY[0], pos.getY());

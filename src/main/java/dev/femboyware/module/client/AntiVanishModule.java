@@ -65,7 +65,7 @@ public class AntiVanishModule extends Module {
 	private static final int SEEN_FOR = 20 * 60 * 10;
 
 	private final EnumSetting<Who> who = add(new EnumSetting<>("Watch", "Whose vanishing to report: staff only on DonutSMP (everyone elsewhere), staff only everywhere, or everyone", Who.STAFF_ON_DONUT));
-	private final StringSetting staffNames = add(new StringSetting("Staff Names", "Names that count as staff, comma separated (DonutSMP's are in by default); anyone with a staff rank in the tab list counts too", DonutStaff.DEFAULT_TEXT));
+	private final StringSetting staffNames = add(new StringSetting("Staff Names", "More names that count as staff, comma separated; anyone with a staff rank, or on DonutSMP a purple or green star, in the tab list counts already", ""));
 	private final BoolSetting spectator = add(new BoolSetting("Spectator Alerts", "Say when someone switches into or out of spectator mode", true));
 	private final BoolSetting vanish = add(new BoolSetting("Vanish Alerts", "Say when someone is hidden from the tab list but still here (vanished)", true));
 	private final BoolSetting invisible = add(new BoolSetting("Invisible Alerts", "Say when someone you're watching for is invisible near you", true));
@@ -163,7 +163,7 @@ public class AntiVanishModule extends Module {
 
 	private boolean isStaff(String name, UUID id) {
 		if (DonutStaff.listed(name, staffNames.get())) return true;
-		if (DonutStaff.onDonut() && DonutStaff.DEFAULT.stream().anyMatch(n -> n.equalsIgnoreCase(name))) return true;
+		if (DonutStaff.onDonut() && DonutStaff.knownRank(name) != null) return true; // seen with a staff or dev star
 		PlayerInfo info = id == null || mc.getConnection() == null ? null : mc.getConnection().getPlayerInfo(id);
 		return StaffListModule.staffRank(info);
 	}
