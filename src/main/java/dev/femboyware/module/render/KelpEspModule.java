@@ -43,6 +43,7 @@ public class KelpEspModule extends Module {
 	private record GrownKelp(List<BlockPos> tops, AABB bounds) {}
 
 	private final NumberSetting range = add(new NumberSetting("Range", "Scan radius in chunks", 8, 1, 16, 1));
+	private final NumberSetting yLimit = add(new NumberSetting("Max Y", "Only flag things below this height (bases hide under y 0)", 0, -64, 320, 1));
 	private final NumberSetting minColumns = add(new NumberSetting("Min Columns", "Grown kelp columns a chunk needs before it's flagged", 4, 1, 64, 1));
 	private final BoolSetting throughWalls = add(new BoolSetting("Through Walls", "See flagged chunks through terrain", true));
 	private final BoolSetting showColumns = add(new BoolSetting("Show Columns", "Mark each grown kelp top", true));
@@ -82,6 +83,7 @@ public class KelpEspModule extends Module {
 	private GrownKelp scan(LevelChunk chunk) {
 		List<BlockPos> tops = new ArrayList<>();
 		ChunkScanner.forEachBlock(chunk, state -> state.is(Blocks.KELP), (pos, state) -> {
+			if (pos.getY() >= yLimit.getInt()) return;
 			if (state.getValue(BlockStateProperties.AGE_25) > NATURAL_MAX_AGE || height(chunk, pos) > NATURAL_MAX_HEIGHT) tops.add(pos);
 		});
 		if (tops.isEmpty()) return null;

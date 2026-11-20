@@ -25,7 +25,10 @@ public final class ChunkLightSnapshot {
 		return false;
 	}
 
+	/** Player Bypass's Max Y: nothing at or above it is flagged (femboyware). */
+	public static volatile int maxY = 0;
+
 	static boolean candidate(int index, int bottomSectionY) {
-		return (bottomSectionY + index - 1) * 16 + 15 < 62;
+		return (bottomSectionY + index - 1) * 16 + 15 < Math.min(62, maxY);
 	}
 }

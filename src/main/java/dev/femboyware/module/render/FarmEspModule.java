@@ -64,6 +64,7 @@ public class FarmEspModule extends Module {
 	}
 
 	private final NumberSetting range = add(new NumberSetting("Range", "Scan radius in chunks", 8, 1, 16, 1));
+	private final NumberSetting yLimit = add(new NumberSetting("Max Y", "Only flag things below this height (bases hide under y 0)", 0, -64, 320, 1));
 	private final NumberSetting minScore = add(new NumberSetting("Min Score", "Strong blocks count 3, weak blocks 1; flag chunks scoring at least this", 8, 1, 200, 1));
 	private final StringSetting strongBlocks = add(new StringSetting("Strong Blocks", "Comma separated ids or #tags of farm blocks that never generate",
 		"observer, comparator, daylight_detector, beehive, melon_stem, attached_melon_stem, pumpkin_stem, attached_pumpkin_stem"));
@@ -131,6 +132,7 @@ public class FarmEspModule extends Module {
 		Map<Block, Integer> blocks = new HashMap<>();
 		AABB[] bounds = new AABB[1];
 		ChunkScanner.forEachBlock(chunk, state -> state.is(Blocks.BELL) || strong.test(state) || weak.test(state), (pos, state) -> {
+			if (pos.getY() >= yLimit.getInt() && !state.is(Blocks.BELL)) return;
 			if (state.is(Blocks.BELL)) {
 				bell[0] = true;
 				return;

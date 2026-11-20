@@ -708,7 +708,7 @@ public final class SimulationSignals {
 	private static void signal(BlockPos pos, SimulationSignals.Kind kind, int spill, Supplier<SimulationSignals.Share> source, Supplier<String> what) {
 		LocalPlayer self = Minecraft.getInstance().player;
 		if (self != null) {
-			if (pos.getY() >= 0 && !holding()) {
+			if (pos.getY() >= 0 && pos.getY() < ChunkLightSnapshot.maxY && !holding()) {
 				int cx = pos.getX() >> 4;
 				int cz = pos.getZ() >> 4;
 				int pcx = self.blockPosition().getX() >> 4;

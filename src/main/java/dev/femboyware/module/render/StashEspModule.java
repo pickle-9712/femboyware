@@ -41,6 +41,7 @@ public class StashEspModule extends Module {
 	}
 
 	private final NumberSetting range = add(new NumberSetting("Range", "Scan radius in chunks", 8, 1, 16, 1));
+	private final NumberSetting yLimit = add(new NumberSetting("Max Y", "Only flag things below this height (bases hide under y 0)", 0, -64, 320, 1));
 	private final NumberSetting minStorage = add(new NumberSetting("Min Storage", "Storage blocks a chunk needs to count as a stash", 10, 2, 100, 1));
 	private final BoolSetting throughWalls = add(new BoolSetting("Through Walls", "See stashes through terrain", true));
 	private final BoolSetting tracers = add(new BoolSetting("Tracers", "Draw lines to stashes", false));
@@ -80,6 +81,7 @@ public class StashEspModule extends Module {
 		int chests = 0, barrels = 0, shulkers = 0;
 		AABB bounds = null;
 		for (BlockEntity blockEntity : chunk.getBlockEntities().values()) {
+			if (blockEntity.getBlockPos().getY() >= yLimit.getInt()) continue;
 			if (blockEntity instanceof ChestBlockEntity) chests++;
 			else if (blockEntity instanceof BarrelBlockEntity) barrels++;
 			else if (blockEntity instanceof ShulkerBoxBlockEntity) shulkers++;

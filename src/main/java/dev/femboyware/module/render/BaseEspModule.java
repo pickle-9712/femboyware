@@ -45,6 +45,7 @@ public class BaseEspModule extends Module {
 	private record Base(AABB bounds, int strong, int weak, boolean bell, Map<Block, Integer> counts) {}
 
 	private final NumberSetting range = add(new NumberSetting("Range", "Scan radius in chunks", 8, 1, 16, 1));
+	private final NumberSetting yLimit = add(new NumberSetting("Max Y", "Only flag things below this height (bases hide under y 0)", 0, -64, 320, 1));
 	private final NumberSetting minScore = add(new NumberSetting("Min Score", "Strong blocks count 3, weak blocks 1; flag chunks scoring at least this", 6, 1, 100, 1));
 	private final StringSetting strongBlocks = add(new StringSetting("Strong Blocks", "Comma separated ids or #tags of blocks that never generate",
 		"#shulker_boxes, beacon, enchanting_table, lodestone, conduit, netherite_block, diamond_block, emerald_block"));
@@ -103,6 +104,8 @@ public class BaseEspModule extends Module {
 		Map<Block, Integer> blocks = new HashMap<>();
 		List<BlockPos> positions = new ArrayList<>();
 		ChunkScanner.forEachBlock(chunk, state -> state.is(Blocks.BELL) || strong.test(state) || weak.test(state), (pos, state) -> {
+			// Bells still count anywhere: they mark villages
+			if (pos.getY() >= yLimit.getInt() && !state.is(Blocks.BELL)) return;
 			if (state.is(Blocks.BELL)) {
 				bell[0] = true;
 				return;

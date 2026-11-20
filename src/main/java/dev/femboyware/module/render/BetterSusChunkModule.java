@@ -97,6 +97,7 @@ public final class BetterSusChunkModule extends Module {
 	private static final int[][] SIDES = new int[][]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
 	private static final int FILL_ALPHA = 100;
 	private final NumberSetting simDistance = add(new NumberSetting("Simulation Distance", "Simulation Distance", 4.0F, 2.0F, 16.0F, 1.0F));
+	private final NumberSetting yLimit = add(new NumberSetting("Max Y", "Only flag things below this height (bases hide under y 0)", 0, -64, 320, 1));
 	private final ColorSetting chunkColor = add(new ColorSetting("Chunk Color", "Chunk Color", -65536));
 	private final NumberSetting sensitivity = add(new NumberSetting("Sensitivity", "Sensitivity", 40.0F, 1.0F, 500.0F, 1.0F));
 	private final BoolSetting holeFilter = add(new BoolSetting("Hole Filter", "Hole Filter", false));
@@ -327,7 +328,7 @@ public final class BetterSusChunkModule extends Module {
 	private BetterSusChunkModule.Source scanChunk(ClientLevel level, long key, LevelChunk chunk) {
 		boolean donut = donutServer();
 		boolean[] counts = this.counted;
-		int count = donut && counts[0] && this.kelpChunks.contains(key) ? 1 : 0;
+		int count = donut && counts[0] && this.yLimit.getInt() > level.getSeaLevel() && this.kelpChunks.contains(key) ? 1 : 0;
 		BetterSusChunkModule.BlockReader blocks = new BetterSusChunkModule.BlockReader(level);
 		ChunkPos pos = chunk.getPos();
 		int minX = pos.getMinBlockX();
@@ -341,6 +342,7 @@ public final class BetterSusChunkModule extends Module {
 			LevelChunkSection section = sections[i];
 			if (section != null && !section.hasOnlyAir() && section.maybeHas(statex -> kindOf(statex, counts) >= 0)) {
 				int baseY = chunk.getMinY() + (i << 4);
+				if (baseY >= yLimit.getInt()) continue;
 
 				for (int y = 0; y < 16; y++) {
 					for (int z = 0; z < 16; z++) {
@@ -381,6 +383,7 @@ public final class BetterSusChunkModule extends Module {
 			for (int z = 0; z < 16; z++) {
 				for (int x = 0; x < 16; x++) {
 					int y = heightmap.getFirstAvailable(x, z);
+					if (y >= yLimit.getInt()) continue;
 					if (surfaceOwed(level, blocks, minX + x, y, minZ + z, seaLevel, donut, counts)) {
 						count++;
 					}

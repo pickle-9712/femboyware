@@ -44,6 +44,7 @@ public class SpawnerEspModule extends Module {
 	private record Spawner(BlockPos pos, String mob, boolean natural) {}
 
 	private final NumberSetting range = add(new NumberSetting("Range", "Scan radius in chunks", 8, 1, 16, 1));
+	private final NumberSetting yLimit = add(new NumberSetting("Max Y", "Only flag things below this height (bases hide under y 0)", 0, -64, 320, 1));
 	private final BoolSetting showNatural = add(new BoolSetting("Show Natural", "Also show spawners inside dungeons and other structures", false));
 	private final BoolSetting throughWalls = add(new BoolSetting("Through Walls", "See spawners through terrain", true));
 	private final BoolSetting tracers = add(new BoolSetting("Tracers", "Draw lines to placed spawners", false));
@@ -87,6 +88,7 @@ public class SpawnerEspModule extends Module {
 		for (BlockEntity blockEntity : chunk.getBlockEntities().values()) {
 			if (!(blockEntity instanceof SpawnerBlockEntity spawner)) continue;
 			BlockPos pos = spawner.getBlockPos();
+			if (pos.getY() >= yLimit.getInt()) continue;
 			Entity mob = spawner.getSpawner().getOrCreateDisplayEntity(mc.level, pos);
 			String name = mob == null ? "empty" : mob.getType().getDescription().getString();
 			spawners.add(new Spawner(pos, name, inStructure(pos)));

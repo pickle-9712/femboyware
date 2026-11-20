@@ -1,5 +1,6 @@
 package dev.femboyware.module.render;
 
+import dev.femboyware.setting.NumberSetting;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
@@ -28,10 +29,11 @@ import net.minecraft.world.phys.Vec3;
  */
 public class AmethystBypassModule extends Module {
 	private final ColorSetting color = add(new ColorSetting("Color", "Colour of the markers", 0xFFC883FF));
+	private final NumberSetting yLimit = add(new NumberSetting("Max Y", "Only flag things below this height (bases hide under y 0)", 0, -64, 320, 1));
 	private final BoolSetting tracers = add(new BoolSetting("Tracers", "Lines to each marker", false));
 	private final BoolSetting hideVisible = add(new BoolSetting("Hide When Visible", "Hide a block's box and tracer while you can see it yourself", true));
 
-	private final ChunkScanner<BlockPos> scanner = new ChunkScanner<>(AmethystBypassModule::scan);
+	private final ChunkScanner<BlockPos> scanner = new ChunkScanner<>(this::scan);
 
 	public AmethystBypassModule() {
 		super("Amethyst Bypass", "Shows amethyst geodes hidden by anti-xray", Category.ESP);
@@ -59,7 +61,7 @@ public class AmethystBypassModule extends Module {
 	}
 
 	/** A spot on the geode in this chunk, or null when its palettes show no hidden buds. */
-	private static BlockPos scan(LevelChunk chunk) {
+	private BlockPos scan(LevelChunk chunk) {
 		LevelChunkSection[] sections = chunk.getSections();
 		int minSectionY = chunk.getMinSectionY();
 		ChunkPos pos = chunk.getPos();
@@ -70,6 +72,7 @@ public class AmethystBypassModule extends Module {
 			// A global palette "maybe has" everything, so only trust a local palette
 			if (states.maybeHas(state -> false) || !states.maybeHas(AmethystBypassModule::isBud)) continue;
 			int baseY = (minSectionY + i) * 16;
+			if (baseY >= yLimit.getInt()) continue;
 			BlockPos marker = pickMarker(chunk, section, baseY, pos);
 			return marker != null ? marker : new BlockPos(pos.getMinBlockX() + 8, baseY + 8, pos.getMinBlockZ() + 8);
 		}

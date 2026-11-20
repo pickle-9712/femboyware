@@ -31,6 +31,7 @@ public class AnchorHunterModule extends Module {
 	private record Anchor(BlockPos pos, int charge) {}
 
 	private final NumberSetting range = add(new NumberSetting("Range", "Scan radius in chunks", 8, 1, 16, 1));
+	private final NumberSetting yLimit = add(new NumberSetting("Max Y", "Only flag things below this height (bases hide under y 0)", 0, -64, 320, 1));
 	private final BoolSetting onlyCharged = add(new BoolSetting("Only Charged", "Only show anchors with glowstone in", false));
 	private final BoolSetting tracers = add(new BoolSetting("Tracers", "Lines to anchors", true));
 	private final BoolSetting hideVisible = add(new BoolSetting("Hide When Visible", "Hide a block's box and tracer while you can see it yourself", true));
@@ -63,7 +64,9 @@ public class AnchorHunterModule extends Module {
 	private List<Anchor> scan(LevelChunk chunk) {
 		List<Anchor> found = new ArrayList<>();
 		ChunkScanner.forEachBlock(chunk, state -> state.is(Blocks.RESPAWN_ANCHOR),
-			(pos, state) -> found.add(new Anchor(pos, state.getValue(RespawnAnchorBlock.CHARGE))));
+			(pos, state) -> {
+				if (pos.getY() < yLimit.getInt()) found.add(new Anchor(pos, state.getValue(RespawnAnchorBlock.CHARGE)));
+			});
 		return found.isEmpty() ? null : found;
 	}
 

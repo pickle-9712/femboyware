@@ -60,6 +60,7 @@ public final class PlayerBypassModule extends Module {
 	private final NumberSetting opacity = add(new NumberSetting("Opacity", "Opacity", 140.0F, 10.0F, 255.0F, 1.0F));
 	private final BoolSetting tracers = add(new BoolSetting("Tracers", "Tracers", false));
 	private final NumberSetting sensitivity = add(new NumberSetting("Sensitivity", "Sensitivity", 5.0F, 1.0F, 10.0F, 1.0F));
+	private final NumberSetting yLimit = add(new NumberSetting("Max Y", "Only flag things below this height; the ticking-chunk checks (mobs, crops, block changes) all work above y 0, so raise it to 320 to use them", 0, -64, 320, 1));
 	private final ChunkAreas chunkAreas = new ChunkAreas();
 	private final VisibleChunkCache visibleChunks = new VisibleChunkCache(16);
 	private final BoolSetting notifications = add(new BoolSetting("Notifications", "Toast when a hidden player is spotted", true));
@@ -193,6 +194,7 @@ public final class PlayerBypassModule extends Module {
 
 	@Override
 	public void onTick() {
+		dev.femboyware.util.playerbypass.ChunkLightSnapshot.maxY = yLimit.getInt();
 		if (this.autoRtp.get() != this.autoRtpWas) {
 			this.autoRtpWas = this.autoRtp.get();
 			if (this.autoRtpWas) this.autoRtpRunner.start();

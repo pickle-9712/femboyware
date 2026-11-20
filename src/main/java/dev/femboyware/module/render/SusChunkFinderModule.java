@@ -47,6 +47,7 @@ public class SusChunkFinderModule extends Module {
 	}
 
 	private final NumberSetting range = add(new NumberSetting("Range", "Scan radius in chunks", 8, 1, 16, 1));
+	private final NumberSetting yLimit = add(new NumberSetting("Max Y", "Only flag things below this height (bases hide under y 0)", 0, -64, 320, 1));
 	private final NumberSetting minScore = add(new NumberSetting("Min Score", "How suspicious a chunk must be to show", 8, 1, 100, 1));
 	private final BoolSetting notify = add(new BoolSetting("Notify", "Tell you when a sus chunk turns up", true));
 	private final BoolSetting tracers = add(new BoolSetting("Tracers", "Lines to sus chunks", false));
@@ -82,6 +83,7 @@ public class SusChunkFinderModule extends Module {
 		int[] c = new int[4];
 		int[] y = {Integer.MAX_VALUE, Integer.MIN_VALUE};
 		ChunkScanner.forEachBlock(chunk, SusChunkFinderModule::interesting, (pos, state) -> {
+			if (pos.getY() >= yLimit.getInt()) return;
 			boolean hit = false;
 			if (state.is(Blocks.DEEPSLATE)) {
 				if (state.getValue(BlockStateProperties.AXIS) != Direction.Axis.Y) {
