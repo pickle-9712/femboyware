@@ -119,16 +119,22 @@ public class InGameHudMixin {
 	 */
 	@ModifyExpressionValue(method = "displayScoreboardSidebar", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/scores/Objective;getDisplayName()Lnet/minecraft/network/chat/Component;"), require = 0)
 	private net.minecraft.network.chat.Component femboyware$sidebarTitle(net.minecraft.network.chat.Component title) {
-		return FemboyWare.getModules() == null ? title : FemboyWare.getModules().get(dev.femboyware.module.render.ScoreboardEditModule.class).title(title);
+		return FemboyWare.getModules() == null ? title : femboyware$protect(FemboyWare.getModules().get(dev.femboyware.module.render.ScoreboardEditModule.class).title(title));
 	}
 
 	@ModifyExpressionValue(method = "displayScoreboardSidebar", at = @At(value = "FIELD", target = ENTRY_NAME, opcode = org.objectweb.asm.Opcodes.GETFIELD), require = 0)
 	private net.minecraft.network.chat.Component femboyware$sidebarLine(net.minecraft.network.chat.Component line) {
-		return FemboyWare.getModules() == null ? line : FemboyWare.getModules().get(dev.femboyware.module.render.ScoreboardEditModule.class).line(line);
+		return FemboyWare.getModules() == null ? line : femboyware$protect(FemboyWare.getModules().get(dev.femboyware.module.render.ScoreboardEditModule.class).line(line));
 	}
 
 	@ModifyExpressionValue(method = "displayScoreboardSidebar", at = @At(value = "FIELD", target = ENTRY_SCORE, opcode = org.objectweb.asm.Opcodes.GETFIELD), require = 0)
 	private net.minecraft.network.chat.Component femboyware$sidebarScore(net.minecraft.network.chat.Component score) {
-		return FemboyWare.getModules() == null ? score : FemboyWare.getModules().get(dev.femboyware.module.render.ScoreboardEditModule.class).line(score);
+		return FemboyWare.getModules() == null ? score : femboyware$protect(FemboyWare.getModules().get(dev.femboyware.module.render.ScoreboardEditModule.class).line(score));
+	}
+
+	/** Name Protect on the whole line, so a name coloured letter by letter still gets swapped. */
+	@org.spongepowered.asm.mixin.Unique
+	private static net.minecraft.network.chat.Component femboyware$protect(net.minecraft.network.chat.Component text) {
+		return FemboyWare.getModules().get(dev.femboyware.module.utility.NameProtectModule.class).protect(text);
 	}
 }

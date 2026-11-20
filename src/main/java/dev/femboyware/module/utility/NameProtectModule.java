@@ -247,6 +247,35 @@ public class NameProtectModule extends Module {
 		return result;
 	}
 
+	/**
+	 * Name Protect for styled text whose names can be split into differently coloured pieces, like a
+	 * gradient name on a server's scoreboard, which the per-piece string swap can't see whole.
+	 */
+	public net.minecraft.network.chat.Component protect(net.minecraft.network.chat.Component text) {
+		if (!isEnabled() || text == null || onAccountScreen()) return text;
+		parse();
+		String plain = text.getString(), lower = dev.femboyware.module.render.SmallCaps.fold(plain).toLowerCase(Locale.ROOT);
+		net.minecraft.network.chat.Component out = text;
+		if (hideName.get() && mc.getUser() != null) {
+			String username = mc.getUser().getName();
+			if (!username.isEmpty() && lower.contains(username.toLowerCase(Locale.ROOT)))
+				out = dev.femboyware.module.render.ScoreboardEditModule.replaceAll(out, username, name.get());
+		}
+		for (Map.Entry<String, String> entry : replacements.entrySet()) {
+			if (wholeWord(lower, entry.getKey())) out = dev.femboyware.module.render.ScoreboardEditModule.replaceAll(out, entry.getKey(), entry.getValue());
+		}
+		return out;
+	}
+
+	private static boolean wholeWord(String lower, String word) {
+		for (int at = lower.indexOf(word); at >= 0; at = lower.indexOf(word, at + 1)) {
+			boolean before = at == 0 || !isNameChar(lower.charAt(at - 1));
+			int end = at + word.length();
+			if (before && (end == lower.length() || !isNameChar(lower.charAt(end)))) return true;
+		}
+		return false;
+	}
+
 	/** The Account screen always shows the real account it's changing, so Name Protect stays out of it. */
 	private static boolean onAccountScreen() {
 		return dev.femboyware.util.Mc.screen() instanceof dev.femboyware.gui.AccountScreen;

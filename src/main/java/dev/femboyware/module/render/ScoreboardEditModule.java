@@ -299,10 +299,13 @@ public class ScoreboardEditModule extends Module {
 	}
 
 	/** Every match swapped, each in the colours where it began. */
-	private static Component replaceAll(Component line, String find, String with) {
+	/** Replaces {@code find} (any case) even when its letters are split over differently coloured pieces, keeping the first letter's style. */
+	public static Component replaceAll(Component line, String find, String with) {
 		List<Piece> pieces = pieces(line);
 		String plain = line.getString();
-		String lower = plain.toLowerCase(Locale.ROOT), findLower = find.toLowerCase(Locale.ROOT);
+		// Small caps (ꜱᴍᴀʟʟ) count as the plain letters, and the replacement is written the same way
+		String lower = SmallCaps.fold(plain).toLowerCase(Locale.ROOT), findLower = find.toLowerCase(Locale.ROOT);
+		if (lower.indexOf(findLower) >= 0 && !plain.toLowerCase(Locale.ROOT).contains(findLower)) with = SmallCaps.to(with);
 		MutableComponent out = Component.empty();
 		int cursor = 0;
 		for (int at = lower.indexOf(findLower); at >= 0; at = lower.indexOf(findLower, at + find.length())) {
