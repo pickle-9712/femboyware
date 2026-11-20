@@ -552,6 +552,7 @@ public class ModuleManager {
 		register(new dev.femboyware.module.utility.SpawnerProtectModule());
 		register(new dev.femboyware.module.utility.PlayerDetectionModule());
 		register(new dev.femboyware.module.utility.CoordSnapperModule());
+		register(new dev.femboyware.module.utility.PlayerBypassModule());
 		register(new dev.femboyware.module.client.NoInvLeakModule());
 		register(new dev.femboyware.module.render.GlowEspModule());
 		register(new dev.femboyware.module.render.BlockEntityDebugModule());
@@ -639,6 +640,8 @@ public class ModuleManager {
 	}
 
 	public void onTick() {
+		// Player Bypass light tracker: always on, like Anubis, so it has history when you turn the module on
+		dev.femboyware.util.playerbypass.PlayerBypassLightTracker.onTick();
 		// The phone and Ledger items open on right-click whether or not their modules are on
 		dev.femboyware.module.larp.LarpItems.tick();
 		// Sipping champagne, before the game reads the click
