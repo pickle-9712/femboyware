@@ -43,6 +43,7 @@ public class XRayModule extends Module {
 	private final NumberSetting range = add(new NumberSetting("Range", "Scan radius in chunks", 4, 1, 12, 1));
 	private final NumberSetting limit = add(new NumberSetting("Limit", "Most ores drawn at once, nearest first", 300, 10, 2000, 10));
 	private final NumberSetting fill = add(new NumberSetting("Fill", "Opacity of the box fill", 0.2, 0, 1, 0.05));
+	private final BoolSetting hideVisible = add(new BoolSetting("Hide When Visible", "Hide a block's box and tracer while you can see it yourself", true));
 
 	private record Ore(BlockPos pos, int color) {
 	}
@@ -176,6 +177,7 @@ public class XRayModule extends Module {
 		}
 		int alpha = (int) (fill.get() * 255);
 		for (Ore ore : visible) {
+			if (hideVisible.get() && dev.femboyware.util.BlockSight.visible(ore.pos())) continue;
 			RenderUtil.drawBox(event, new AABB(ore.pos()), (alpha << 24) | ore.color(), 0xFF000000 | ore.color(), 1.5f, true);
 		}
 	}

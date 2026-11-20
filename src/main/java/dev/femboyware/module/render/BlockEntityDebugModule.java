@@ -54,6 +54,7 @@ public class BlockEntityDebugModule extends Module {
 	private final ColorSetting hintColor = add(new ColorSetting("Hint Color", "Blocks only given away by events, sounds or light", 0xFF6EC8FF));
 	private final NumberSetting range = add(new NumberSetting("Range", "Furthest to draw", 256, 16, 1024, 16));
 	private final BoolSetting tracers = add(new BoolSetting("Tracers", "Lines to each one", true));
+	private final BoolSetting hideVisible = add(new BoolSetting("Hide When Visible", "Hide a block's box and tracer while you can see it yourself", true));
 	private final BoolSetting spawnerBeams = add(new BoolSetting("Spawner Beams", "A beam up from every spawner", true));
 
 	private record Found(BlockPos pos, Block block, boolean real) {
@@ -210,6 +211,7 @@ public class BlockEntityDebugModule extends Module {
 		for (Found f : found.values()) {
 			BlockPos pos = f.pos();
 			if (eye.distanceToSqr(Vec3.atCenterOf(pos)) > rangeSq) continue;
+			if (hideVisible.get() && dev.femboyware.util.BlockSight.visible(pos)) continue;
 			int c = f.real() ? color.get() : hintColor.get();
 			RenderUtil.drawBox(event, new AABB(pos), (c & 0xFFFFFF) | 0x50000000, c | 0xFF000000, 1.5f, true);
 			// Clusters (a lit room, a chest wall) share one tracer: one per 8 block cell

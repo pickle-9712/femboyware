@@ -42,6 +42,7 @@ public class BlockEspModule extends Module {
 	private final ColorSetting lineColor = add(new ColorSetting("Line", "Box outline colour", 0xFFFF77C8));
 	private final BoolSetting throughWalls = add(new BoolSetting("Through Walls", "Draw every edge and see blocks behind terrain", true));
 	private final BoolSetting tracers = add(new BoolSetting("Tracers", "Draw a line from the crosshair to each block", false));
+	private final BoolSetting hideVisible = add(new BoolSetting("Hide When Visible", "Hide a block's box and tracer while you can see it yourself", true));
 	private final ColorSetting tracerColor = add(new ColorSetting("Tracer Color", "Tracer colour", 0xC0FF77C8)).visibleWhen(tracers::get);
 
 	/** Matching blocks per chunk, from the last scan of that chunk. */
@@ -137,6 +138,7 @@ public class BlockEspModule extends Module {
 
 		Vec3 tracerStart = RenderUtil.tracerOrigin(event);
 		for (BlockPos pos : visible) {
+			if (hideVisible.get() && dev.femboyware.util.BlockSight.visible(pos)) continue;
 			RenderUtil.drawBox(event, new AABB(pos), fillColor.get(), lineColor.get(), 1.5f, throughWalls.get());
 			if (tracers.get()) RenderUtil.drawLine(event, tracerStart, Vec3.atCenterOf(pos), tracerColor.get(), 1.5f, throughWalls.get());
 		}

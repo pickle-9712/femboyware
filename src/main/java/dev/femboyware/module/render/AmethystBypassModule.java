@@ -29,6 +29,7 @@ import net.minecraft.world.phys.Vec3;
 public class AmethystBypassModule extends Module {
 	private final ColorSetting color = add(new ColorSetting("Color", "Colour of the markers", 0xFFC883FF));
 	private final BoolSetting tracers = add(new BoolSetting("Tracers", "Lines to each marker", false));
+	private final BoolSetting hideVisible = add(new BoolSetting("Hide When Visible", "Hide a block's box and tracer while you can see it yourself", true));
 
 	private final ChunkScanner<BlockPos> scanner = new ChunkScanner<>(AmethystBypassModule::scan);
 
@@ -119,6 +120,7 @@ public class AmethystBypassModule extends Module {
 		int c = color.get();
 		Vec3 from = RenderUtil.tracerOrigin(event);
 		for (BlockPos pos : scanner.results().values()) {
+			if (hideVisible.get() && dev.femboyware.util.BlockSight.visible(pos)) continue;
 			RenderUtil.drawBox(event, new AABB(pos), (c & 0xFFFFFF) | 0x40000000, c | 0xFF000000, 1.5f, true);
 			if (tracers.get()) RenderUtil.drawLine(event, from, Vec3.atCenterOf(pos), c | 0xFF000000, 1.5f, true);
 		}

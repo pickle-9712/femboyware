@@ -47,6 +47,7 @@ public class SpawnerEspModule extends Module {
 	private final BoolSetting showNatural = add(new BoolSetting("Show Natural", "Also show spawners inside dungeons and other structures", false));
 	private final BoolSetting throughWalls = add(new BoolSetting("Through Walls", "See spawners through terrain", true));
 	private final BoolSetting tracers = add(new BoolSetting("Tracers", "Draw lines to placed spawners", false));
+	private final BoolSetting hideVisible = add(new BoolSetting("Hide When Visible", "Hide a block's box and tracer while you can see it yourself", true));
 	private final BoolSetting notify = add(new BoolSetting("Notify", "Say in chat when a placed spawner is found", true));
 	private final ColorSetting placedColor = add(new ColorSetting("Placed Color", "Spawners players placed", 0xFFFF4466));
 	private final ColorSetting naturalColor = add(new ColorSetting("Natural Color", "Spawners in natural structures", 0xFF888888)).visibleWhen(showNatural::get);
@@ -117,6 +118,7 @@ public class SpawnerEspModule extends Module {
 		for (List<Spawner> spawners : scanner.results().values()) {
 			for (Spawner spawner : spawners) {
 				if (spawner.natural && !showNatural.get()) continue;
+				if (hideVisible.get() && dev.femboyware.util.BlockSight.visible(spawner.pos)) continue;
 				int color = spawner.natural ? naturalColor.get() : placedColor.get();
 				Vec3 center = Vec3.atCenterOf(spawner.pos);
 				RenderUtil.drawBox(event, new AABB(spawner.pos), (color & 0x00FFFFFF) | 0x30000000, color, 1.5f, throughWalls.get());

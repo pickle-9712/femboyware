@@ -35,6 +35,7 @@ public class PortalEspModule extends Module {
 	private final BoolSetting end = add(new BoolSetting("End Portals", "Show activated end portals", true));
 	private final BoolSetting throughWalls = add(new BoolSetting("Through Walls", "See portals through terrain", true));
 	private final BoolSetting tracers = add(new BoolSetting("Tracers", "Draw lines to portals", false));
+	private final BoolSetting hideVisible = add(new BoolSetting("Hide When Visible", "Hide a block's box and tracer while you can see it yourself", true));
 	private final BoolSetting notify = add(new BoolSetting("Notify", "Say in chat when a portal is found", true));
 	private final ColorSetting netherColor = add(new ColorSetting("Nether Color", "Nether portal highlight", 0xFFAA44FF));
 	private final ColorSetting endColor = add(new ColorSetting("End Color", "End portal highlight", 0xFF44FFCC));
@@ -99,6 +100,7 @@ public class PortalEspModule extends Module {
 		Vec3 tracerStart = RenderUtil.tracerOrigin(event);
 		for (Portals portals : scanner.results().values()) {
 			if (!shown(portals)) continue;
+			if (hideVisible.get() && dev.femboyware.util.BlockSight.visible(net.minecraft.core.BlockPos.containing(portals.bounds.minX, portals.bounds.minY, portals.bounds.minZ), portals.bounds)) continue;
 			int color = portals.end ? endColor.get() : netherColor.get();
 			RenderUtil.drawBox(event, portals.bounds, (color & 0x00FFFFFF) | 0x30000000, color, 1.5f, throughWalls.get());
 			Vec3 center = portals.bounds.getCenter();

@@ -11,6 +11,12 @@ import net.minecraft.world.level.block.state.BlockState;
  * femboyware addition to the ported Player Bypass.
  */
 final class AntiXrayReveal {
+	private static final java.util.Set<String> NATURAL_IDS = java.util.Set.of(
+		"grass_block", "dirt", "coarse_dirt", "podzol", "mycelium", "rooted_dirt", "mud", "dirt_path", "moss_block", "pale_moss_block",
+		"sand", "red_sand", "suspicious_sand", "suspicious_gravel", "gravel", "clay", "stone", "granite", "diorite", "andesite", "tuff",
+		"deepslate", "cobbled_deepslate", "calcite", "dripstone_block", "sandstone", "red_sandstone", "snow_block", "ice", "packed_ice",
+		"blue_ice", "powder_snow", "netherrack", "end_stone", "basalt", "blackstone", "soul_sand", "soul_soil", "magma_block");
+
 	private AntiXrayReveal() {
 	}
 
@@ -19,16 +25,25 @@ final class AntiXrayReveal {
 	 *              block changing on its own (what mining looks like) still counts when it opens air
 	 */
 	static boolean is(BlockState previous, BlockState now, boolean batch) {
-		if (filler(previous)) {
-			// Stone straight into water or lava is always a reveal: breaking stone gives air first
-			if (!now.getFluidState().isEmpty()) return true;
-			if (now.isAir()) return batch;
-			return natural(now);
-		}
-		// Fake ores (some anti-xray modes scatter them) turning back into what's really there, and blocks hidden again
-		if (fakeOre(previous) && (natural(now) || now.isAir())) return true;
+		// One natural block straight into another, or into water or lava, is never a player: placing needs
+		// air first and breaking leaves air (gravel falling leaves air too). Covers stone -> grass_block on
+		// the surface and gravel -> water on the sea floor
+		if (natural(previous) && !tickable(previous) && (natural(now) || !now.getFluidState().isEmpty())) return true;
+		if (filler(previous) && now.isAir()) return batch;
+		// Fake ores (some anti-xray modes scatter them) turning back into air
+		if (fakeOre(previous) && now.isAir()) return true;
+		// Blocks hidden again
 		return filler(now) && (natural(previous) || previous.isAir() || !previous.getFluidState().isEmpty()) && batch;
 	}
+
+	/** Natural blocks that do change by themselves near players (grass spreading, ice melting): those changes stay signals. */
+	private static boolean tickable(BlockState state) {
+		String id = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(state.getBlock()).getPath();
+		return TICKABLE_IDS.contains(id);
+	}
+
+	private static final java.util.Set<String> TICKABLE_IDS = java.util.Set.of(
+		"dirt", "grass_block", "mycelium", "podzol", "ice", "snow_block", "powder_snow", "mud", "dirt_path", "magma_block");
 
 	/** What anti-xray shows hidden blocks as. */
 	private static boolean filler(BlockState state) {
@@ -43,6 +58,9 @@ final class AntiXrayReveal {
 	/** Blocks that generate underground on their own; nobody's needed for one to be there. */
 	private static boolean natural(BlockState state) {
 		if (fakeOre(state) || filler(state)) return true;
+		// By id too, since tags move between versions (grass_block left #dirt on some)
+		String id = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(state.getBlock()).getPath();
+		if (NATURAL_IDS.contains(id) || (id.endsWith("terracotta") && !id.contains("glazed"))) return true;
 		if (state.is(BlockTags.BASE_STONE_OVERWORLD) || state.is(BlockTags.BASE_STONE_NETHER) || state.is(BlockTags.DIRT) || state.is(BlockTags.SAND)
 			|| state.is(BlockTags.TERRACOTTA)) return true;
 		return state.is(Blocks.GRAVEL) || state.is(Blocks.CLAY) || state.is(Blocks.SANDSTONE) || state.is(Blocks.RED_SANDSTONE) || state.is(Blocks.CALCITE)

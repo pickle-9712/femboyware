@@ -43,6 +43,7 @@ public class StorageEspModule extends Module {
 	private static final double CHEST_INSET = 1.0 / 16.0;
 
 	private final BoolSetting tracers = add(new BoolSetting("Tracers", "Draw lines to storage blocks", false));
+	private final BoolSetting hideVisible = add(new BoolSetting("Hide When Visible", "Hide a block's box and tracer while you can see it yourself", true));
 	private final NumberSetting fillOpacity = add(new NumberSetting("Fill Opacity", "Opacity of the box fill", 50, 0, 255, 1));
 	private final NumberSetting fadeDistance = add(new NumberSetting("Fade Distance", "Boxes fade out closer than this", 6, 0, 12, 0.5));
 	private final ColorSetting chest = add(new ColorSetting("Chest", "Chest colour, alpha 0 hides them", 0xFFFFA000));
@@ -117,6 +118,7 @@ public class StorageEspModule extends Module {
 			}
 		}
 
+		if (hideVisible.get() && dev.femboyware.util.BlockSight.visible(pos, box)) return;
 		Vec3 center = box.getCenter();
 		double distance = Mc.camera().position().distanceTo(center);
 		double alpha = fadeDistance.get() <= 0 ? 1 : Math.min(1, distance / fadeDistance.get());

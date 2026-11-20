@@ -33,6 +33,7 @@ public class AnchorHunterModule extends Module {
 	private final NumberSetting range = add(new NumberSetting("Range", "Scan radius in chunks", 8, 1, 16, 1));
 	private final BoolSetting onlyCharged = add(new BoolSetting("Only Charged", "Only show anchors with glowstone in", false));
 	private final BoolSetting tracers = add(new BoolSetting("Tracers", "Lines to anchors", true));
+	private final BoolSetting hideVisible = add(new BoolSetting("Hide When Visible", "Hide a block's box and tracer while you can see it yourself", true));
 	private final BoolSetting notify = add(new BoolSetting("Notify", "Tell you when an anchor turns up", true));
 
 	private final ChunkScanner<List<Anchor>> scanner = new ChunkScanner<>(this::scan);
@@ -84,6 +85,7 @@ public class AnchorHunterModule extends Module {
 		for (List<Anchor> list : scanner.results().values()) {
 			for (Anchor a : list) {
 				if (!shown(a)) continue;
+				if (hideVisible.get() && dev.femboyware.util.BlockSight.visible(a.pos)) continue;
 				// Dull purple empty, bright orange as it fills
 				int color = a.charge == 0 ? 0xFF7A3DCC : a.charge < 4 ? 0xFFFF9933 : 0xFFFFDD33;
 				RenderUtil.drawBox(event, new AABB(a.pos), (color & 0x00FFFFFF) | 0x30000000, color, 1.5f, true);
