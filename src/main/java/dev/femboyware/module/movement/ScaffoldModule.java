@@ -355,8 +355,8 @@ public class ScaffoldModule extends Module {
 		values.put("Head Hitter", false);
 		values.put("Tower", Tower.HYPIXEL);
 		values.put("Ledge", true);
-		// Holding crouch the whole way: 17 kept to 1 back on Hypixel, where Ledge's sneak flicks got every block taken back
-		values.put("Hold Sneak", true);
+		// Hold Sneak stays off: crouched clicks got taken back too, and it's too slow
+		values.put("Hold Sneak", false);
 		values.put("Safe Walk", false);
 		values.put("No Sprint", false);
 		applyValues(this, values);
