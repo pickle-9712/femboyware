@@ -116,6 +116,7 @@ public class ScaffoldModule extends Module {
 	private final EnumSetting<Swing> swing = add(new EnumSetting<>("Swing", "How to swing when placing", Swing.PACKET)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting autoSpeed = add(new BoolSetting("Auto Speed", "Turn Speed on while scaffolding", false)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting retryCentered = add(new BoolSetting("Retry Centered", "When the server takes a block back, crouch and try again aiming nearer the middle of the face (closer each time), until a block stays", false)).visibleWhen(() -> page.is(Page.GENERAL));
+	private final NumberSetting retryWait = add(new NumberSetting("Retry Wait", "Retry Centered: after a block is taken back, stay crouched this many ticks before clicking again (20 = 1 second), so a second click doesn't stack another flag on the first (0 = retry at once)", 0, 0, 40, 1)).visibleWhen(() -> page.is(Page.GENERAL) && retryCentered.get());
 	private final BoolSetting debug = add(new BoolSetting("Debug", "Say in chat when the server takes a block back or sets you back, and why blocks aren't going in, to find what a server flags", false)).visibleWhen(() -> page.is(Page.GENERAL));
 
 	// Rotations
@@ -209,7 +210,7 @@ public class ScaffoldModule extends Module {
 	private int keptCount, takenCount;
 	/** Retry Centered: blocks taken back in a row, and the tick the retry gives up crouching. */
 	private int retries;
-	private long retryUntil;
+	private long retryUntil, lastTakeBack;
 	private Rotation lastServer;
 
 	public ScaffoldModule() {
@@ -357,6 +358,8 @@ public class ScaffoldModule extends Module {
 		values.put("Technique", Technique.NORMAL);
 		// Hypixel keeps a flat bridge forever when it sees you walk backwards (no sprint) and crouch for a moment every 3-5 blocks
 		values.put("Retry Centered", true);
+		// Half a second crouched before clicking again: an instant crouched retry got taken back too, then a setback
+		values.put("Retry Wait", 10.0);
 		values.put("Eagle", true);
 		values.put("Blocks To Eagle", 3.0);
 		values.put("Blocks To Eagle Max", 5.0);
@@ -530,7 +533,8 @@ public class ScaffoldModule extends Module {
 					+ (retryCentered.get() ? " (retry " + Math.min(retries + 1, 3) + ", nearer the middle, crouched)" : ""));
 				if (retryCentered.get()) {
 					retries = Math.min(retries + 1, 3);
-					retryUntil = now + 100;
+					retryUntil = now + 100 + retryWait.getInt();
+					lastTakeBack = now;
 				}
 			} else if (entry[2] == 0 && now - entry[1] >= 10) {
 				// Took back after 2-5 ticks when it does: 10 ticks standing, it worked
@@ -1053,6 +1057,10 @@ public class ScaffoldModule extends Module {
 		}
 		// femboyware: flat bridging, click only when it also lands from 1.8's eye heights (see EYE_HEIGHTS),
 		// or Hypixel takes the block back; Ledge holds you at the edge meanwhile
+		if (retrying() && retryWait.getInt() > 0 && mc.level.getGameTime() - lastTakeBack < retryWait.getInt()) {
+			skip("waiting before the retry");
+			return;
+		}
 		if (rotate.get() && maxPlaceTurn.getInt() > 0 && lastServer != null && lastServer.distanceTo(rotation) > maxPlaceTurn.get()) {
 			skip("aim still turning");
 			return;
