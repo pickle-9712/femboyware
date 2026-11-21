@@ -168,6 +168,7 @@ public class ScaffoldModule extends Module {
 	private final BoolSetting safeWalk = add(new BoolSetting("Safe Walk", "Never walk off the edge (Ledge already sneaks you at edges till the block's in; LiquidBounce's Hypixel config has this off)", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting autoJump = add(new BoolSetting("Auto Jump", "Let Scaffold jump for you (Rescue, Head Hitter, God Bridge's ledge jump, Telly). Off, it never jumps: only your own jump key does", true)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting rescue = add(new BoolSetting("Rescue", "When a block you need is taken back, jump and rebuild the bridge in the air. Off for Hypixel: it takes back air blocks placed right after a rejected one", true)).visibleWhen(() -> page.is(Page.MOVEMENT));
+	private final BoolSetting waitForKeep = add(new BoolSetting("Wait For Keep", "Bridging diagonally, don't step onto a block until it has stood 5 ticks (Hypixel takes blocks back 3-5 ticks after you place them); a taken-back block gets placed again while you're still on the last one, instead of vanishing under your feet. A little slower", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting walkBack = add(new BoolSetting("Walk Back Speed", "Flat bridging (not holding jump), move at the speed of walking backwards with S: no sprint, even though you hold W. Real Look already makes the server see you facing back and holding S; this matches the speed. Hypixel keeps blocks at that pace", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting noSprint = add(new BoolSetting("No Sprint", "Don't sprint while scaffolding", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
 
@@ -408,6 +409,8 @@ public class ScaffoldModule extends Module {
 		values.put("No Sprint", false);
 		// Flat: walking backwards at S speed (no sprint); sprinting with W got the first block taken back
 		values.put("Walk Back Speed", true);
+		// Diagonal: a block taken back under your feet left nothing to click and you fell
+		values.put("Wait For Keep", true);
 		applyValues(this, values);
 		FemboyWare.getModules().get(dev.femboyware.module.client.MoveFixModule.class).setEnabled(true);
 		Module sprint = FemboyWare.getModules().get(SprintModule.class);
@@ -482,6 +485,15 @@ public class ScaffoldModule extends Module {
 	 * Whether the click is being held back this tick by Max Place Turn (the aim's still turning) or Retry
 	 * Wait; Ledge keeps you crouched at the edge meanwhile instead of letting you walk off.
 	 */
+	/** Whether {@code pos} is a block placed under 5 ticks ago that the server could still take back. */
+	private boolean unconfirmed(BlockPos pos) {
+		long now = mc.level.getGameTime(), key = pos.asLong();
+		for (long[] entry : watching) {
+			if (entry[0] == key && entry[2] == 0 && now - entry[1] < 5) return true;
+		}
+		return false;
+	}
+
 	private boolean holdingClick() {
 		if (rotate.get() && maxPlaceTurn.getInt() > 0 && lastTickTurn > maxPlaceTurn.get()) return true;
 		return retrying() && retryWait.getInt() > 0 && !diagonal() && mc.player.onGround() && !isTowering() && mc.level.getGameTime() - lastTakeBack < retryWait.getInt();
@@ -1430,6 +1442,17 @@ public class ScaffoldModule extends Module {
 			if (sneakTime > forceSneak) {
 				sneak = true;
 				forceSneak = sneakTime;
+			}
+		}
+		if (waitForKeep.get() && diagonal() && mc.player.onGround() && !isTowering() && (forward || back || left || right)) {
+			// Don't walk onto a block the server hasn't had time to take back yet
+			Vec3 dir = Vec3.directionFromRotation(0, movementYaw(keys.forward(), keys.backward(), keys.left(), keys.right()));
+			BlockPos ahead = BlockPos.containing(nextPosition().add(dir.scale(0.3))).below();
+			BlockPos under = BlockPos.containing(mc.player.position()).below();
+			if (!ahead.equals(under) && unconfirmed(ahead)) {
+				forward = back = left = right = false;
+				sneak = true;
+				sprint = false;
 			}
 		}
 		if (eagle.get() && active == Technique.NORMAL && !sneak && shouldEagle(keys)) sneak = true;
