@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Teams;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
@@ -21,6 +22,7 @@ import net.minecraft.world.phys.Vec3;
  */
 public class AimAssistModule extends Module {
 	private final NumberSetting range = add(new NumberSetting("Range", "Furthest player to help aim at", 4.5, 1, 8, 0.1));
+	private final BoolSetting teamCheck = add(new BoolSetting("Team Check", "Leave players on your team alone (same scoreboard team, name colour or helmet colour)", false));
 	private final NumberSetting fov = add(new NumberSetting("FOV", "Only players within this many degrees of where you look", 60, 10, 180, 5));
 	private final NumberSetting speed = add(new NumberSetting("Speed", "Degrees per second it turns at most", 90, 10, 400, 5));
 	private final BoolSetting vertical = add(new BoolSetting("Vertical", "Help up and down too, not just sideways", false));
@@ -73,7 +75,7 @@ public class AimAssistModule extends Module {
 		double bestAngle = fov.get() / 2;
 		Vec3 eyes = mc.player.getEyePosition();
 		for (Player player : mc.level.players()) {
-			if (!TargetUtil.isValid(player) || mc.player.distanceTo(player) > range.get()) continue;
+			if (!TargetUtil.isValid(player, teamCheck.get()) || mc.player.distanceTo(player) > range.get()) continue;
 			if (!BlockUtil.canSee(eyes, player.getEyePosition()) && !BlockUtil.canSee(eyes, player.position().add(0, 1, 0))) continue;
 			Rotation to = Rotation.between(eyes, player.getBoundingBox().getCenter());
 			double angle = Math.abs(Mth.wrapDegrees(to.yaw() - mc.player.getYRot()));

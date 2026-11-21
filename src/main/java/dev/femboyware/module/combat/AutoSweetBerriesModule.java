@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Teams;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
@@ -24,6 +25,7 @@ public class AutoSweetBerriesModule extends Module {
 	private static final Predicate<ItemStack> BERRIES = stack -> stack.is(Items.SWEET_BERRIES);
 
 	private final NumberSetting targetRange = add(new NumberSetting("Target Range", "How far away targets can be", 5, 2, 8, 0.5));
+	private final BoolSetting teamCheck = add(new BoolSetting("Team Check", "Leave players on your team alone (same scoreboard team, name colour or helmet colour)", false));
 	private final NumberSetting delay = add(new NumberSetting("Delay", "Milliseconds between placements", 200, 0, 1000, 10));
 	private final BoolSetting rotate = add(new BoolSetting("Rotate", "Send a rotation packet before placing", true));
 	private final EnumSetting<SwitchMode> switchMode = add(new EnumSetting<>("Switch", "How to switch to sweet berries", SwitchMode.SILENT));
@@ -37,7 +39,7 @@ public class AutoSweetBerriesModule extends Module {
 	@Override
 	public void onTick() {
 		if (!timer.passed(delay.get())) return;
-		Player target = TargetUtil.closestPlayer(targetRange.get());
+		Player target = TargetUtil.closestPlayer(targetRange.get(), teamCheck.get());
 		if (target == null) return;
 
 		BlockPos feet = target.blockPosition();

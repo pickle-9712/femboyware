@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Teams;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
@@ -16,6 +17,7 @@ import net.minecraft.world.phys.EntityHitResult;
 /** Hits whatever is under your crosshair once your weapon has charged, after a short human delay. */
 public class TriggerBotModule extends Module {
 	private final BoolSetting players = add(new BoolSetting("Players", "Hit players", true));
+	private final BoolSetting teamCheck = add(new BoolSetting("Team Check", "Leave players on your team alone (same scoreboard team, name colour or helmet colour)", false));
 	private final BoolSetting mobs = add(new BoolSetting("Mobs", "Hit mobs and animals too", false));
 	private final NumberSetting charge = add(new NumberSetting("Charge", "How charged your weapon must be, 1 is full", 0.92, 0.1, 1, 0.01));
 	private final NumberSetting minDelay = add(new NumberSetting("Min Delay", "Fewest ticks to wait once something is under the crosshair", 0, 0, 10, 1));
@@ -62,7 +64,7 @@ public class TriggerBotModule extends Module {
 
 	private boolean valid(Entity entity) {
 		if (!(entity instanceof LivingEntity living) || !living.isAlive() || entity == mc.player) return false;
-		if (entity instanceof Player player) return players.get() && TargetUtil.isValid(player);
+		if (entity instanceof Player player) return players.get() && TargetUtil.isValid(player, teamCheck.get());
 		return mobs.get();
 	}
 }

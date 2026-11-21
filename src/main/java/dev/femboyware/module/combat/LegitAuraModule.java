@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Teams;
 import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.mixin.InputAccessor;
@@ -73,6 +74,7 @@ public class LegitAuraModule extends Module {
 		Items.STONE_AXE, Items.GOLDEN_AXE, Items.WOODEN_AXE};
 
 	private final NumberSetting range = add(new NumberSetting("Range", "How far away a player can be to lock on", 8, 3, 100, 0.5));
+	private final BoolSetting teamCheck = add(new BoolSetting("Team Check", "Leave players on your team alone (same scoreboard team, name colour or helmet colour)", false));
 	private final NumberSetting fov = add(new NumberSetting("FOV", "Only lock on to players within this many degrees of where you look", 360, 30, 360, 10));
 	private final NumberSetting aimSpeed = add(new NumberSetting("Aim Speed", "How quickly the camera turns onto them", 7, 1, 20, 0.5));
 	private final EnumSetting<View> view = add(new EnumSetting<>("View", "Camera while on: your own, behind you, or from the side to watch the fight", View.THIRD_PERSON));
@@ -456,7 +458,7 @@ public class LegitAuraModule extends Module {
 
 	/** The player under the crosshair if it's one we can fight, else null. */
 	private Player underCrosshair() {
-		return mc.hitResult instanceof EntityHitResult hit && hit.getEntity() instanceof Player player && TargetUtil.isValid(player) ? player : null;
+		return mc.hitResult instanceof EntityHitResult hit && hit.getEntity() instanceof Player player && TargetUtil.isValid(player, teamCheck.get()) ? player : null;
 	}
 
 	/**
@@ -488,7 +490,7 @@ public class LegitAuraModule extends Module {
 	private static boolean trapTurn() {
 		return FemboyWare.getModules().get(TrapModule.class).isBusy()
 			|| FemboyWare.getModules().get(CrystalBotModule.class).isBusy()
-			|| FemboyWare.getModules().get(AutoWebEscapeModule.class).isBusy()
+			|| FemboyWare.getModules().get(AutoWebEscapeModule.class).isBusy() || FemboyWare.getModules().get(AutoFireStopModule.class).isBusy()
 			|| FemboyWare.getModules().get(LegitSurroundModule.class).isBusy() || FemboyWare.getModules().get(LegitSelfTrapModule.class).isBusy();
 	}
 
@@ -549,7 +551,7 @@ public class LegitAuraModule extends Module {
 		Player best = null;
 		double bestScore = Double.MAX_VALUE;
 		for (Player player : mc.level.players()) {
-			if (!TargetUtil.isValid(player) || mc.player.distanceTo(player) > range.get()) continue;
+			if (!TargetUtil.isValid(player, teamCheck.get()) || mc.player.distanceTo(player) > range.get()) continue;
 			if (onlyVisible.get() && !mc.player.hasLineOfSight(player)) continue;
 			float angle = Math.abs(Mth.wrapDegrees(aimRotation(player, 1).yaw() - mc.player.getYRot()));
 			if (angle > fov.get() / 2) continue;
@@ -564,7 +566,7 @@ public class LegitAuraModule extends Module {
 
 	/** Stays locked on a little beyond the range, so the target doesn't flicker at its edge. */
 	private boolean keep(Player player) {
-		return TargetUtil.isValid(player) && mc.player.distanceTo(player) <= range.get() + 2
+		return TargetUtil.isValid(player, teamCheck.get()) && mc.player.distanceTo(player) <= range.get() + 2
 			&& (!onlyVisible.get() || mc.player.hasLineOfSight(player));
 	}
 

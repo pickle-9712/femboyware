@@ -52,6 +52,26 @@ public final class TargetUtil {
 		return new Vec3(to.x, 0, to.z).normalize().dot(new Vec3(look.x, 0, look.z).normalize()) > 0;
 	}
 
+	/** {@link #closestPlayer(double)}, skipping teammates when {@code teamCheck} is on. */
+	public static Player closestPlayer(double range, boolean teamCheck) {
+		Player best = null;
+		double bestDistance = range * range;
+		for (Player player : mc.level.players()) {
+			if (!isValid(player, teamCheck)) continue;
+			double distance = mc.player.distanceToSqr(player);
+			if (distance <= bestDistance) {
+				bestDistance = distance;
+				best = player;
+			}
+		}
+		return best;
+	}
+
+	/** {@link #isValid(Player)}, and not a teammate when {@code teamCheck} is on. */
+	public static boolean isValid(Player player, boolean teamCheck) {
+		return isValid(player) && !(teamCheck && Teams.isTeammate(player));
+	}
+
 	public static boolean isValid(Player player) {
 		return player != mc.player && player.isAlive() && !player.isSpectator() && !player.isRemoved() && !FriendsModule.protects(player)
 			&& !BodyguardModule.protects(player) && !dev.femboyware.module.utility.AntiBotModule.isBot(player);

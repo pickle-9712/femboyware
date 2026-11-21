@@ -1,5 +1,7 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.TargetUtil;
+import dev.femboyware.util.Teams;
 import dev.femboyware.lb.RotationSettings;
 import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
@@ -69,6 +71,7 @@ public class AutoAnchorModule extends Module {
 	private record Evaluation(float damage, float self, boolean facePlace) {}
 
 	private final EnumSetting<Page> page = add(new EnumSetting<>("Page", "Settings page", Page.MAIN));
+	private final BoolSetting teamCheck = add(new BoolSetting("Team Check", "Leave players on your team alone (same scoreboard team, name colour or helmet colour)", false));
 
 	// Main
 	private final EnumSetting<RotateMode> rotate = add(new EnumSetting<>("Rotate Mode", "Look at the anchor. Packet is instant, Tick waits for the movement packet", RotateMode.PACKET)).visibleWhen(() -> page.is(Page.MAIN));
@@ -246,7 +249,7 @@ public class AutoAnchorModule extends Module {
 	private List<Player> findTargets() {
 		List<Player> targets = new ArrayList<>();
 		for (Player player : mc.level.players()) {
-			if (player == mc.player || !player.isAlive() || player.isSpectator() || player.isCreative() || FriendsModule.protects(player)) continue;
+			if (player == mc.player || !player.isAlive() || player.isSpectator() || player.isCreative() || FriendsModule.protects(player) || teamCheck.get() && Teams.isTeammate(player)) continue;
 			if (player.distanceToSqr(mc.player) > targetRange.get() * targetRange.get()) continue;
 			targets.add(player);
 		}

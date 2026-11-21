@@ -1,6 +1,7 @@
 package dev.femboyware.module.combat;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import dev.femboyware.util.Teams;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.mixin.InputAccessor;
 import dev.femboyware.mixin.MinecraftClientAccessor;
@@ -57,6 +58,7 @@ public class CrystalBotModule extends Module {
 	private static final float ANCHOR_POWER = 5f;
 
 	private final NumberSetting range = add(new NumberSetting("Range", "How far away to pick a fight", 24, 4, 48, 0.5));
+	private final BoolSetting teamCheck = add(new BoolSetting("Team Check", "Leave players on your team alone (same scoreboard team, name colour or helmet colour)", false));
 	private final NumberSetting minDamage = add(new NumberSetting("Min Damage", "Least damage a crystal or anchor has to do to them", 5, 1, 20, 0.5));
 	private final NumberSetting maxSelf = add(new NumberSetting("Max Self", "Most damage a crystal or anchor may do to you", 8, 0, 20, 0.5));
 	private final BoolSetting crystals = add(new BoolSetting("Crystals", "Place and pop end crystals", true));
@@ -155,7 +157,7 @@ public class CrystalBotModule extends Module {
 			sinceSwitch = 0;
 		} else sinceSwitch++;
 
-		boolean lost = target == null || !TargetUtil.isValid(target) || mc.player.distanceTo(target) > range.get() + 2;
+		boolean lost = target == null || !TargetUtil.isValid(target, teamCheck.get()) || mc.player.distanceTo(target) > range.get() + 2;
 		if (lost || ++retarget >= 10) {
 			retarget = 0;
 			Player picked = pickTarget(lost ? null : target);
@@ -295,7 +297,7 @@ public class CrystalBotModule extends Module {
 		Player best = null;
 		double bestScore = Double.MAX_VALUE;
 		for (Player player : mc.level.players()) {
-			if (!TargetUtil.isValid(player)) continue;
+			if (!TargetUtil.isValid(player, teamCheck.get())) continue;
 			double distance = mc.player.distanceTo(player);
 			if (distance > range.get()) continue;
 			double score = distance + (player.getHealth() + player.getAbsorptionAmount()) / 3 - (player == current ? 4 : 0);
@@ -468,7 +470,7 @@ public class CrystalBotModule extends Module {
 
 	/** Another crystal on the same obsidian: not the sword's moment, not had its fill, still worth it. */
 	private boolean again() {
-		if (target == null || !TargetUtil.isValid(target) || popped >= maxCrystals.getInt()) return false;
+		if (target == null || !TargetUtil.isValid(target, teamCheck.get()) || popped >= maxCrystals.getInt()) return false;
 		if (swordTime()) return false;
 		return crystalFits(base) && worth(base) > minDamage.getFloat();
 	}

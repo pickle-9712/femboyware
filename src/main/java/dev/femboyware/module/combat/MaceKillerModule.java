@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Teams;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
@@ -19,6 +20,7 @@ import net.minecraft.world.item.Items;
  */
 public class MaceKillerModule extends Module {
 	private final NumberSetting range = add(new NumberSetting("Range", "Attack reach", 3.5, 1, 6, 0.1));
+	private final BoolSetting teamCheck = add(new BoolSetting("Team Check", "Leave players on your team alone (same scoreboard team, name colour or helmet colour)", false));
 	private final NumberSetting minFall = add(new NumberSetting("Min Fall", "Fall distance needed before smashing", 3, 1.5, 30, 0.5));
 	private final EnumSetting<SwitchMode> switchMode = add(new EnumSetting<>("Switch", "How to switch to the mace", SwitchMode.SILENT));
 	private final BoolSetting rotate = add(new BoolSetting("Rotate", "Face the target before hitting", true));
@@ -37,7 +39,7 @@ public class MaceKillerModule extends Module {
 		}
 		if (hitThisFall || mc.player.fallDistance < minFall.get()) return;
 
-		Player target = TargetUtil.closestPlayer(range.get());
+		Player target = TargetUtil.closestPlayer(range.get(), teamCheck.get());
 		if (target == null) return;
 		int slot = InventoryUtil.findHotbar(stack -> stack.is(Items.MACE));
 		if (slot < 0) return;

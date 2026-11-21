@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Teams;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.lb.RotationSettings;
@@ -66,6 +67,7 @@ public class TrapModule extends Module {
 	public enum Stage { BACK, HIT, FILL, ESCAPE, WALLS, DONE }
 
 	private final EnumSetting<Mode> mode = add(new EnumSetting<>("Mode", "Legit aims at every block (and can turn your real head); Packet places several a tick with look packets", Mode.LEGIT));
+	private final BoolSetting teamCheck = add(new BoolSetting("Team Check", "Leave players on your team alone (same scoreboard team, name colour or helmet colour)", false));
 	private final NumberSetting targetRange = add(new NumberSetting("Target Range", "How far away targets can be", 6, 2, 10, 0.5));
 	private final BoolSetting mobs = add(new BoolSetting("Mobs", "Trap mobs too, not just players", false));
 	private final BoolSetting anyBlock = add(new BoolSetting("Any Block", "Use any solid block when out of obsidian (the toughest one you have)", true));
@@ -442,7 +444,7 @@ public class TrapModule extends Module {
 	private LivingEntity findTarget() {
 		LivingEntity fight = legitFighting() ? legitTarget() : null;
 		if (fight != null && mc.player.distanceTo(fight) <= targetRange.get()) return fight;
-		LivingEntity best = TargetUtil.closestPlayer(targetRange.get());
+		LivingEntity best = TargetUtil.closestPlayer(targetRange.get(), teamCheck.get());
 		if (!mobs.get()) return best;
 		double bestDistance = best == null ? targetRange.get() * targetRange.get() : mc.player.distanceToSqr(best);
 		for (var entity : mc.level.entitiesForRendering()) {

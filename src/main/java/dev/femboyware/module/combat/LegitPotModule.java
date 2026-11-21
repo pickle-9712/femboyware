@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Teams;
 import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.mixin.HandledScreenAccessor;
@@ -59,6 +60,7 @@ public class LegitPotModule extends Module {
 		Items.PUFFERFISH, Items.SUSPICIOUS_STEW, Items.CHICKEN);
 
 	private final NumberSetting health = add(new NumberSetting("Health", "Splash a healing potion at or below this much health (20 is full)", 10, 1, 20, 1));
+	private final BoolSetting teamCheck = add(new BoolSetting("Team Check", "Leave players on your team alone (same scoreboard team, name colour or helmet colour)", false));
 	private final BoolSetting healing = add(new BoolSetting("Healing", "Splash healing potions when low", true));
 	private final BoolSetting strength = add(new BoolSetting("Strength", "Splash strength when it runs out", true));
 	private final BoolSetting speed = add(new BoolSetting("Speed", "Splash swiftness when it runs out", true));
@@ -266,7 +268,7 @@ public class LegitPotModule extends Module {
 	/** Whether no player is within Safe Distance, so there's time to stand in the inventory. */
 	private boolean safe() {
 		for (Player player : mc.level.players()) {
-			if (TargetUtil.isValid(player) && mc.player.distanceTo(player) < safeDistance.get()) return false;
+			if (TargetUtil.isValid(player, teamCheck.get()) && mc.player.distanceTo(player) < safeDistance.get()) return false;
 		}
 		return true;
 	}
@@ -295,7 +297,7 @@ public class LegitPotModule extends Module {
 	/** Whether a player within Eat Safe Distance is facing us and could hit us while we eat. */
 	private boolean threatened() {
 		for (Player player : mc.level.players()) {
-			if (TargetUtil.isValid(player) && mc.player.distanceTo(player) < eatSafeDistance.get()
+			if (TargetUtil.isValid(player, teamCheck.get()) && mc.player.distanceTo(player) < eatSafeDistance.get()
 				&& TargetUtil.isFacing(player, mc.player.getEyePosition())) return true;
 		}
 		return false;

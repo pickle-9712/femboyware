@@ -1,6 +1,7 @@
 package dev.femboyware.module.combat;
 
 import net.minecraft.world.phys.Vec3;
+import dev.femboyware.util.Teams;
 import dev.femboyware.event.Render3DEvent;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
@@ -28,6 +29,7 @@ public class HoleFillerModule extends Module {
 	public enum Fill { OBSIDIAN, WEB }
 
 	private final NumberSetting targetRange = add(new NumberSetting("Target Range", "How far away targets can be", 10, 2, 16, 0.5));
+	private final BoolSetting teamCheck = add(new BoolSetting("Team Check", "Leave players on your team alone (same scoreboard team, name colour or helmet colour)", false));
 	private final NumberSetting holeRange = add(new NumberSetting("Hole Range", "Fill holes this close to the target", 2.5, 1, 6, 0.5));
 	private final EnumSetting<Fill> fill = add(new EnumSetting<>("Fill", "What to fill holes with", Fill.OBSIDIAN));
 	private final NumberSetting blocksPerTick = add(new NumberSetting("Blocks Per Tick", "Max placements per tick", 2, 1, 8, 1));
@@ -46,7 +48,7 @@ public class HoleFillerModule extends Module {
 
 	@Override
 	public void onTick() {
-		Player target = TargetUtil.closestPlayer(targetRange.get());
+		Player target = TargetUtil.closestPlayer(targetRange.get(), teamCheck.get());
 		if (target == null) {
 			holes = List.of();
 			return;

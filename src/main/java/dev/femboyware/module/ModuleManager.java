@@ -235,6 +235,7 @@ public class ModuleManager {
 		register(new dev.femboyware.module.combat.HitCrystalModule());
 		register(new dev.femboyware.module.combat.CrystalBotModule());
 		register(new dev.femboyware.module.combat.AutoWebEscapeModule());
+		register(new dev.femboyware.module.combat.AutoFireStopModule());
 		register(new dev.femboyware.module.combat.LegitSurroundModule());
 		register(new dev.femboyware.module.combat.LegitSelfTrapModule());
 		register(new LegitAnchorModule());

@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Teams;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.event.PacketEvent;
 import dev.femboyware.module.Category;
@@ -56,6 +57,7 @@ public class HitCrystalModule extends Module {
 	private static final long RETRY_MS = 120;
 
 	private final NumberSetting range = add(new NumberSetting("Range", "How close someone has to be before it starts", 5, 2, 8, 0.25));
+	private final BoolSetting teamCheck = add(new BoolSetting("Team Check", "Leave players on your team alone (same scoreboard team, name colour or helmet colour)", false));
 	private final NumberSetting minDamage = add(new NumberSetting("Min Damage", "Least damage a crystal has to do to them", 4, 1, 20, 0.5));
 	private final NumberSetting maxSelf = add(new NumberSetting("Max Self", "Most damage a crystal may do to you (never enough to kill you)", 8, 0, 20, 0.5));
 	private final BoolSetting placeObsidian = add(new BoolSetting("Place Obsidian", "Put obsidian down next to them when there's none a crystal would do enough damage on", true));
@@ -98,7 +100,7 @@ public class HitCrystalModule extends Module {
 		if (nullCheck()) return;
 		long now = System.currentTimeMillis();
 		attacked.values().removeIf(time -> now - time > 2000);
-		target = TargetUtil.closestPlayer(range.get());
+		target = TargetUtil.closestPlayer(range.get(), teamCheck.get());
 		if (target == null) {
 			base = null;
 			placed.clear();

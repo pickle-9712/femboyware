@@ -1,5 +1,6 @@
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.Teams;
 import dev.femboyware.module.Category;
 import dev.femboyware.module.Module;
 import dev.femboyware.setting.BoolSetting;
@@ -26,6 +27,7 @@ public class AutoDripstoneModule extends Module {
 	private static final Predicate<ItemStack> DRIPSTONE = stack -> stack.is(Items.POINTED_DRIPSTONE);
 
 	private final NumberSetting targetRange = add(new NumberSetting("Target Range", "How far away targets can be", 6, 2, 10, 0.5));
+	private final BoolSetting teamCheck = add(new BoolSetting("Team Check", "Leave players on your team alone (same scoreboard team, name colour or helmet colour)", false));
 	private final NumberSetting minFall = add(new NumberSetting("Min Fall", "Only trigger once the target has fallen this far", 3, 0, 20, 0.5));
 	private final NumberSetting maxHeight = add(new NumberSetting("Max Height", "How far below the target to look for ground", 12, 2, 30, 1));
 	private final BoolSetting rotate = add(new BoolSetting("Rotate", "Send a rotation packet before placing", true));
@@ -39,7 +41,7 @@ public class AutoDripstoneModule extends Module {
 
 	@Override
 	public void onTick() {
-		Player target = TargetUtil.closestPlayer(targetRange.get());
+		Player target = TargetUtil.closestPlayer(targetRange.get(), teamCheck.get());
 		if (target == null || target.onGround() || target.isFallFlying() || target.fallDistance < minFall.get()) return;
 
 		BlockPos landing = findLanding(target);

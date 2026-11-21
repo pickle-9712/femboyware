@@ -7,6 +7,8 @@
  */
 package dev.femboyware.module.combat;
 
+import dev.femboyware.util.TargetUtil;
+import dev.femboyware.util.Teams;
 import dev.femboyware.util.Mc;
 import dev.femboyware.FemboyWare;
 import dev.femboyware.module.Category;
@@ -51,6 +53,7 @@ public class AuraModule extends Module {
 	public enum Priority { DISTANCE, HEALTH, DIRECTION, HURT_TIME, AGE }
 
 	private final EnumSetting<Page> page = add(new EnumSetting<>("Page", "Settings page", Page.GENERAL));
+	private final BoolSetting teamCheck = add(new BoolSetting("Team Check", "Leave players on your team alone (same scoreboard team, name colour or helmet colour)", false));
 
 	// General
 	private final NumberSetting range = add(new NumberSetting("Range", "Attack range", 3.0, 1, 6, 0.05)).visibleWhen(() -> page.is(Page.GENERAL));
@@ -425,7 +428,7 @@ public class AuraModule extends Module {
 		java.util.Comparator<LivingEntity> order = comparator(eyes);
 		for (Entity entity : mc.level.entitiesForRendering()) {
 			if (!(entity instanceof LivingEntity living) || entity == mc.player || !living.isAlive()) continue;
-			if (!isValidType(living) || FriendsModule.protects(living)) continue;
+			if (!isValidType(living) || FriendsModule.protects(living) || teamCheck.get() && Teams.isTeammate(living)) continue;
 			double distance = eyes.distanceTo(BlockUtil.closestPoint(living.getBoundingBox(), eyes));
 			if (distance > maxRange) continue;
 			if (!ignoreShield.get() && living instanceof Player p && p.isBlocking() && !mc.player.getMainHandItem().is(ItemTags.AXES)) continue;
