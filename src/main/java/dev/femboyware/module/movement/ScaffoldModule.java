@@ -319,8 +319,10 @@ public class ScaffoldModule extends Module {
 	/** LiquidBounce's Hypixel config (LiquidCloud nextgen/hypixel.json, 09/03/2026, "Bypassing"), on femboyware's settings. */
 	private void applyHypixelPreset() {
 		java.util.Map<String, Object> values = new java.util.LinkedHashMap<>();
-		values.put("Delay Min", 0.0);
-		values.put("Delay Max", 0.0);
+		// Watchdog keeps the first 4-5 blocks then takes the rest back: it adds up how regular you are,
+		// so placements wait 1-2 ticks at random and each click lands on a different spot of the face
+		values.put("Delay Min", 1.0);
+		values.put("Delay Max", 2.0);
 		values.put("Min Dist", 0.0);
 		values.put("Timer", 1.0);
 		values.put("Same Y", SameY.OFF);
@@ -342,8 +344,8 @@ public class ScaffoldModule extends Module {
 		values.put("Fail", false);
 		values.put("Real Look", true);
 		values.put("Rotation Timing", Timing.NORMAL);
-		// Center: the middle of the face, as the staircase that works on Hypixel aims; Stabilized's edge points got taken back
-		values.put("Aim Mode", AimMode.CENTER);
+		// Random: a different spot each block; Center and Stabilized both aimed the same way every time
+		values.put("Aim Mode", AimMode.RANDOM);
 		values.put("Rescue", false);
 		values.put("Auto Jump", false);
 		values.put("Requires Sight", true);
