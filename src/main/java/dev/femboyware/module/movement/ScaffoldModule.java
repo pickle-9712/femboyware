@@ -116,7 +116,7 @@ public class ScaffoldModule extends Module {
 	private final EnumSetting<Swing> swing = add(new EnumSetting<>("Swing", "How to swing when placing", Swing.PACKET)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting autoSpeed = add(new BoolSetting("Auto Speed", "Turn Speed on while scaffolding", false)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting retryCentered = add(new BoolSetting("Retry Centered", "When the server takes a block back, crouch and try again aiming nearer the middle of the face (closer each time), until a block stays", false)).visibleWhen(() -> page.is(Page.GENERAL));
-	private final NumberSetting retryWait = add(new NumberSetting("Retry Wait", "Straight bridging only: after a block is taken back, stay crouched this many ticks before clicking again (20 = 1 second), so a second click doesn't stack another flag on the first (0 = retry at once)", 0, 0, 40, 1)).visibleWhen(() -> page.is(Page.GENERAL) && retryCentered.get());
+	private final NumberSetting retryWait = add(new NumberSetting("Retry Wait", "On the ground: after a block is taken back, stay crouched this many ticks before clicking again (20 = 1 second), so a second click doesn't stack another flag on the first (0 = retry at once)", 0, 0, 40, 1)).visibleWhen(() -> page.is(Page.GENERAL) && retryCentered.get());
 	private final NumberSetting crouchSettle = add(new NumberSetting("Crouch Settle", "Straight bridging only: on the ground, don't click until you've been crouched this many ticks (crouching holds you at the edge meanwhile). Hypixel takes back blocks clicked the moment you crouch (0 = off)", 0, 0, 10, 1)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting debug = add(new BoolSetting("Debug", "Say in chat when the server takes a block back or sets you back, and why blocks aren't going in, to find what a server flags", false)).visibleWhen(() -> page.is(Page.GENERAL));
 
@@ -458,8 +458,8 @@ public class ScaffoldModule extends Module {
 
 	/**
 	 * Whether you're bridging diagonally (more than 22.5 degrees off the block grid). Diagonals keep the
-	 * 1.0.130 checkpoint's behaviour, which Hypixel kept; Crouch Settle, Retry Wait and Aim Jitter are
-	 * for straight bridges only.
+	 * 1.0.133 behaviour (what you used at 11:39pm), which Hypixel kept; Crouch Settle and Aim Jitter
+	 * are for straight bridges only.
 	 */
 	private boolean diagonal() {
 		float off = Math.abs(Mth.wrapDegrees(rawMovementYaw()) % 90f);
@@ -1097,7 +1097,7 @@ public class ScaffoldModule extends Module {
 			skip("settling into the crouch");
 			return;
 		}
-		if (retrying() && retryWait.getInt() > 0 && !diagonal() && mc.player.onGround() && !isTowering() && mc.level.getGameTime() - lastTakeBack < retryWait.getInt()) {
+		if (retrying() && retryWait.getInt() > 0 && mc.player.onGround() && !isTowering() && mc.level.getGameTime() - lastTakeBack < retryWait.getInt()) {
 			skip("waiting before the retry");
 			return;
 		}
