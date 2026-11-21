@@ -1075,7 +1075,7 @@ public class ScaffoldModule extends Module {
 			skip("settling into the crouch");
 			return;
 		}
-		if (retrying() && retryWait.getInt() > 0 && mc.level.getGameTime() - lastTakeBack < retryWait.getInt()) {
+		if (retrying() && retryWait.getInt() > 0 && mc.player.onGround() && !isTowering() && mc.level.getGameTime() - lastTakeBack < retryWait.getInt()) {
 			skip("waiting before the retry");
 			return;
 		}
