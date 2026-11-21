@@ -158,6 +158,7 @@ public class ScaffoldModule extends Module {
 
 	// Movement
 	private final BoolSetting ledge = add(new BoolSetting("Ledge", "Sneak at an edge until the aim is ready, or when out of blocks", true)).visibleWhen(() -> page.is(Page.MOVEMENT));
+	private final BoolSetting holdSneak = add(new BoolSetting("Hold Sneak", "Stay crouched the whole time you bridge on the ground, as if you held crouch. Slower, but Hypixel keeps these blocks; Ledge's quick sneak flicks get taken back", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting safeWalk = add(new BoolSetting("Safe Walk", "Never walk off the edge (Ledge already sneaks you at edges till the block's in; LiquidBounce's Hypixel config has this off)", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting autoJump = add(new BoolSetting("Auto Jump", "Let Scaffold jump for you (Rescue, Head Hitter, God Bridge's ledge jump, Telly). Off, it never jumps: only your own jump key does", true)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting rescue = add(new BoolSetting("Rescue", "When a block you need is taken back, jump and rebuild the bridge in the air. Off for Hypixel: it takes back air blocks placed right after a rejected one", true)).visibleWhen(() -> page.is(Page.MOVEMENT));
@@ -336,7 +337,7 @@ public class ScaffoldModule extends Module {
 		values.put("Turn H Max", 58.0);
 		values.put("Turn V Min", 26.0);
 		values.put("Turn V Max", 42.0);
-		values.put("Max Place Turn", 25.0);
+		values.put("Max Place Turn", 15.0);
 		values.put("Short Stop", false);
 		values.put("Fail", false);
 		values.put("Real Look", true);
@@ -354,6 +355,8 @@ public class ScaffoldModule extends Module {
 		values.put("Head Hitter", false);
 		values.put("Tower", Tower.HYPIXEL);
 		values.put("Ledge", true);
+		// Holding crouch the whole way: 17 kept to 1 back on Hypixel, where Ledge's sneak flicks got every block taken back
+		values.put("Hold Sneak", true);
 		values.put("Safe Walk", false);
 		values.put("No Sprint", false);
 		applyValues(this, values);
@@ -1251,6 +1254,7 @@ public class ScaffoldModule extends Module {
 			}
 		}
 		if (eagle.get() && active == Technique.NORMAL && !sneak && shouldEagle(keys)) sneak = true;
+		if (holdSneak.get() && mc.player.onGround() && !isTowering() && (forward || back || left || right) && blockCount() > 0) sneak = true;
 		if (telly.get() && active == Technique.NORMAL && (forward || back || left || right) && blockCount() > 0 && mc.player.onGround()) {
 			if (tellyReset.is(TellyReset.REVERSE) || tellyStraight.getInt() == 0 && ticksUntilJump >= tellyJumpTicks) jump = autoJump.get() || jump;
 		}
