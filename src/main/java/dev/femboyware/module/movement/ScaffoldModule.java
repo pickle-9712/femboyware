@@ -136,6 +136,7 @@ public class ScaffoldModule extends Module {
 	private final NumberSetting edgeMax = add(new NumberSetting("Edge Distance Max", "Breezily: furthest", 0.5, 0.25, 0.5, 0.01)).visibleWhen(() -> page.is(Page.TECHNIQUE) && technique.is(Technique.BREEZILY));
 	private final BoolSetting eagle = add(new BoolSetting("Eagle", "Sneak at edges (Normal technique)", false)).visibleWhen(() -> page.is(Page.TECHNIQUE) && technique.is(Technique.NORMAL));
 	private final NumberSetting eagleBlocks = add(new NumberSetting("Blocks To Eagle", "Sneak only every this many placements (0 = every edge)", 0, 0, 10, 1)).visibleWhen(() -> page.is(Page.TECHNIQUE) && eagle.get());
+	private final NumberSetting eagleBlocksMax = add(new NumberSetting("Blocks To Eagle Max", "Pick the count at random between Blocks To Eagle and this each time (0 = always Blocks To Eagle)", 0, 0, 10, 1)).visibleWhen(() -> page.is(Page.TECHNIQUE) && eagle.get());
 	private final NumberSetting eagleEdge = add(new NumberSetting("Eagle Edge", "How close to the edge before sneaking", 0.03, 0.01, 1.3, 0.01)).visibleWhen(() -> page.is(Page.TECHNIQUE) && eagle.get());
 	private final BoolSetting eagleGround = add(new BoolSetting("Eagle Only On Ground", "Only sneak while on the ground", true)).visibleWhen(() -> page.is(Page.TECHNIQUE) && eagle.get());
 	private final BoolSetting telly = add(new BoolSetting("Telly", "Jump-bridge: look ahead while jumping, only aim down to place (Normal technique)", false)).visibleWhen(() -> page.is(Page.TECHNIQUE) && technique.is(Technique.NORMAL));
@@ -162,6 +163,7 @@ public class ScaffoldModule extends Module {
 	private final BoolSetting safeWalk = add(new BoolSetting("Safe Walk", "Never walk off the edge (Ledge already sneaks you at edges till the block's in; LiquidBounce's Hypixel config has this off)", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting autoJump = add(new BoolSetting("Auto Jump", "Let Scaffold jump for you (Rescue, Head Hitter, God Bridge's ledge jump, Telly). Off, it never jumps: only your own jump key does", true)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting rescue = add(new BoolSetting("Rescue", "When a block you need is taken back, jump and rebuild the bridge in the air. Off for Hypixel: it takes back air blocks placed right after a rejected one", true)).visibleWhen(() -> page.is(Page.MOVEMENT));
+	private final BoolSetting walkBack = add(new BoolSetting("Walk Back Speed", "Flat bridging (not holding jump), move at the speed of walking backwards with S: no sprint, even though you hold W. Real Look already makes the server see you facing back and holding S; this matches the speed. Hypixel keeps blocks at that pace", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting noSprint = add(new BoolSetting("No Sprint", "Don't sprint while scaffolding", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
 
 	// Render
@@ -319,10 +321,8 @@ public class ScaffoldModule extends Module {
 	/** LiquidBounce's Hypixel config (LiquidCloud nextgen/hypixel.json, 09/03/2026, "Bypassing"), on femboyware's settings. */
 	private void applyHypixelPreset() {
 		java.util.Map<String, Object> values = new java.util.LinkedHashMap<>();
-		// Watchdog keeps the first 4-5 blocks then takes the rest back: it adds up how regular you are,
-		// so placements wait 1-2 ticks at random and each click lands on a different spot of the face
-		values.put("Delay Min", 1.0);
-		values.put("Delay Max", 2.0);
+		values.put("Delay Min", 0.0);
+		values.put("Delay Max", 0.0);
 		values.put("Min Dist", 0.0);
 		values.put("Timer", 1.0);
 		values.put("Same Y", SameY.OFF);
@@ -330,7 +330,7 @@ public class ScaffoldModule extends Module {
 		values.put("Switch", SwitchMode.NORMAL);
 		values.put("Save Last", 5.0);
 		values.put("Grim", false);
-		values.put("Swing", Swing.PACKET);
+		values.put("Swing", Swing.NORMAL);
 		values.put("Auto Speed", false);
 		values.put("Rotate", true);
 		values.put("Angle Smooth", RotationSettings.Smooth.LINEAR);
@@ -344,13 +344,17 @@ public class ScaffoldModule extends Module {
 		values.put("Fail", false);
 		values.put("Real Look", true);
 		values.put("Rotation Timing", Timing.NORMAL);
-		// Random: a different spot each block; Center and Stabilized both aimed the same way every time
-		values.put("Aim Mode", AimMode.RANDOM);
+		// Tested on Hypixel: Nearest Rotation with Swing Normal and no delay keeps staircase bridges
+		values.put("Aim Mode", AimMode.NEAREST_ROTATION);
 		values.put("Rescue", false);
 		values.put("Auto Jump", false);
 		values.put("Requires Sight", true);
 		values.put("Technique", Technique.NORMAL);
-		values.put("Eagle", false);
+		// Hypixel keeps a flat bridge forever when it sees you walk backwards (no sprint) and crouch for a moment every 3-5 blocks
+		values.put("Eagle", true);
+		values.put("Blocks To Eagle", 3.0);
+		values.put("Blocks To Eagle Max", 5.0);
+		values.put("Eagle Only On Ground", true);
 		values.put("Telly", false);
 		values.put("Down", false);
 		values.put("Ceiling", false);
@@ -361,6 +365,8 @@ public class ScaffoldModule extends Module {
 		values.put("Hold Sneak", false);
 		values.put("Safe Walk", false);
 		values.put("No Sprint", false);
+		// Flat: walking backwards at S speed (no sprint); sprinting with W got the first block taken back
+		values.put("Walk Back Speed", true);
 		applyValues(this, values);
 		FemboyWare.getModules().get(dev.femboyware.module.client.MoveFixModule.class).setEnabled(true);
 		Module sprint = FemboyWare.getModules().get(SprintModule.class);
@@ -1164,7 +1170,7 @@ public class ScaffoldModule extends Module {
 		eaglePlaced++;
 		if (eaglePlaced > eagleEvery) {
 			eaglePlaced = 0;
-			eagleEvery = eagleBlocks.getInt();
+			eagleEvery = eagleBlocksMax.getInt() > 0 ? randomInt(eagleBlocks.getInt(), eagleBlocksMax.getInt()) : eagleBlocks.getInt();
 		}
 	}
 
@@ -1298,6 +1304,10 @@ public class ScaffoldModule extends Module {
 		// In the air rebuilding the bridge: no sneaking (it would only slow the jump's reach)
 		if (rescueTicks > 0 && !mc.player.onGround()) sneak = false;
 		if (noSprint.get()) sprint = false;
+		if (walkBack.get() && !jumpKey() && (forward || back || left || right)) {
+			sprint = false;
+			if (mc.player.isSprinting()) mc.player.setSprinting(false);
+		}
 
 		Input changed = new Input(forward, back, left, right, jump, sneak, sprint);
 		if (changed.equals(keys)) return;
