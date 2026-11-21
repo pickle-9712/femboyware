@@ -128,6 +128,7 @@ public class ScaffoldModule extends Module {
 	private final EnumSetting<Timing> timing = add(new EnumSetting<>("Rotation Timing", "Normal turns before placing; On Tick turns on the tick it places; Snap also keeps it", Timing.NORMAL)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final EnumSetting<AimMode> aimMode = add(new EnumSetting<>("Aim Mode", "Which point on the face to aim at (Normal technique)", AimMode.STABILIZED)).visibleWhen(() -> page.is(Page.ROTATIONS));
 	private final NumberSetting aimJitter = add(new NumberSetting("Aim Jitter", "Flat straight bridging only (never while you hold jump): your aim drifts this many degrees at most, a little every tick, like a hand on a mouse; a head that holds dead still while you bridge looks like a bot (0 = off)", 0, 0, 3, 0.1)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
+	private final NumberSetting turnSettle = add(new NumberSetting("Turn Settle", "On the ground, after a big turn (over 20 degrees in a tick, like Real Look spinning you round to start a bridge), wait this many ticks before clicking; Ledge holds you at the edge meanwhile (0 = off)", 0, 0, 10, 1)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final NumberSetting maxPlaceTurn = add(new NumberSetting("Max Place Turn", "Don't click on a tick your aim turned further than this, wait a tick for it to settle (0 = off). Hypixel takes back blocks placed mid-snap", 25, 0, 180, 1)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final BoolSetting requiresSight = add(new BoolSetting("Requires Sight", "Only aim at faces you can see (Normal technique); Hypixel checks you could see what you clicked", true)).visibleWhen(() -> page.is(Page.ROTATIONS));
 
@@ -215,6 +216,8 @@ public class ScaffoldModule extends Module {
 	private long retryUntil, lastTakeBack;
 	/** Aim Jitter: the current drift, a random walk kept within the setting. */
 	private float jitterYaw, jitterPitch;
+	/** Turn Settle: ticks since the aim last turned more than 20 degrees in one tick. */
+	private int sinceBigTurn = 100;
 	/** Debug: how you were moving on the last tick sent, for the setback line. */
 	private volatile String lastMove = "";
 	private boolean lastSneak;
@@ -357,6 +360,8 @@ public class ScaffoldModule extends Module {
 		values.put("Turn V Min", 26.0);
 		values.put("Turn V Max", 42.0);
 		values.put("Max Place Turn", 15.0);
+		// The first block of a bridge kept getting taken back right after Real Look spun the head round
+		values.put("Turn Settle", 4.0);
 		// Flat bridging kept 5-7 blocks then lost one, whatever the crouching: the head never moving is the next suspect
 		values.put("Aim Jitter", 0.8);
 		values.put("Short Stop", false);
@@ -461,6 +466,10 @@ public class ScaffoldModule extends Module {
 	 * 1.0.133 behaviour (what you used at 11:39pm), which Hypixel kept; Crouch Settle and Aim Jitter
 	 * are for straight bridges only.
 	 */
+	private boolean turnSettling() {
+		return turnSettle.getInt() > 0 && mc.player.onGround() && !isTowering() && sinceBigTurn < turnSettle.getInt();
+	}
+
 	private boolean diagonal() {
 		float off = Math.abs(Mth.wrapDegrees(rawMovementYaw()) % 90f);
 		return Math.min(off, 90f - off) > 22.5f;
@@ -1065,6 +1074,7 @@ public class ScaffoldModule extends Module {
 		if (nullCheck()) return;
 		Rotation previous = lastServer;
 		lastServer = FemboyWare.getRotations().getServerRotation();
+		sinceBigTurn = previous != null && lastServer != null && previous.distanceTo(lastServer) > 20f ? 0 : Math.min(sinceBigTurn + 1, 100);
 		boolean sneaking = mc.player.isShiftKeyDown();
 		sneakFor = sneaking == lastSneak ? sneakFor + 1 : 0;
 		lastSneak = sneaking;
@@ -1093,6 +1103,10 @@ public class ScaffoldModule extends Module {
 		}
 		// femboyware: flat bridging, click only when it also lands from 1.8's eye heights (see EYE_HEIGHTS),
 		// or Hypixel takes the block back; Ledge holds you at the edge meanwhile
+		if (turnSettling()) {
+			skip("settling after a big turn");
+			return;
+		}
 		if (crouchSettle.getInt() > 0 && !diagonal() && mc.player.onGround() && !isTowering() && mc.player.isShiftKeyDown() && sneakFor < crouchSettle.getInt()) {
 			skip("settling into the crouch");
 			return;
@@ -1324,7 +1338,7 @@ public class ScaffoldModule extends Module {
 				// nothing to click), so you never walk off before the block's in
 				// From where this tick's movement leaves you, which is where the click goes out from
 				BlockHitResult now = target != null ? TargetFinding.traceFromPoint(nextEyes(), rotation.toVector(), mc.player.blockInteractionRange()) : null;
-				boolean placeable = now != null && target.matches(now) && validCrosshair(now) && landsFrom(target, rotation, nextPosition(), SERVER_EYES);
+				boolean placeable = !turnSettling() && now != null && target.matches(now) && validCrosshair(now) && landsFrom(target, rotation, nextPosition(), SERVER_EYES);
 				boolean needsBlock = mc.level.getBlockState(BlockPos.containing(mc.player.position().add(Vec3.directionFromRotation(0, movementYaw(keys.forward(), keys.backward(), keys.left(), keys.right())).scale(0.4))).below()).canBeReplaced();
 				if (blockCount() <= 0 || ticks >= 1 || needsBlock && !placeable) sneakTime = Math.max(1, ticks);
 			}
