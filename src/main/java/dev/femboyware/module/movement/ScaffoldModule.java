@@ -197,6 +197,10 @@ public class ScaffoldModule extends Module {
 	private String skipReason;
 	private int skipTicks;
 	private long lastSkipReport;
+	/** Debug: how each watched block was placed, and the tally of blocks kept and taken back. */
+	private final java.util.Map<Long, String> placeInfo = new java.util.HashMap<>();
+	private int keptCount, takenCount;
+	private Rotation lastServer;
 
 	public ScaffoldModule() {
 		super("Scaffold", "Bridges under you automatically (LiquidBounce's scaffold)", Category.BUILD);
@@ -487,16 +491,21 @@ public class ScaffoldModule extends Module {
 	 */
 	private void tickRescue() {
 		long now = mc.level.getGameTime();
-		watching.removeIf(entry -> now - entry[1] > 40);
 		if (debug.get()) {
 			for (long[] entry : watching) {
 				BlockPos pos = BlockPos.of(entry[0]);
 				if (entry[2] != 0 || !mc.level.getBlockState(pos).canBeReplaced()) continue;
 				entry[2] = 1;
-				say("server took back the block at " + pos.getX() + " " + pos.getY() + " " + pos.getZ() + " " + (now - entry[1]) + " ticks after placing it"
-					+ (mc.player.isShiftKeyDown() ? " (sneaking)" : "") + (mc.player.isSprinting() ? " (sprinting)" : ""));
+				takenCount++;
+				say("taken back " + (now - entry[1]) + "t after: " + placeInfo.getOrDefault(entry[0], "?") + " [" + takenCount + " back, " + keptCount + " kept]");
 			}
 		}
+		watching.removeIf(entry -> {
+			if (now - entry[1] <= 40) return false;
+			if (entry[2] == 0) keptCount++;
+			placeInfo.remove(entry[0]);
+			return true;
+		});
 		if (rescueTicks > 0) {
 			rescueTicks--;
 			// Landed back on the bridge: done
@@ -969,6 +978,14 @@ public class ScaffoldModule extends Module {
 	@Override
 	public void onPostMotion() {
 		if (nullCheck()) return;
+		Rotation previous = lastServer;
+		lastServer = FemboyWare.getRotations().getServerRotation();
+		// "turned" compares against the rotation the tick before
+		postMotion(previous);
+	}
+
+	private void postMotion(Rotation previousServer) {
+		Rotation lastServer = previousServer;
 		if (delayLeft > 0) {
 			delayLeft--;
 			return;
@@ -1026,6 +1043,19 @@ public class ScaffoldModule extends Module {
 			click = theirs;
 		}
 		BlockHitResult clicked = click;
+		String how = null;
+		if (debug.get()) {
+			Vec3 eye = mc.player.getEyePosition();
+			float turned = lastServer == null ? 0 : lastServer.distanceTo(server);
+			how = (mc.player.onGround() ? "ground" : "air t" + airTicks + (mc.player.getDeltaMovement().y > 0 ? " rising" : " falling"))
+				+ ", " + clicked.getDirection().getName() + " face, look " + Math.round(rotation.yaw()) + "/" + Math.round(rotation.pitch())
+				+ ", turned " + Math.round(turned) + "\u00b0, reach " + String.format(java.util.Locale.ROOT, "%.2f", eye.distanceTo(clicked.getLocation()))
+				+ (mc.player.isShiftKeyDown() ? ", sneaking" : "") + (mc.player.isSprinting() ? ", sprinting" : "")
+				+ (slot >= 0 && mc.player.getInventory().getSelectedSlot() != slot ? ", switched" : "")
+				+ ", lands from " + (landsFrom(placing, rotation, mc.player.position(), STANDING_EYES) ? "1.62 " : "")
+				+ (landsFrom(placing, rotation, mc.player.position(), SNEAKING_EYES) ? "1.54 " : "")
+				+ (landsFrom(placing, rotation, mc.player.position(), new double[]{1.27}) ? "1.27" : "");
+		}
 		boolean[] success = {false};
 		Runnable place = () -> {
 			InteractionResult result = mc.gameMode.useItemOn(mc.player, hand, clicked);
@@ -1055,6 +1085,7 @@ public class ScaffoldModule extends Module {
 			return;
 		}
 		skipTicks = 0;
+		if (how != null) placeInfo.put(placing.placedBlock().asLong(), how);
 		planner.trackPlacedBlock(placing.placedBlock());
 		watching.add(new long[]{placing.placedBlock().asLong(), mc.level.getGameTime(), 0});
 		placed.add(new long[]{placing.placedBlock().asLong(), System.currentTimeMillis()});
