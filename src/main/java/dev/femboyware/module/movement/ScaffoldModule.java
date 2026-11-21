@@ -124,6 +124,7 @@ public class ScaffoldModule extends Module {
 	private final BoolSetting realLookThirdPerson = add(new BoolSetting("Real Look Third Person", "Switch to third person while Real Look turns your head", true)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get() && realLook.get());
 	private final EnumSetting<Timing> timing = add(new EnumSetting<>("Rotation Timing", "Normal turns before placing; On Tick turns on the tick it places; Snap also keeps it", Timing.NORMAL)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final EnumSetting<AimMode> aimMode = add(new EnumSetting<>("Aim Mode", "Which point on the face to aim at (Normal technique)", AimMode.STABILIZED)).visibleWhen(() -> page.is(Page.ROTATIONS));
+	private final NumberSetting maxPlaceTurn = add(new NumberSetting("Max Place Turn", "Don't click on a tick your aim turned further than this, wait a tick for it to settle (0 = off). Hypixel takes back blocks placed mid-snap", 25, 0, 180, 1)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final BoolSetting requiresSight = add(new BoolSetting("Requires Sight", "Only aim at faces you can see (Normal technique); Hypixel checks you could see what you clicked", true)).visibleWhen(() -> page.is(Page.ROTATIONS));
 
 	// Technique
@@ -328,7 +329,12 @@ public class ScaffoldModule extends Module {
 		values.put("Auto Speed", false);
 		values.put("Rotate", true);
 		values.put("Angle Smooth", RotationSettings.Smooth.LINEAR);
-		for (String turn : new String[]{"Turn H Min", "Turn H Max", "Turn V Min", "Turn V Max"}) values.put(turn, 120.0);
+		// LiquidBounce's config turns 120 a tick; Watchdog now takes back blocks placed on snaps like that
+		values.put("Turn H Min", 38.0);
+		values.put("Turn H Max", 58.0);
+		values.put("Turn V Min", 26.0);
+		values.put("Turn V Max", 42.0);
+		values.put("Max Place Turn", 25.0);
 		values.put("Short Stop", false);
 		values.put("Fail", false);
 		values.put("Real Look", true);
@@ -1004,6 +1010,10 @@ public class ScaffoldModule extends Module {
 		}
 		// femboyware: flat bridging, click only when it also lands from 1.8's eye heights (see EYE_HEIGHTS),
 		// or Hypixel takes the block back; Ledge holds you at the edge meanwhile
+		if (rotate.get() && maxPlaceTurn.getInt() > 0 && lastServer != null && lastServer.distanceTo(rotation) > maxPlaceTurn.get()) {
+			skip("aim still turning");
+			return;
+		}
 		if (mc.player.onGround() && !isTowering() && rotate.get() && !landsFrom(target, rotation, mc.player.position(), currentEyes())) {
 			skip("click wouldn't land from the server's eye height");
 			return;
