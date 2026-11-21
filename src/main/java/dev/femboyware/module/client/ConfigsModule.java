@@ -89,6 +89,8 @@ public class ConfigsModule extends Module {
 		if (error != null) ChatUtil.info(error);
 		else {
 			profile.set(ConfigManager.clean(name));
+			// Saved again so a restart opens on this config's name too
+			config().save();
 			ChatUtil.info("Loaded " + name + " (what you had is in configs/backups)");
 		}
 	}

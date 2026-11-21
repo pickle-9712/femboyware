@@ -83,8 +83,31 @@ public class ConfigManager {
 			if (!startup && module instanceof dev.femboyware.module.client.ConfigsModule) continue;
 			// Older configs stored names without spaces ("AutoCrystal")
 			String key = root.has(module.getName()) ? module.getName() : module.getName().replace(" ", "");
-			if (!root.has(key) || !root.get(key).isJsonObject()) continue;
+			if (!root.has(key) || !root.get(key).isJsonObject()) {
+				// A config is the whole setup: a module it doesn't mention (newer than the config) goes back
+				// to how it starts out, instead of staying as the config you switched away from had it
+				if (!startup) reset(module);
+				continue;
+			}
 			apply(module, root.getAsJsonObject(key), startup);
+		}
+	}
+
+	/** A module a loaded config doesn't mention: off, with its default settings (your own saved data kept). */
+	private static void reset(Module module) {
+		if (module instanceof dev.femboyware.module.client.ClickGuiModule) return;
+		for (Setting<?> setting : module.getSettings()) {
+			if (personal(setting)) continue;
+			try {
+				setting.reset();
+			} catch (RuntimeException e) {
+				FemboyWare.LOGGER.warn("Couldn't reset {}.{}", module.getName(), setting.getName());
+			}
+		}
+		try {
+			if (module.persistsEnabled() && module.isEnabled()) module.setEnabled(false);
+		} catch (RuntimeException e) {
+			FemboyWare.LOGGER.warn("Couldn't turn {} off for a config", module.getName(), e);
 		}
 	}
 
@@ -100,7 +123,16 @@ public class ConfigManager {
 			for (Setting<?> setting : module.getSettings()) {
 				if (!startup && personal(setting)) continue;
 				JsonElement element = settingsJson.get(setting.getName());
-				if (element == null) continue;
+				if (element == null) {
+					// Newer than the config: its default, not whatever the last config left
+					if (!startup) {
+						try {
+							setting.reset();
+						} catch (RuntimeException ignored) {
+						}
+					}
+					continue;
+				}
 				try {
 					setting.fromJson(element);
 				} catch (RuntimeException e) {
@@ -110,7 +142,8 @@ public class ConfigManager {
 		}
 		if (!startup && module instanceof dev.femboyware.module.client.ClickGuiModule) return;
 		try {
-			if (module.persistsEnabled() && moduleJson.has("enabled") && moduleJson.get("enabled").getAsBoolean() != module.isEnabled()) module.setEnabled(moduleJson.get("enabled").getAsBoolean());
+			boolean on = moduleJson.has("enabled") ? moduleJson.get("enabled").getAsBoolean() : !startup ? false : module.isEnabled();
+			if (module.persistsEnabled() && on != module.isEnabled()) module.setEnabled(on);
 		} catch (RuntimeException e) {
 			FemboyWare.LOGGER.warn("Couldn't turn {} on or off from a config", module.getName(), e);
 		}
