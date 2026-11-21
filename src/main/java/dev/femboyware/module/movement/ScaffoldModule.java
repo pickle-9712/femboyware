@@ -1191,6 +1191,8 @@ public class ScaffoldModule extends Module {
 	private boolean shouldEagle(Input keys) {
 		if (shouldFallOffBlock()) return false;
 		if (!mc.player.onGround() && eagleGround.get()) return false;
+		// Not while you hold jump: staircasing, a crouch on landing broke the jump bridge Hypixel had been keeping
+		if (isTowering()) return false;
 		if (mc.player.getAbilities().flying || eaglePlaced != 0) return false;
 		return closeToEdge(keys, eagleEdge.get());
 	}
