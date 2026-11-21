@@ -115,6 +115,7 @@ public class ScaffoldModule extends Module {
 	private final BoolSetting grim = addGrim(() -> page.is(Page.GENERAL));
 	private final EnumSetting<Swing> swing = add(new EnumSetting<>("Swing", "How to swing when placing", Swing.PACKET)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting autoSpeed = add(new BoolSetting("Auto Speed", "Turn Speed on while scaffolding", false)).visibleWhen(() -> page.is(Page.GENERAL));
+	private final BoolSetting retryCentered = add(new BoolSetting("Retry Centered", "When the server takes a block back, crouch and try again aiming nearer the middle of the face (closer each time), until a block stays", false)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting debug = add(new BoolSetting("Debug", "Say in chat when the server takes a block back or sets you back, and why blocks aren't going in, to find what a server flags", false)).visibleWhen(() -> page.is(Page.GENERAL));
 
 	// Rotations
@@ -206,6 +207,9 @@ public class ScaffoldModule extends Module {
 	/** Debug: how each watched block was placed, and the tally of blocks kept and taken back. */
 	private final java.util.Map<Long, String> placeInfo = new java.util.HashMap<>();
 	private int keptCount, takenCount;
+	/** Retry Centered: blocks taken back in a row, and the tick the retry gives up crouching. */
+	private int retries;
+	private long retryUntil;
 	private Rotation lastServer;
 
 	public ScaffoldModule() {
@@ -229,6 +233,7 @@ public class ScaffoldModule extends Module {
 	protected void onDisable() {
 		watching.clear();
 		rescueTicks = stuckTicks = 0;
+		retries = 0;
 		rescueJump = false;
 		planner.reset();
 		target = null;
@@ -351,6 +356,7 @@ public class ScaffoldModule extends Module {
 		values.put("Requires Sight", true);
 		values.put("Technique", Technique.NORMAL);
 		// Hypixel keeps a flat bridge forever when it sees you walk backwards (no sprint) and crouch for a moment every 3-5 blocks
+		values.put("Retry Centered", true);
 		values.put("Eagle", true);
 		values.put("Blocks To Eagle", 3.0);
 		values.put("Blocks To Eagle Max", 5.0);
@@ -513,18 +519,28 @@ public class ScaffoldModule extends Module {
 	 */
 	private void tickRescue() {
 		long now = mc.level.getGameTime();
-		if (debug.get()) {
-			for (long[] entry : watching) {
-				BlockPos pos = BlockPos.of(entry[0]);
-				if (entry[2] != 0 || !mc.level.getBlockState(pos).canBeReplaced()) continue;
+		// entry[2]: 0 = waiting, 1 = taken back, 2 = stayed long enough to count as kept for Retry Centered
+		for (long[] entry : watching) {
+			BlockPos pos = BlockPos.of(entry[0]);
+			if (entry[2] == 1) continue;
+			if (mc.level.getBlockState(pos).canBeReplaced()) {
 				entry[2] = 1;
 				takenCount++;
-				say(takenCount + " back / " + keptCount + " kept. Taken back " + (now - entry[1]) + "t after: " + placeInfo.getOrDefault(entry[0], "?"));
+				if (debug.get()) say(takenCount + " back / " + keptCount + " kept. Taken back " + (now - entry[1]) + "t after: " + placeInfo.getOrDefault(entry[0], "?")
+					+ (retryCentered.get() ? " (retry " + Math.min(retries + 1, 3) + ", nearer the middle, crouched)" : ""));
+				if (retryCentered.get()) {
+					retries = Math.min(retries + 1, 3);
+					retryUntil = now + 100;
+				}
+			} else if (entry[2] == 0 && now - entry[1] >= 10) {
+				// Took back after 2-5 ticks when it does: 10 ticks standing, it worked
+				entry[2] = 2;
+				retries = 0;
 			}
 		}
 		watching.removeIf(entry -> {
 			if (now - entry[1] <= 40) return false;
-			if (entry[2] == 0) keptCount++;
+			if (entry[2] != 1) keptCount++;
 			placeInfo.remove(entry[0]);
 			return true;
 		});
@@ -668,8 +684,18 @@ public class ScaffoldModule extends Module {
 			}
 			default -> {
 				boolean goDown = shouldGoDown();
+				TargetFinding.FacePositionFactory aim = TargetFinding.factory(aimMode.get(), optimalLine);
+				if (retrying()) {
+					// Retry Centered: pull the aim point toward the middle of the face, further each retry
+					TargetFinding.FacePositionFactory base = aim;
+					double pull = Math.min(1.0, 0.4 * retries);
+					aim = (face, at, location1) -> {
+						Vec3 point = base.produce(face, at, location1);
+						return point == null ? face.center() : point.lerp(face.center(), pull);
+					};
+				}
 				TargetFinding.Options options = new TargetFinding.Options(goDown ? TargetFinding.DOWN : TargetFinding.NORMAL, priority,
-					TargetFinding.factory(aimMode.get(), optimalLine), goDown, stack, location);
+					aim, goDown, stack, location);
 				return TargetFinding.findBest(targetedPosition(feet), options);
 			}
 		}
@@ -1158,6 +1184,10 @@ public class ScaffoldModule extends Module {
 
 	// ---------------------------------------------------------------- movement input
 
+	private boolean retrying() {
+		return retryCentered.get() && retries > 0 && mc.level != null && mc.level.getGameTime() < retryUntil;
+	}
+
 	private boolean shouldEagle(Input keys) {
 		if (shouldFallOffBlock()) return false;
 		if (!mc.player.onGround() && eagleGround.get()) return false;
@@ -1262,6 +1292,8 @@ public class ScaffoldModule extends Module {
 			}
 		}
 		if (eagle.get() && active == Technique.NORMAL && !sneak && shouldEagle(keys)) sneak = true;
+		// Retry Centered: crouch until a block stays
+		if (retrying() && mc.player.onGround() && !isTowering() && (forward || back || left || right)) sneak = true;
 		if (holdSneak.get() && mc.player.onGround() && !isTowering() && (forward || back || left || right) && blockCount() > 0) sneak = true;
 		if (telly.get() && active == Technique.NORMAL && (forward || back || left || right) && blockCount() > 0 && mc.player.onGround()) {
 			if (tellyReset.is(TellyReset.REVERSE) || tellyStraight.getInt() == 0 && ticksUntilJump >= tellyJumpTicks) jump = autoJump.get() || jump;
