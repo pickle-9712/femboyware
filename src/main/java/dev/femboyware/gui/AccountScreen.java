@@ -93,6 +93,25 @@ public class AccountScreen extends Screen {
 	private boolean slim;
 	private boolean hasCurrentSkin, hasChosenSkin;
 
+	/** The capes the account owns, as Mojang lists them, and which one the arrows are on (size() = no cape). */
+	private final java.util.List<Cape> capes = new java.util.ArrayList<>();
+	private int capeIndex;
+	private Button capePrev, capeNext, wearCape;
+
+	private static final class Cape {
+		final String id, alias;
+		final boolean active;
+		final Identifier texture;
+		int texWidth, texHeight;
+
+		Cape(String id, String alias, boolean active, Identifier texture) {
+			this.id = id;
+			this.alias = alias;
+			this.active = active;
+			this.texture = texture;
+		}
+	}
+
 	private String status = "";
 	private int statusColor = INFO;
 	private boolean busy;
@@ -133,7 +152,7 @@ public class AccountScreen extends Screen {
 	}
 
 	private int top() {
-		return Math.max(4, (height - 226) / 2);
+		return Math.max(4, (height - 290) / 2);
 	}
 
 	@Override
@@ -162,8 +181,12 @@ public class AccountScreen extends Screen {
 			currentBytes, "slim".equalsIgnoreCase(liveSkinVariant), chosenBytes, slim)))
 			.bounds(skinX + 80, columnY + 94, 100, 20).build());
 
-		refresh = addRenderableWidget(Button.builder(Component.literal("Refresh"), b -> load()).bounds(left + 10, top + 206, 90, 20).build());
-		addRenderableWidget(Button.builder(Component.literal("Back"), b -> onClose()).bounds(left + 300, top + 206, 90, 20).build());
+		capePrev = addRenderableWidget(Button.builder(Component.literal("<"), b -> moveCape(-1)).bounds(left + 210, top + 224, 20, 20).build());
+		capeNext = addRenderableWidget(Button.builder(Component.literal(">"), b -> moveCape(1)).bounds(left + 234, top + 224, 20, 20).build());
+		wearCape = addRenderableWidget(Button.builder(Component.literal("Wear cape"), b -> wearCape()).bounds(left + 260, top + 224, 130, 20).build());
+
+		refresh = addRenderableWidget(Button.builder(Component.literal("Refresh"), b -> load()).bounds(left + 10, top + 270, 90, 20).build());
+		addRenderableWidget(Button.builder(Component.literal("Back"), b -> onClose()).bounds(left + 300, top + 270, 90, 20).build());
 		updateButtons();
 		if (liveName == null && !busy) load();
 	}
@@ -182,6 +205,11 @@ public class AccountScreen extends Screen {
 		chooseSkin.active = !busy && signedIn;
 		savedSkins.active = !busy;
 		refresh.active = !busy;
+		boolean anyCapes = !capes.isEmpty();
+		capePrev.active = capeNext.active = anyCapes;
+		boolean wearing = capeIndex < capes.size() ? capes.get(capeIndex).active : capes.stream().noneMatch(c -> c.active);
+		wearCape.setMessage(Component.literal(!anyCapes ? "No capes" : wearing ? "Wearing" : capeIndex < capes.size() ? "Wear cape" : "Hide cape"));
+		wearCape.active = !busy && signedIn && anyCapes && !wearing;
 	}
 
 	@Override
@@ -197,6 +225,7 @@ public class AccountScreen extends Screen {
 	public void onClose() {
 		release(CURRENT_SKIN);
 		release(CHOSEN_SKIN);
+		releaseCapes();
 		Mc.setScreen(parent);
 	}
 
@@ -211,6 +240,7 @@ public class AccountScreen extends Screen {
 		FemboyTitleScreen.roundedRect(context, left, top, left + 400, top + 62, 6, Theme.menuPrimary());
 		FemboyTitleScreen.roundedRect(context, left, top + 68, left + 200 - 4, top + 200, 6, 0xCC1A0F1F);
 		FemboyTitleScreen.roundedRect(context, left + 204, top + 68, left + 400, top + 200, 6, 0xCC1A0F1F);
+		FemboyTitleScreen.roundedRect(context, left, top + 204, left + 400, top + 264, 6, 0xCC1A0F1F);
 	}
 
 	@Override
@@ -255,10 +285,44 @@ public class AccountScreen extends Screen {
 		context.drawString(font, text(font.plainSubstrByWidth(file, 72), CleanFontModule.CLEAN), skinX + 4, columnY + 100, Theme.muted(), false);
 		context.drawString(font, text("64x64 PNG", CleanFontModule.CLEAN), skinX + 4, columnY + 112, Theme.muted(), false);
 
+		drawCapes(context, left, top + 204);
+
 		if (!status.isEmpty()) {
 			Component line = text(font.plainSubstrByWidth(status, 190), CleanFontModule.CLEAN);
-			context.drawString(font, line, width / 2 - font.width(line) / 2, top + 212, statusColor, false);
+			context.drawString(font, line, width / 2 - font.width(line) / 2, top + 276, statusColor, false);
 		}
+	}
+
+	/** The cape panel: the one the arrows are on, its outside as others see it, and its name. */
+	private void drawCapes(GuiGraphics context, int left, int y) {
+		context.drawString(font, text("Cape", CleanFontModule.CLEAN), left + 10, y + 6, 0xFFFFFFFF, false);
+		if (capes.isEmpty()) {
+			context.drawString(font, text(liveName == null ? "Loading..." : "This account doesn't own any capes", CleanFontModule.CLEAN), left + 44, y + 26, Theme.muted(), false);
+			return;
+		}
+		String name, line;
+		boolean worn = false;
+		if (capeIndex < capes.size()) {
+			Cape cape = capes.get(capeIndex);
+			if (cape.texWidth > 0) {
+				// The outside of the cape: 10x16 at (1, 1) on a 64x32 texture, scaled for HD ones
+				float f = cape.texWidth / 64f;
+				context.pose().pushMatrix();
+				context.pose().translate(left + 14, y + 22);
+				context.pose().scale(2, 2);
+				context.blit(RenderPipelines.GUI_TEXTURED, cape.texture, 0, 0, f, f, 10, 16, Math.round(10 * f), Math.round(16 * f), cape.texWidth, cape.texHeight);
+				context.pose().popMatrix();
+			}
+			name = cape.alias;
+			worn = cape.active;
+			line = worn ? "Wearing it now" : "Not worn";
+		} else {
+			name = "No cape";
+			line = capes.stream().anyMatch(c -> c.active) ? "Hide your cape" : "Wearing no cape now";
+		}
+		context.drawString(font, text(font.plainSubstrByWidth(name, 150), CleanFontModule.CLEAN), left + 44, y + 22, 0xFFFFFFFF, false);
+		context.drawString(font, text(line, CleanFontModule.CLEAN), left + 44, y + 34, worn ? GOOD : Theme.muted(), false);
+		context.drawString(font, text((capeIndex + 1) + " of " + (capes.size() + 1), CleanFontModule.CLEAN), left + 44, y + 46, Theme.muted(), false);
 	}
 
 	/** The skin from the front, flat: head, body, arms and legs with their outer layers. */
@@ -367,6 +431,7 @@ public class AccountScreen extends Screen {
 				liveSkinVariant = skin.has("variant") ? skin.get("variant").getAsString() : "CLASSIC";
 			}
 		}
+		showCapes(profile);
 		if (url == null) return;
 		// Skin textures are plain http on Mojang's side; ask for https
 		HTTP.sendAsync(HttpRequest.newBuilder(URI.create(url.replaceFirst("^http:", "https:"))).timeout(Duration.ofSeconds(15)).GET().build(),
@@ -379,6 +444,85 @@ public class AccountScreen extends Screen {
 					currentLegacy = texHeight == 32;
 				});
 			});
+	}
+
+	/** The capes in a profile reply: listed, the arrows put on the one you wear, their textures fetched. */
+	private void showCapes(JsonObject profile) {
+		releaseCapes();
+		capes.clear();
+		if (profile.has("capes")) {
+			int n = 0;
+			for (JsonElement element : profile.getAsJsonArray("capes")) {
+				JsonObject json = element.getAsJsonObject();
+				if (!json.has("id")) continue;
+				boolean active = "ACTIVE".equals(json.has("state") ? json.get("state").getAsString() : null);
+				String alias = json.has("alias") ? json.get("alias").getAsString() : "Cape";
+				Cape cape = new Cape(json.get("id").getAsString(), alias, active, Identifier.fromNamespaceAndPath("femboyware", "account/cape_" + n++));
+				capes.add(cape);
+				if (json.has("url")) fetchCape(cape, json.get("url").getAsString());
+			}
+		}
+		capeIndex = capes.size();
+		for (int i = 0; i < capes.size(); i++) if (capes.get(i).active) capeIndex = i;
+		updateButtons();
+	}
+
+	private void fetchCape(Cape cape, String url) {
+		HTTP.sendAsync(HttpRequest.newBuilder(URI.create(url.replaceFirst("^http:", "https:"))).timeout(Duration.ofSeconds(15)).GET().build(),
+			HttpResponse.BodyHandlers.ofByteArray()).thenAccept(response -> {
+				if (response.statusCode() != 200) return;
+				minecraft.execute(() -> {
+					if (!capes.contains(cape)) return;
+					NativeImage image;
+					try {
+						image = NativeImage.read(new ByteArrayInputStream(response.body()));
+					} catch (Exception e) {
+						return;
+					}
+					cape.texWidth = image.getWidth();
+					cape.texHeight = image.getHeight();
+					minecraft.getTextureManager().release(cape.texture);
+					DynamicTexture texture = new DynamicTexture(() -> "femboyware account cape", image);
+					minecraft.getTextureManager().register(cape.texture, texture);
+					texture.upload();
+				});
+			});
+	}
+
+	private void releaseCapes() {
+		for (Cape cape : capes) if (cape.texWidth > 0) release(cape.texture);
+	}
+
+	private void moveCape(int by) {
+		int count = capes.size() + 1;
+		capeIndex = ((capeIndex + by) % count + count) % count;
+		updateButtons();
+	}
+
+	/** Wears the cape the arrows are on, or hides yours on "No cape", through Mojang like the launcher does. */
+	private void wearCape() {
+		if (capes.isEmpty()) return;
+		Cape cape = capeIndex < capes.size() ? capes.get(capeIndex) : null;
+		busy = true;
+		setStatus(cape == null ? "Hiding your cape..." : "Putting on " + cape.alias + "...", INFO);
+		updateButtons();
+		HttpRequest.Builder builder = request(API + "/capes/active");
+		if (cape == null) builder.DELETE();
+		else {
+			JsonObject body = new JsonObject();
+			body.addProperty("capeId", cape.id);
+			builder.header("Content-Type", "application/json").PUT(HttpRequest.BodyPublishers.ofString(body.toString()));
+		}
+		send(builder.build(), response -> {
+			if (response.statusCode() == 200) {
+				JsonObject profile = JsonParser.parseString(response.body()).getAsJsonObject();
+				if (profile.has("capes")) showCapes(profile);
+				else load();
+				done(cape == null ? "Cape hidden. Others see it after you rejoin" : "Now wearing " + cape.alias + ". Others see it after you rejoin", GOOD);
+			} else {
+				done(error("Couldn't change your cape", response), BAD);
+			}
+		});
 	}
 
 	private void checkAvailable() {
