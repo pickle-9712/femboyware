@@ -12,6 +12,8 @@ import dev.femboyware.setting.ColorSetting;
 import dev.femboyware.util.FxRender;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import dev.femboyware.setting.EnumSetting;
 import dev.femboyware.setting.NumberSetting;
@@ -77,6 +79,7 @@ public class LegitAuraModule extends Module {
 	private final BoolSetting autoSword = add(new BoolSetting("Auto Weapon", "Switch to your best weapon when locking on", true));
 	private final EnumSetting<Weapon> weapon = add(new EnumSetting<>("Weapon", "Fight with a sword (faster hits) or an axe (harder hits, and every hit on a raised shield disables it); falls back to the other if you have none", Weapon.SWORD)).visibleWhen(autoSword::get);
 	private final BoolSetting chase = add(new BoolSetting("Chase", "Walk and sprint over to the target", true));
+	private final NumberSetting maxDrop = add(new NumberSetting("Max Drop", "Chase won't walk, strafe or jump you off a ledge that drops further than this (0 = no limit)", 4, 0, 16, 1)).visibleWhen(chase::get);
 	private final BoolSetting crits = add(new BoolSetting("Crits", "Jump and hit on the way down for critical hits", true));
 	private final BoolSetting onlyVisible = add(new BoolSetting("Only Visible", "Ignore players behind walls", true));
 	private final NumberSetting randomDelay = add(new NumberSetting("Random Delay", "Wait up to this many ticks before each hit, a different amount every time, like a person's reaction", 2, 0, 5, 1));
@@ -634,6 +637,36 @@ public class LegitAuraModule extends Module {
 			right = !strafeLeft;
 		}
 
+		// Don't run off a ledge that drops further than Max Drop (only the movement Chase adds; your own keys are yours)
+		if (maxDrop.getInt() > 0 && mc.player.onGround()) {
+			if (forward && !keys.forward() && unsafe(0, 1, 1.2)) {
+				forward = false;
+				sprint = false;
+			}
+			if (back && !keys.backward() && unsafe(0, -1, 1.2)) back = false;
+			if ((left || right) && !keys.left() && !keys.right()) {
+				int side = left ? 1 : -1;
+				int ahead = forward ? 1 : back ? -1 : 0;
+				if (unsafe(side, ahead, 1.2)) {
+					if (!unsafe(-side, ahead, 1.2)) {
+						strafeLeft = !strafeLeft;
+						strafeSwitch = 10 + random.nextInt(21);
+						left = !left;
+						right = !right;
+					} else {
+						left = false;
+						right = false;
+					}
+				}
+			}
+			// A running jump carries a few blocks: check further along the way it would go
+			if (jump && !keys.jump()) {
+				int side = (left ? 1 : 0) - (right ? 1 : 0);
+				int ahead = (forward ? 1 : 0) - (back ? 1 : 0);
+				if ((side != 0 || ahead != 0) && unsafe(side, ahead, sprint ? 3.0 : 2.0)) jump = false;
+			}
+		}
+
 		boolean tapping = tapLeft > 0;
 		if (tapping) tapLeft--;
 		boolean anyForward = !tapping && (keys.forward() || forward);
@@ -644,6 +677,41 @@ public class LegitAuraModule extends Module {
 		int strafeAxis = (left ? 1 : 0) - (right ? 1 : 0);
 		Vec2 movement = new Vec2(strafeAxis, forwardAxis);
 		((InputAccessor) mc.player.input).femboyware$setMovementVector(movement.lengthSquared() > 0 ? movement.normalized() : Vec2.ZERO);
+	}
+
+	/**
+	 * Whether moving with these keys (strafe: 1 left, -1 right; ahead: 1 forward, -1 back) would put
+	 * you over a drop deeper than Max Drop anywhere within {@code reach} blocks of your edge.
+	 */
+	private boolean unsafe(int strafe, int ahead, double reach) {
+		double yaw = Math.toRadians(mc.player.getYRot());
+		double sin = Math.sin(yaw), cos = Math.cos(yaw);
+		double dx = strafe * cos - ahead * sin;
+		double dz = ahead * cos + strafe * sin;
+		double length = Math.sqrt(dx * dx + dz * dz);
+		if (length < 1.0E-4) return false;
+		dx /= length;
+		dz /= length;
+		for (double d = 0.4; d <= 0.3 + reach; d += 0.3) {
+			if (dropAt(mc.player.getX() + dx * d, mc.player.getZ() + dz * d) > maxDrop.getInt()) return true;
+		}
+		return false;
+	}
+
+	/** How far you'd fall standing at x, z: blocks down to something solid (water counts as a soft landing). */
+	private int dropAt(double x, double z) {
+		int feet = Mth.floor(mc.player.getY() + 1.0E-3);
+		BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos(Mth.floor(x), feet, Mth.floor(z));
+		// A wall there stops you rather than dropping you
+		if (!mc.level.getBlockState(pos).getCollisionShape(mc.level, pos).isEmpty()) return 0;
+		int limit = maxDrop.getInt() + 1;
+		for (int down = 1; down <= limit; down++) {
+			pos.setY(feet - down);
+			BlockState state = mc.level.getBlockState(pos);
+			if (!state.getFluidState().isEmpty()) return 0;
+			if (!state.getCollisionShape(mc.level, pos).isEmpty()) return down - 1;
+		}
+		return limit;
 	}
 
 	// ---------------------------------------------------------------- aiming
