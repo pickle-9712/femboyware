@@ -159,6 +159,7 @@ public class ScaffoldModule extends Module {
 	// Movement
 	private final BoolSetting ledge = add(new BoolSetting("Ledge", "Sneak at an edge until the aim is ready, or when out of blocks", true)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting safeWalk = add(new BoolSetting("Safe Walk", "Never walk off the edge (Ledge already sneaks you at edges till the block's in; LiquidBounce's Hypixel config has this off)", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
+	private final BoolSetting autoJump = add(new BoolSetting("Auto Jump", "Let Scaffold jump for you (Rescue, Head Hitter, God Bridge's ledge jump, Telly). Off, it never jumps: only your own jump key does", true)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting rescue = add(new BoolSetting("Rescue", "When a block you need is taken back, jump and rebuild the bridge in the air. Off for Hypixel: it takes back air blocks placed right after a rejected one", true)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting noSprint = add(new BoolSetting("No Sprint", "Don't sprint while scaffolding", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
 
@@ -343,6 +344,7 @@ public class ScaffoldModule extends Module {
 		// Center: the middle of the face, as the staircase that works on Hypixel aims; Stabilized's edge points got taken back
 		values.put("Aim Mode", AimMode.CENTER);
 		values.put("Rescue", false);
+		values.put("Auto Jump", false);
 		values.put("Requires Sight", true);
 		values.put("Technique", Technique.NORMAL);
 		values.put("Eagle", false);
@@ -536,7 +538,7 @@ public class ScaffoldModule extends Module {
 		}
 		stuckTicks = mc.player.isShiftKeyDown() && !supportedAt(nextPosition().add(Vec3.directionFromRotation(0, rawMovementYaw()).scale(0.15))) ? stuckTicks + 1 : 0;
 		// Not while you hold crouch: you're bridging carefully, and a jump would take your sneak away
-		if ((takenBack || stuckTicks > 6) && rescue.get() && !mc.options.keyShift.isDown()) {
+		if ((takenBack || stuckTicks > 6) && rescue.get() && autoJump.get() && !mc.options.keyShift.isDown()) {
 			rescueLevel = level;
 			rescueTicks = 20;
 			rescueJump = true;
@@ -941,7 +943,7 @@ public class ScaffoldModule extends Module {
 		if (headHitter.get() && technique.is(Technique.NORMAL)) {
 			if (headHitCooldown > 0) headHitCooldown--;
 			else if (mc.player.onGround() && moving() && !mc.level.getBlockState(mc.player.blockPosition().above(2)).getCollisionShape(mc.level, mc.player.blockPosition().above(2)).isEmpty()) {
-				mc.player.jumpFromGround();
+				if (autoJump.get()) mc.player.jumpFromGround();
 			}
 		}
 
@@ -1237,7 +1239,7 @@ public class ScaffoldModule extends Module {
 					}
 				}
 			}
-		if (ledgeJump) jump = true;
+		if (ledgeJump && autoJump.get()) jump = true;
 			if (stop) forward = back = left = right = false;
 			if (stepBack) {
 				forward = false;
@@ -1250,7 +1252,7 @@ public class ScaffoldModule extends Module {
 		}
 		if (eagle.get() && active == Technique.NORMAL && !sneak && shouldEagle(keys)) sneak = true;
 		if (telly.get() && active == Technique.NORMAL && (forward || back || left || right) && blockCount() > 0 && mc.player.onGround()) {
-			if (tellyReset.is(TellyReset.REVERSE) || tellyStraight.getInt() == 0 && ticksUntilJump >= tellyJumpTicks) jump = true;
+			if (tellyReset.is(TellyReset.REVERSE) || tellyStraight.getInt() == 0 && ticksUntilJump >= tellyJumpTicks) jump = autoJump.get() || jump;
 		}
 		if (active == Technique.BREEZILY && forward && !mc.player.isShiftKeyDown()) {
 			boolean recentAir = true;
@@ -1280,7 +1282,7 @@ public class ScaffoldModule extends Module {
 		if (shouldFallOffBlock()) sneak = false;
 		if (rescueJump) {
 			rescueJump = false;
-			if (mc.player.onGround()) {
+			if (mc.player.onGround() && autoJump.get()) {
 				jump = true;
 				sneak = false;
 			} else {
