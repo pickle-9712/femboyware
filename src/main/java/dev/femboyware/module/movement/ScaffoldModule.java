@@ -168,6 +168,7 @@ public class ScaffoldModule extends Module {
 	private final BoolSetting safeWalk = add(new BoolSetting("Safe Walk", "Never walk off the edge (Ledge already sneaks you at edges till the block's in; LiquidBounce's Hypixel config has this off)", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting autoJump = add(new BoolSetting("Auto Jump", "Let Scaffold jump for you (Rescue, Head Hitter, God Bridge's ledge jump, Telly). Off, it never jumps: only your own jump key does", true)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting rescue = add(new BoolSetting("Rescue", "When a block you need is taken back, jump and rebuild the bridge in the air. Off for Hypixel: it takes back air blocks placed right after a rejected one", true)).visibleWhen(() -> page.is(Page.MOVEMENT));
+	private final BoolSetting jumpBridge = add(new BoolSetting("Jump Bridge", "Flat bridging, jump at the edge and place under you in the air at the same height, like the staircase but level: Hypixel keeps jump-placed blocks where it takes back walking ones. Hold W as usual; holding jump still staircases up", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting waitForKeep = add(new BoolSetting("Wait For Keep", "Bridging diagonally, don't step onto a block until it has stood 5 ticks (Hypixel takes blocks back 3-5 ticks after you place them); a taken-back block gets placed again while you're still on the last one, instead of vanishing under your feet. A little slower", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting walkBack = add(new BoolSetting("Walk Back Speed", "Flat bridging (not holding jump), move at the speed of walking backwards with S: no sprint, even though you hold W. Real Look already makes the server see you facing back and holding S; this matches the speed. Hypixel keeps blocks at that pace", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting noSprint = add(new BoolSetting("No Sprint", "Don't sprint while scaffolding", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
@@ -415,6 +416,8 @@ public class ScaffoldModule extends Module {
 		values.put("Walk Back Speed", true);
 		// Off: it slowed down the diagonal that was already perfect
 		values.put("Wait For Keep", false);
+		// Flat bridges jump like the staircase, which Hypixel keeps; walking flat bridges broke on a coin flip
+		values.put("Jump Bridge", true);
 		applyValues(this, values);
 		FemboyWare.getModules().get(dev.femboyware.module.client.MoveFixModule.class).setEnabled(true);
 		Module sprint = FemboyWare.getModules().get(SprintModule.class);
@@ -509,6 +512,11 @@ public class ScaffoldModule extends Module {
 		float dy = Mth.clamp(Mth.wrapDegrees(wanted.yaw() - from.yaw()), -h, h);
 		float dp = Mth.clamp(wanted.pitch() - from.pitch(), -v, v);
 		return new Rotation(from.yaw() + dy, Mth.clamp(from.pitch() + dp, -90f, 90f));
+	}
+
+	/** Jump Bridge is on and you're bridging flat (moving, not holding jump yourself). */
+	private boolean jumpBridging() {
+		return jumpBridge.get() && technique.is(Technique.NORMAL) && !isTowering() && !jumpKey() && rawMoving() && blockCount() > 0;
 	}
 
 	private boolean holdingClick() {
@@ -723,6 +731,7 @@ public class ScaffoldModule extends Module {
 		if (jumpKey() && (!moving() || mc.player.horizontalCollision)) return pos.below();
 		// femboyware: God Bridge's ledge jumps aren't you jumping, so it stays level unless you hold jump
 		if (activeTechnique() == Technique.GOD_BRIDGE && !jumpKey()) return new BlockPos(pos.getX(), placementY, pos.getZ());
+		if (jumpBridging()) return new BlockPos(pos.getX(), placementY, pos.getZ());
 		boolean same = switch (sameY.get()) {
 			case OFF -> false;
 			case ON -> true;
@@ -1486,7 +1495,15 @@ public class ScaffoldModule extends Module {
 				sprint = false;
 			}
 		}
-		if (eagle.get() && active == Technique.NORMAL && !sneak && shouldEagle(keys)) sneak = true;
+		if (eagle.get() && active == Technique.NORMAL && !sneak && !jumpBridging() && shouldEagle(keys)) sneak = true;
+		if (jumpBridging() && mc.player.onGround() && (forward || back || left || right)) {
+			// Within reach of the edge: jump, and the block goes in under you in the air
+			Vec3 dir = Vec3.directionFromRotation(0, movementYaw(keys.forward(), keys.backward(), keys.left(), keys.right()));
+			if (!supportedAt(nextPosition().add(dir.scale(0.6)))) {
+				jump = true;
+				sneak = false;
+			}
+		}
 		// Retry Centered: crouch until a block stays
 		if (retrying() && mc.player.onGround() && !isTowering() && (forward || back || left || right)) sneak = true;
 		if (holdSneak.get() && mc.player.onGround() && !isTowering() && (forward || back || left || right) && blockCount() > 0) sneak = true;
