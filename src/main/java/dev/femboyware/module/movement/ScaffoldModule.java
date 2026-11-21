@@ -128,7 +128,7 @@ public class ScaffoldModule extends Module {
 	private final EnumSetting<Timing> timing = add(new EnumSetting<>("Rotation Timing", "Normal turns before placing; On Tick turns on the tick it places; Snap also keeps it", Timing.NORMAL)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final EnumSetting<AimMode> aimMode = add(new EnumSetting<>("Aim Mode", "Which point on the face to aim at (Normal technique)", AimMode.STABILIZED)).visibleWhen(() -> page.is(Page.ROTATIONS));
 	private final NumberSetting aimJitter = add(new NumberSetting("Aim Jitter", "Flat straight bridging only (never while you hold jump): your aim drifts this many degrees at most, a little every tick, like a hand on a mouse; a head that holds dead still while you bridge looks like a bot (0 = off)", 0, 0, 3, 0.1)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
-	private final NumberSetting turnSettle = add(new NumberSetting("Turn Settle", "On the ground, after a big turn (over 20 degrees in a tick, like Real Look spinning you round to start a bridge), wait this many ticks before clicking; Ledge holds you at the edge meanwhile (0 = off)", 0, 0, 10, 1)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
+	private final NumberSetting turnSettle = add(new NumberSetting("Turn Settle", "Straight bridging on the ground: after a big turn (over 20 degrees in a tick, like turning from a diagonal onto a straight line or Real Look spinning you round to start), wait this many ticks before clicking; Ledge holds you at the edge meanwhile (0 = off)", 0, 0, 10, 1)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final NumberSetting maxPlaceTurn = add(new NumberSetting("Max Place Turn", "Don't click on a tick your aim turned further than this, wait a tick for it to settle (0 = off). Hypixel takes back blocks placed mid-snap", 25, 0, 180, 1)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final BoolSetting requiresSight = add(new BoolSetting("Requires Sight", "Only aim at faces you can see (Normal technique); Hypixel checks you could see what you clicked", true)).visibleWhen(() -> page.is(Page.ROTATIONS));
 
@@ -467,7 +467,7 @@ public class ScaffoldModule extends Module {
 	 * are for straight bridges only.
 	 */
 	private boolean turnSettling() {
-		return turnSettle.getInt() > 0 && mc.player.onGround() && !isTowering() && sinceBigTurn < turnSettle.getInt();
+		return turnSettle.getInt() > 0 && !diagonal() && mc.player.onGround() && !isTowering() && sinceBigTurn < turnSettle.getInt();
 	}
 
 	private boolean diagonal() {
