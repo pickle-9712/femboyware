@@ -83,7 +83,6 @@ public class LegitAuraModule extends Module {
 	private final BoolSetting chase = add(new BoolSetting("Chase", "Walk and sprint over to the target", true));
 	private final NumberSetting maxDrop = add(new NumberSetting("Max Drop", "Chase won't walk, strafe or jump you off a ledge that drops further than this (0 = no limit)", 4, 0, 16, 1)).visibleWhen(chase::get);
 	private final BoolSetting crits = add(new BoolSetting("Crits", "Jump and hit on the way down for critical hits", true));
-	private final BoolSetting onlyVisible = add(new BoolSetting("Only Visible", "Ignore players behind walls", true));
 	private final NumberSetting randomDelay = add(new NumberSetting("Random Delay", "Wait up to this many ticks before each hit, a different amount every time, like a person's reaction", 2, 0, 5, 1));
 	private final BoolSetting firstHit = add(new BoolSetting("First Hit", "Swing the moment a player comes under the crosshair if the sword is nearly charged, without waiting for a full charge, a crit or Random Delay", true));
 	private final EnumSetting<Tap> wTap = add(new EnumSetting<>("W Tap", "After a sprint hit, let go of W (or tap S) for a moment so the next hit is a sprint hit with full knockback too", Tap.W_TAP));
@@ -197,7 +196,9 @@ public class LegitAuraModule extends Module {
 		if (guarding) target = FemboyWare.getModules().get(BodyguardModule.class).getTarget();
 		else {
 			if (target != null && !keep(target)) target = null;
-			if (target == null) target = pick();
+			// Always the closest enemy, seen or not: switch when someone is clearly nearer (a block, so it doesn't flip-flop)
+			Player closest = pick();
+			if (target == null || closest != null && closest != target && mc.player.distanceTo(closest) < mc.player.distanceTo(target) - 1) target = closest;
 		}
 		Player under = underCrosshair();
 		if (guarding && under != target) under = null;
@@ -546,16 +547,15 @@ public class LegitAuraModule extends Module {
 		return isEnabled() && view.get() == View.SIDE && !mc.options.getCameraType().isFirstPerson();
 	}
 
-	/** The best player to lock on to: in range, in view, and closest to where we're looking. */
+	/** The closest enemy in range and within the FOV, behind a wall or not. */
 	private Player pick() {
 		Player best = null;
 		double bestScore = Double.MAX_VALUE;
 		for (Player player : mc.level.players()) {
 			if (!TargetUtil.isValid(player, teamCheck.get()) || mc.player.distanceTo(player) > range.get()) continue;
-			if (onlyVisible.get() && !mc.player.hasLineOfSight(player)) continue;
 			float angle = Math.abs(Mth.wrapDegrees(aimRotation(player, 1).yaw() - mc.player.getYRot()));
 			if (angle > fov.get() / 2) continue;
-			double score = angle + mc.player.distanceTo(player) * 10;
+			double score = mc.player.distanceTo(player);
 			if (score < bestScore) {
 				bestScore = score;
 				best = player;
@@ -566,8 +566,7 @@ public class LegitAuraModule extends Module {
 
 	/** Stays locked on a little beyond the range, so the target doesn't flicker at its edge. */
 	private boolean keep(Player player) {
-		return TargetUtil.isValid(player, teamCheck.get()) && mc.player.distanceTo(player) <= range.get() + 2
-			&& (!onlyVisible.get() || mc.player.hasLineOfSight(player));
+		return TargetUtil.isValid(player, teamCheck.get()) && mc.player.distanceTo(player) <= range.get() + 2;
 	}
 
 	/** Whether a hit could be a crit at all right now; in water, on a ladder and so on it can't. */
