@@ -229,6 +229,8 @@ public class ScaffoldModule extends Module {
 	private float walkYaw = Float.NaN;
 	/** Ticks spent standing, towering or staircasing instead of walking. */
 	private int idleTicks;
+	/** Ticks since you turned more than 30 degrees while already walking (not counting starting off). */
+	private int sinceWalkTurn = 100;
 	/** Ticks since you last towered or staircased (held jump). */
 	private int sinceTower = 100;
 	/** Debug: how you were moving on the last tick sent, for the setback line. */
@@ -520,7 +522,8 @@ public class ScaffoldModule extends Module {
 		// gets taken back, diagonal or not. A steady diagonal never waits (it was perfect as it was)
 		// Diagonals stay exactly as in the perfect 1.0.139 run and never wait, except in the second after
 		// you stop towering, when the head swings down off the tower onto the first block
-		if (diagonal() && sinceTower >= 20) return false;
+		// and in the moment after you turn mid-bridge onto a new line
+		if (diagonal() && sinceTower >= 20 && sinceWalkTurn >= 15) return false;
 		return sinceBigTurn < turnSettle.getInt() || sinceDirChange < turnSettle.getInt();
 	}
 
@@ -792,7 +795,7 @@ public class ScaffoldModule extends Module {
 				}
 				TargetFinding.Options options = new TargetFinding.Options(goDown ? TargetFinding.DOWN : TargetFinding.NORMAL, priority,
 					aim, goDown, stack, location);
-				if (retrying() && !avoidFaces.isEmpty() && !diagonal()) {
+				if (retrying() && !avoidFaces.isEmpty() && (!diagonal() || retries >= 2)) {
 					// Retrying: click a different face, or against another block, than the one just taken back;
 					// the same spot again only if there's nothing else
 					TargetFinding.avoid = (block, face) -> avoidFaces.contains(block.asLong() + ":" + face.ordinal());
@@ -1147,11 +1150,13 @@ public class ScaffoldModule extends Module {
 		lastTickTurn = previous != null && lastServer != null ? previous.distanceTo(lastServer) : 0;
 		sinceBigTurn = lastTickTurn > 20f ? 0 : Math.min(sinceBigTurn + 1, 100);
 		sinceDirChange = Math.min(sinceDirChange + 1, 100);
+		sinceWalkTurn = Math.min(sinceWalkTurn + 1, 100);
 		sinceTower = isTowering() ? 0 : Math.min(sinceTower + 1, 100);
 		if (rawMoving() && !isTowering()) {
 			// Starting to walk after standing, towering or staircasing counts as a change too
 			float walking = rawMovementYaw();
 			if (Float.isNaN(walkYaw) || idleTicks >= 5 || Math.abs(Mth.wrapDegrees(walking - walkYaw)) > 30f) {
+				if (!Float.isNaN(walkYaw) && idleTicks < 5) sinceWalkTurn = 0;
 				walkYaw = walking;
 				sinceDirChange = 0;
 			}
