@@ -116,8 +116,8 @@ public class ScaffoldModule extends Module {
 	private final EnumSetting<Swing> swing = add(new EnumSetting<>("Swing", "How to swing when placing", Swing.PACKET)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting autoSpeed = add(new BoolSetting("Auto Speed", "Turn Speed on while scaffolding", false)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting retryCentered = add(new BoolSetting("Retry Centered", "When the server takes a block back, crouch and try again aiming nearer the middle of the face (closer each time), until a block stays", false)).visibleWhen(() -> page.is(Page.GENERAL));
-	private final NumberSetting retryWait = add(new NumberSetting("Retry Wait", "Retry Centered: after a block is taken back, stay crouched this many ticks before clicking again (20 = 1 second), so a second click doesn't stack another flag on the first (0 = retry at once)", 0, 0, 40, 1)).visibleWhen(() -> page.is(Page.GENERAL) && retryCentered.get());
-	private final NumberSetting crouchSettle = add(new NumberSetting("Crouch Settle", "On the ground, don't click until you've been crouched this many ticks (crouching holds you at the edge meanwhile). Hypixel takes back blocks clicked the moment you crouch (0 = off)", 0, 0, 10, 1)).visibleWhen(() -> page.is(Page.GENERAL));
+	private final NumberSetting retryWait = add(new NumberSetting("Retry Wait", "Straight bridging only: after a block is taken back, stay crouched this many ticks before clicking again (20 = 1 second), so a second click doesn't stack another flag on the first (0 = retry at once)", 0, 0, 40, 1)).visibleWhen(() -> page.is(Page.GENERAL) && retryCentered.get());
+	private final NumberSetting crouchSettle = add(new NumberSetting("Crouch Settle", "Straight bridging only: on the ground, don't click until you've been crouched this many ticks (crouching holds you at the edge meanwhile). Hypixel takes back blocks clicked the moment you crouch (0 = off)", 0, 0, 10, 1)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting debug = add(new BoolSetting("Debug", "Say in chat when the server takes a block back or sets you back, and why blocks aren't going in, to find what a server flags", false)).visibleWhen(() -> page.is(Page.GENERAL));
 
 	// Rotations
@@ -127,7 +127,7 @@ public class ScaffoldModule extends Module {
 	private final BoolSetting realLookThirdPerson = add(new BoolSetting("Real Look Third Person", "Switch to third person while Real Look turns your head", true)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get() && realLook.get());
 	private final EnumSetting<Timing> timing = add(new EnumSetting<>("Rotation Timing", "Normal turns before placing; On Tick turns on the tick it places; Snap also keeps it", Timing.NORMAL)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final EnumSetting<AimMode> aimMode = add(new EnumSetting<>("Aim Mode", "Which point on the face to aim at (Normal technique)", AimMode.STABILIZED)).visibleWhen(() -> page.is(Page.ROTATIONS));
-	private final NumberSetting aimJitter = add(new NumberSetting("Aim Jitter", "Your aim drifts this many degrees at most, a little every tick, like a hand on a mouse; a head that holds dead still while you bridge looks like a bot (0 = off)", 0, 0, 3, 0.1)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
+	private final NumberSetting aimJitter = add(new NumberSetting("Aim Jitter", "Straight bridging only: your aim drifts this many degrees at most, a little every tick, like a hand on a mouse; a head that holds dead still while you bridge looks like a bot (0 = off)", 0, 0, 3, 0.1)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final NumberSetting maxPlaceTurn = add(new NumberSetting("Max Place Turn", "Don't click on a tick your aim turned further than this, wait a tick for it to settle (0 = off). Hypixel takes back blocks placed mid-snap", 25, 0, 180, 1)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final BoolSetting requiresSight = add(new BoolSetting("Requires Sight", "Only aim at faces you can see (Normal technique); Hypixel checks you could see what you clicked", true)).visibleWhen(() -> page.is(Page.ROTATIONS));
 
@@ -454,6 +454,16 @@ public class ScaffoldModule extends Module {
 		if (left) yaw -= 90f * f;
 		if (right) yaw += 90f * f;
 		return yaw;
+	}
+
+	/**
+	 * Whether you're bridging diagonally (more than 22.5 degrees off the block grid). Diagonals keep the
+	 * 1.0.130 checkpoint's behaviour, which Hypixel kept; Crouch Settle, Retry Wait and Aim Jitter are
+	 * for straight bridges only.
+	 */
+	private boolean diagonal() {
+		float off = Math.abs(Mth.wrapDegrees(rawMovementYaw()) % 90f);
+		return Math.min(off, 90f - off) > 22.5f;
 	}
 
 	private float rawMovementYaw() {
@@ -1027,7 +1037,7 @@ public class ScaffoldModule extends Module {
 		if (timing.is(Timing.NORMAL)) {
 			Rotation rotation = rotationFor(target);
 			if (usesRealLook()) dev.femboyware.util.FreeLook.hold(realLookThirdPerson.get());
-			if (rotation != null && aimJitter.get() > 0) {
+			if (rotation != null && aimJitter.get() > 0 && !diagonal()) {
 				// A small random walk, so the aim is never frozen; the click checks still run on where it ends up
 				float max = aimJitter.getFloat();
 				jitterYaw = Mth.clamp(jitterYaw + (float) ThreadLocalRandom.current().nextGaussian() * max * 0.3f, -max, max);
@@ -1083,11 +1093,11 @@ public class ScaffoldModule extends Module {
 		}
 		// femboyware: flat bridging, click only when it also lands from 1.8's eye heights (see EYE_HEIGHTS),
 		// or Hypixel takes the block back; Ledge holds you at the edge meanwhile
-		if (crouchSettle.getInt() > 0 && mc.player.onGround() && !isTowering() && mc.player.isShiftKeyDown() && sneakFor < crouchSettle.getInt()) {
+		if (crouchSettle.getInt() > 0 && !diagonal() && mc.player.onGround() && !isTowering() && mc.player.isShiftKeyDown() && sneakFor < crouchSettle.getInt()) {
 			skip("settling into the crouch");
 			return;
 		}
-		if (retrying() && retryWait.getInt() > 0 && mc.player.onGround() && !isTowering() && mc.level.getGameTime() - lastTakeBack < retryWait.getInt()) {
+		if (retrying() && retryWait.getInt() > 0 && !diagonal() && mc.player.onGround() && !isTowering() && mc.level.getGameTime() - lastTakeBack < retryWait.getInt()) {
 			skip("waiting before the retry");
 			return;
 		}
