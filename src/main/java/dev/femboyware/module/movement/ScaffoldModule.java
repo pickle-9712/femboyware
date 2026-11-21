@@ -117,6 +117,7 @@ public class ScaffoldModule extends Module {
 	private final BoolSetting autoSpeed = add(new BoolSetting("Auto Speed", "Turn Speed on while scaffolding", false)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting retryCentered = add(new BoolSetting("Retry Centered", "When the server takes a block back, crouch and try again aiming nearer the middle of the face (closer each time), until a block stays", false)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final NumberSetting retryWait = add(new NumberSetting("Retry Wait", "Retry Centered: after a block is taken back, stay crouched this many ticks before clicking again (20 = 1 second), so a second click doesn't stack another flag on the first (0 = retry at once)", 0, 0, 40, 1)).visibleWhen(() -> page.is(Page.GENERAL) && retryCentered.get());
+	private final NumberSetting crouchSettle = add(new NumberSetting("Crouch Settle", "On the ground, don't click until you've been crouched this many ticks (crouching holds you at the edge meanwhile). Hypixel takes back blocks clicked the moment you crouch (0 = off)", 0, 0, 10, 1)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting debug = add(new BoolSetting("Debug", "Say in chat when the server takes a block back or sets you back, and why blocks aren't going in, to find what a server flags", false)).visibleWhen(() -> page.is(Page.GENERAL));
 
 	// Rotations
@@ -367,6 +368,8 @@ public class ScaffoldModule extends Module {
 		values.put("Retry Centered", true);
 		// Half a second crouched before clicking again: an instant crouched retry got taken back too, then a setback
 		values.put("Retry Wait", 10.0);
+		// Ground take-backs were nearly all clicks made the tick you crouched; a real player settles first
+		values.put("Crouch Settle", 3.0);
 		values.put("Eagle", true);
 		values.put("Blocks To Eagle", 3.0);
 		values.put("Blocks To Eagle Max", 5.0);
@@ -1040,6 +1043,9 @@ public class ScaffoldModule extends Module {
 		if (nullCheck()) return;
 		Rotation previous = lastServer;
 		lastServer = FemboyWare.getRotations().getServerRotation();
+		boolean sneaking = mc.player.isShiftKeyDown();
+		sneakFor = sneaking == lastSneak ? sneakFor + 1 : 0;
+		lastSneak = sneaking;
 		if (debug.get()) recordMove();
 		// "turned" compares against the rotation the tick before
 		postMotion(previous);
@@ -1065,6 +1071,10 @@ public class ScaffoldModule extends Module {
 		}
 		// femboyware: flat bridging, click only when it also lands from 1.8's eye heights (see EYE_HEIGHTS),
 		// or Hypixel takes the block back; Ledge holds you at the edge meanwhile
+		if (crouchSettle.getInt() > 0 && mc.player.onGround() && !isTowering() && mc.player.isShiftKeyDown() && sneakFor < crouchSettle.getInt()) {
+			skip("settling into the crouch");
+			return;
+		}
 		if (retrying() && retryWait.getInt() > 0 && mc.level.getGameTime() - lastTakeBack < retryWait.getInt()) {
 			skip("waiting before the retry");
 			return;
@@ -1191,8 +1201,6 @@ public class ScaffoldModule extends Module {
 	/** Debug: the movement the server just got (keys after Move Fix, crouch, speed, direction against your head). */
 	private void recordMove() {
 		boolean sneaking = mc.player.isShiftKeyDown();
-		sneakFor = sneaking == lastSneak ? sneakFor + 1 : 0;
-		lastSneak = sneaking;
 		Input keys = mc.player.input.keyPresses;
 		String held = (keys.forward() ? "W" : "") + (keys.left() ? "A" : "") + (keys.backward() ? "S" : "") + (keys.right() ? "D" : "");
 		double dx = mc.player.getX() - mc.player.xo, dz = mc.player.getZ() - mc.player.zo;
