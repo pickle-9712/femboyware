@@ -187,6 +187,9 @@ public final class TargetFinding {
 	 * The best way to place the options' stack at {@code pos}, or failing that at one of the
 	 * offsets (in priority order); null if none of them can take it.
 	 */
+	/** femboyware: faces not to click (block clicked, face), e.g. ones the server just took a block back from; null = none. */
+	public static java.util.function.BiPredicate<BlockPos, Direction> avoid;
+
 	public static PlacementTarget findBest(BlockPos pos, Options options) {
 		if (holdsSolidBlock(pos)) return null;
 		List<Vec3i> offsets = new ArrayList<>(options.offsets());
@@ -216,6 +219,7 @@ public final class TargetFinding {
 				BlockPos clicked = i == 0 ? neighbour : investigate;
 				VoxelShape shape = i == 0 ? neighbourShape : targetShape;
 				if (shape.isEmpty()) continue;
+				if (avoid != null && avoid.test(clicked, direction)) continue;
 				TargetPlan plan = plan(clicked, direction, investigate, shape, options);
 				if (plan == null) continue;
 				Vec3 toEye = eye.subtract(plan.interactionPoint());

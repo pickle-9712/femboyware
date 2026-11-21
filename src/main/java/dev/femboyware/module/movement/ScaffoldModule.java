@@ -116,7 +116,7 @@ public class ScaffoldModule extends Module {
 	private final EnumSetting<Swing> swing = add(new EnumSetting<>("Swing", "How to swing when placing", Swing.PACKET)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting autoSpeed = add(new BoolSetting("Auto Speed", "Turn Speed on while scaffolding", false)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting retryCentered = add(new BoolSetting("Retry Centered", "When the server takes a block back, crouch and try again aiming nearer the middle of the face (closer each time), until a block stays", false)).visibleWhen(() -> page.is(Page.GENERAL));
-	private final NumberSetting retryWait = add(new NumberSetting("Retry Wait", "On the ground: after a block is taken back, stay crouched this many ticks before clicking again (20 = 1 second), so a second click doesn't stack another flag on the first (0 = retry at once)", 0, 0, 40, 1)).visibleWhen(() -> page.is(Page.GENERAL) && retryCentered.get());
+	private final NumberSetting retryWait = add(new NumberSetting("Retry Wait", "Straight bridging on the ground (diagonals retry at once, on another face): after a block is taken back, stay crouched this many ticks before clicking again (20 = 1 second), so a second click doesn't stack another flag on the first (0 = retry at once)", 0, 0, 40, 1)).visibleWhen(() -> page.is(Page.GENERAL) && retryCentered.get());
 	private final NumberSetting crouchSettle = add(new NumberSetting("Crouch Settle", "Straight bridging only: on the ground, don't click until you've been crouched this many ticks (crouching holds you at the edge meanwhile). Hypixel takes back blocks clicked the moment you crouch (0 = off)", 0, 0, 10, 1)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting debug = add(new BoolSetting("Debug", "Say in chat when the server takes a block back or sets you back, and why blocks aren't going in, to find what a server flags", false)).visibleWhen(() -> page.is(Page.GENERAL));
 
@@ -214,6 +214,9 @@ public class ScaffoldModule extends Module {
 	/** Retry Centered: blocks taken back in a row, and the tick the retry gives up crouching. */
 	private int retries;
 	private long retryUntil, lastTakeBack;
+	/** Retry Centered: what each watched block was clicked against (block, face), and the faces to avoid on the retry. */
+	private final java.util.Map<Long, long[]> clickedFace = new java.util.HashMap<>();
+	private final java.util.Set<String> avoidFaces = new java.util.HashSet<>();
 	/** Aim Jitter: the current drift, a random walk kept within the setting. */
 	private float jitterYaw, jitterPitch;
 	/** Turn Settle: ticks since the aim last turned more than 20 degrees in one tick. */
@@ -256,6 +259,7 @@ public class ScaffoldModule extends Module {
 		watching.clear();
 		rescueTicks = stuckTicks = 0;
 		retries = 0;
+		avoidFaces.clear();
 		rescueJump = false;
 		planner.reset();
 		target = null;
@@ -480,7 +484,7 @@ public class ScaffoldModule extends Module {
 	 */
 	private boolean holdingClick() {
 		if (rotate.get() && maxPlaceTurn.getInt() > 0 && lastTickTurn > maxPlaceTurn.get()) return true;
-		return retrying() && retryWait.getInt() > 0 && mc.player.onGround() && !isTowering() && mc.level.getGameTime() - lastTakeBack < retryWait.getInt();
+		return retrying() && retryWait.getInt() > 0 && !diagonal() && mc.player.onGround() && !isTowering() && mc.level.getGameTime() - lastTakeBack < retryWait.getInt();
 	}
 
 	private boolean turnSettling() {
@@ -588,6 +592,8 @@ public class ScaffoldModule extends Module {
 				if (debug.get()) say(takenCount + " back / " + keptCount + " kept. Taken back " + (now - entry[1]) + "t after: " + placeInfo.getOrDefault(entry[0], "?")
 					+ (retryCentered.get() ? " (retry " + Math.min(retries + 1, 3) + ", nearer the middle, crouched)" : ""));
 				if (retryCentered.get()) {
+					long[] face = clickedFace.get(entry[0]);
+					if (face != null) avoidFaces.add(face[0] + ":" + face[1]);
 					retries = Math.min(retries + 1, 3);
 					retryUntil = now + 100 + retryWait.getInt();
 					lastTakeBack = now;
@@ -596,12 +602,14 @@ public class ScaffoldModule extends Module {
 				// Took back after 2-5 ticks when it does: 10 ticks standing, it worked
 				entry[2] = 2;
 				retries = 0;
+				avoidFaces.clear();
 			}
 		}
 		watching.removeIf(entry -> {
 			if (now - entry[1] <= 40) return false;
 			if (entry[2] != 1) keptCount++;
 			placeInfo.remove(entry[0]);
+			clickedFace.remove(entry[0]);
 			return true;
 		});
 		if (rescueTicks > 0) {
@@ -756,6 +764,17 @@ public class ScaffoldModule extends Module {
 				}
 				TargetFinding.Options options = new TargetFinding.Options(goDown ? TargetFinding.DOWN : TargetFinding.NORMAL, priority,
 					aim, goDown, stack, location);
+				if (retrying() && !avoidFaces.isEmpty()) {
+					// Retrying: click a different face, or against another block, than the one just taken back;
+					// the same spot again only if there's nothing else
+					TargetFinding.avoid = (block, face) -> avoidFaces.contains(block.asLong() + ":" + face.ordinal());
+					try {
+						PlacementTarget other = TargetFinding.findBest(targetedPosition(feet), options);
+						if (other != null) return other;
+					} finally {
+						TargetFinding.avoid = null;
+					}
+				}
 				return TargetFinding.findBest(targetedPosition(feet), options);
 			}
 		}
@@ -1146,7 +1165,7 @@ public class ScaffoldModule extends Module {
 			skip("settling into the crouch");
 			return;
 		}
-		if (retrying() && retryWait.getInt() > 0 && mc.player.onGround() && !isTowering() && mc.level.getGameTime() - lastTakeBack < retryWait.getInt()) {
+		if (retrying() && retryWait.getInt() > 0 && !diagonal() && mc.player.onGround() && !isTowering() && mc.level.getGameTime() - lastTakeBack < retryWait.getInt()) {
 			skip("waiting before the retry");
 			return;
 		}
@@ -1240,6 +1259,7 @@ public class ScaffoldModule extends Module {
 		if (how != null) placeInfo.put(placing.placedBlock().asLong(), how);
 		planner.trackPlacedBlock(placing.placedBlock());
 		watching.add(new long[]{placing.placedBlock().asLong(), mc.level.getGameTime(), 0});
+		clickedFace.put(placing.placedBlock().asLong(), new long[]{placing.interactedBlockPos().asLong(), placing.direction().ordinal()});
 		placed.add(new long[]{placing.placedBlock().asLong(), System.currentTimeMillis()});
 		onEaglePlace();
 		target = null;
