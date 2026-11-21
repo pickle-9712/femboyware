@@ -159,6 +159,7 @@ public class ScaffoldModule extends Module {
 	// Movement
 	private final BoolSetting ledge = add(new BoolSetting("Ledge", "Sneak at an edge until the aim is ready, or when out of blocks", true)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting safeWalk = add(new BoolSetting("Safe Walk", "Never walk off the edge (Ledge already sneaks you at edges till the block's in; LiquidBounce's Hypixel config has this off)", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
+	private final BoolSetting rescue = add(new BoolSetting("Rescue", "When a block you need is taken back, jump and rebuild the bridge in the air. Off for Hypixel: it takes back air blocks placed right after a rejected one", true)).visibleWhen(() -> page.is(Page.MOVEMENT));
 	private final BoolSetting noSprint = add(new BoolSetting("No Sprint", "Don't sprint while scaffolding", false)).visibleWhen(() -> page.is(Page.MOVEMENT));
 
 	// Render
@@ -339,7 +340,9 @@ public class ScaffoldModule extends Module {
 		values.put("Fail", false);
 		values.put("Real Look", true);
 		values.put("Rotation Timing", Timing.NORMAL);
-		values.put("Aim Mode", AimMode.STABILIZED);
+		// Center: the middle of the face, as the staircase that works on Hypixel aims; Stabilized's edge points got taken back
+		values.put("Aim Mode", AimMode.CENTER);
+		values.put("Rescue", false);
 		values.put("Requires Sight", true);
 		values.put("Technique", Technique.NORMAL);
 		values.put("Eagle", false);
@@ -470,7 +473,7 @@ public class ScaffoldModule extends Module {
 	 * after the first block it aimed and never placed.
 	 */
 	private Rotation pitchForAllEyes(PlacementTarget target, float yaw, float pitch0, Vec3 feet) {
-		for (double[] heights : new double[][]{EYE_HEIGHTS, SERVER_EYES, currentEyes()}) {
+		for (double[] heights : new double[][]{EYE_HEIGHTS, SERVER_EYES}) {
 			for (int i = 0; i <= 120; i++) {
 				float pitch = pitch0 + ((i & 1) == 0 ? 1 : -1) * (i / 2) * 0.25f;
 				if (pitch < -90f || pitch > 90f) continue;
@@ -533,7 +536,7 @@ public class ScaffoldModule extends Module {
 		}
 		stuckTicks = mc.player.isShiftKeyDown() && !supportedAt(nextPosition().add(Vec3.directionFromRotation(0, rawMovementYaw()).scale(0.15))) ? stuckTicks + 1 : 0;
 		// Not while you hold crouch: you're bridging carefully, and a jump would take your sneak away
-		if ((takenBack || stuckTicks > 6) && !mc.options.keyShift.isDown()) {
+		if ((takenBack || stuckTicks > 6) && rescue.get() && !mc.options.keyShift.isDown()) {
 			rescueLevel = level;
 			rescueTicks = 20;
 			rescueJump = true;
@@ -1015,8 +1018,10 @@ public class ScaffoldModule extends Module {
 			skip("aim still turning");
 			return;
 		}
-		if (mc.player.onGround() && !isTowering() && rotate.get() && !landsFrom(target, rotation, mc.player.position(), currentEyes())) {
-			skip("click wouldn't land from the server's eye height");
+		// Both of 1.8's heights: Ledge flips sneak at the edge, and the server can still have you standing (1.62)
+		// when a sneaking click (1.54) arrives, or the other way round; it takes back whichever misses
+		if (mc.player.onGround() && !isTowering() && rotate.get() && !landsFrom(target, rotation, mc.player.position(), SERVER_EYES)) {
+			skip("click wouldn't land from both 1.8 eye heights");
 			return;
 		}
 
@@ -1204,7 +1209,7 @@ public class ScaffoldModule extends Module {
 				// nothing to click), so you never walk off before the block's in
 				// From where this tick's movement leaves you, which is where the click goes out from
 				BlockHitResult now = target != null ? TargetFinding.traceFromPoint(nextEyes(), rotation.toVector(), mc.player.blockInteractionRange()) : null;
-				boolean placeable = now != null && target.matches(now) && validCrosshair(now) && landsFrom(target, rotation, nextPosition(), currentEyes());
+				boolean placeable = now != null && target.matches(now) && validCrosshair(now) && landsFrom(target, rotation, nextPosition(), SERVER_EYES);
 				boolean needsBlock = mc.level.getBlockState(BlockPos.containing(mc.player.position().add(Vec3.directionFromRotation(0, movementYaw(keys.forward(), keys.backward(), keys.left(), keys.right())).scale(0.4))).below()).canBeReplaced();
 				if (blockCount() <= 0 || ticks >= 1 || needsBlock && !placeable) sneakTime = Math.max(1, ticks);
 			}
