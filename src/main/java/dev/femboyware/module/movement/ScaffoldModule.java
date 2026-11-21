@@ -229,6 +229,8 @@ public class ScaffoldModule extends Module {
 	private float walkYaw = Float.NaN;
 	/** Ticks spent standing, towering or staircasing instead of walking. */
 	private int idleTicks;
+	/** Ticks since you last towered or staircased (held jump). */
+	private int sinceTower = 100;
 	/** Debug: how you were moving on the last tick sent, for the setback line. */
 	private volatile String lastMove = "";
 	private boolean lastSneak;
@@ -516,8 +518,9 @@ public class ScaffoldModule extends Module {
 		if (turnSettle.getInt() <= 0 || !mc.player.onGround() || isTowering()) return false;
 		// Changing direction: Real Look swings your head round, and the block clicked as the swing ends
 		// gets taken back, diagonal or not. A steady diagonal never waits (it was perfect as it was)
-		// Diagonals stay exactly as in the perfect 1.0.139 run: they never wait
-		if (diagonal()) return false;
+		// Diagonals stay exactly as in the perfect 1.0.139 run and never wait, except in the second after
+		// you stop towering, when the head swings down off the tower onto the first block
+		if (diagonal() && sinceTower >= 20) return false;
 		return sinceBigTurn < turnSettle.getInt() || sinceDirChange < turnSettle.getInt();
 	}
 
@@ -1144,6 +1147,7 @@ public class ScaffoldModule extends Module {
 		lastTickTurn = previous != null && lastServer != null ? previous.distanceTo(lastServer) : 0;
 		sinceBigTurn = lastTickTurn > 20f ? 0 : Math.min(sinceBigTurn + 1, 100);
 		sinceDirChange = Math.min(sinceDirChange + 1, 100);
+		sinceTower = isTowering() ? 0 : Math.min(sinceTower + 1, 100);
 		if (rawMoving() && !isTowering()) {
 			// Starting to walk after standing, towering or staircasing counts as a change too
 			float walking = rawMovementYaw();
@@ -1457,6 +1461,14 @@ public class ScaffoldModule extends Module {
 				sneak = true;
 				forceSneak = sneakTime;
 			}
+		}
+		if (sinceTower < 20 && sinceTower > 0 && mc.player.onGround() && !isTowering() && (forward || back || left || right)
+			&& unconfirmed(BlockPos.containing(mc.player.position()).below())) {
+			// Just stopped towering: stay on the top until the last tower block has stood long enough that the
+			// server won't take it back (it pulled you down mid-start when it did)
+			forward = back = left = right = false;
+			sneak = true;
+			sprint = false;
 		}
 		if (waitForKeep.get() && diagonal() && mc.player.onGround() && !isTowering() && (forward || back || left || right)) {
 			// Don't walk onto a block the server hasn't had time to take back yet
