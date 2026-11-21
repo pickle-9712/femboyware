@@ -233,15 +233,15 @@ public class ServerLarpModule extends Module {
 	public ServerLarpModule() {
 		super("Server Larp", "Freezes you server-side while you play client-side with any items, blocks and chests; off puts everything back", Category.LARP);
 		ItemTooltipCallback.EVENT.register((stack, context, flag, lines) -> {
-			if (!isEnabled() && !worthAlways.get()) return;
+			if (!larping && !worthAlways.get()) return;
 			double worth = worth(stack);
 			if (worth > 0) lines.add(worthLine(worth));
 		});
 		loadFromDisk();
 		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> client.execute(() -> {
-			if (!isEnabled() && autoResume.get() && saved != null && client.level != null) {
+			if (isEnabled() && !larping && autoResume.get() && saved != null && client.level != null) {
 				try {
-					if (saved.world().equals(worldKey())) setEnabled(true);
+					if (saved.world().equals(worldKey())) startLarp();
 				} catch (RuntimeException ignored) {}
 			}
 		}));
@@ -392,12 +392,21 @@ public class ServerLarpModule extends Module {
 		return larping;
 	}
 
+	/** On just allows larping; nothing starts until .larp on. */
 	@Override
 	protected void onEnable() {
-		if (nullCheck()) {
-			setEnabled(false);
-			return;
-		}
+		ChatUtil.info("Server Larp is on: start larping with " + CommandManager.PREFIX + "larp on");
+	}
+
+	/** Turning the module off ends a larp that's running and keeps .larp on from starting one. */
+	@Override
+	protected void onDisable() {
+		stopLarp();
+	}
+
+	/** Starts a larp: freezes you server-side and saves your real spot and inventory to put back. */
+	private void startLarp() {
+		if (larping || !isEnabled() || nullCheck()) return;
 		LocalPlayer player = mc.player;
 		if (player.containerMenu != player.inventoryMenu) player.closeContainer();
 		startLevel = mc.level;
@@ -504,8 +513,8 @@ public class ServerLarpModule extends Module {
 			current.getSelectedSlot(), blocks, chests, packAll(enderChest), dropped, placed);
 	}
 
-	@Override
-	protected void onDisable() {
+	/** Ends the larp and puts everything back; the module stays on. */
+	private void stopLarp() {
 		if (!larping) return;
 		larping = false;
 		ClientPacketListener connection = mc.getConnection();
@@ -615,7 +624,7 @@ public class ServerLarpModule extends Module {
 
 	@Override
 	public void onTick() {
-		if (larping && (mc.level != startLevel || mc.player == null)) setEnabled(false);
+		if (larping && (mc.level != startLevel || mc.player == null)) stopLarp();
 		if (larping) FakeEconomy.tick();
 		rockets.removeIf(Entity::isRemoved);
 		crystals.removeIf(Entity::isRemoved);
@@ -759,7 +768,7 @@ public class ServerLarpModule extends Module {
 			// Died, changed world or server: put everything back first, then let it happen
 			event.cancel();
 			held.add(packet);
-			mc.execute(() -> setEnabled(false));
+			mc.execute(this::stopLarp);
 			return;
 		}
 		if (aboutUs(packet)) {
@@ -1589,16 +1598,23 @@ public class ServerLarpModule extends Module {
 			resetLarp();
 			return;
 		}
+		if (!isEnabled()) {
+			ChatUtil.info("Turn on the Server Larp module first, then " + CommandManager.PREFIX + "larp on");
+			return;
+		}
 		if (!larping) {
-			ChatUtil.info("Turn on Server Larp first (" + CommandManager.PREFIX + "larp on)");
-			if (args.length < 2 || !args[1].equalsIgnoreCase("on")) return;
+			if (args.length < 2 || !args[1].equalsIgnoreCase("on")) {
+				ChatUtil.info("Start larping first (" + CommandManager.PREFIX + "larp on)");
+				return;
+			}
 		}
 		String action = args.length > 1 ? args[1].toLowerCase(java.util.Locale.ROOT) : "";
 		switch (action) {
 			case "on" -> {
-				if (!isEnabled()) setEnabled(true);
+				if (larping) ChatUtil.info("Already larping");
+				else startLarp();
 			}
-			case "off" -> setEnabled(false);
+			case "off" -> stopLarp();
 			case "give", "i" -> give(args);
 			case "schem", "schematic", "schematics", "litematica", "litematic" -> schematicCommand(args);
 			case "reset" -> resetLarp();
@@ -1868,8 +1884,8 @@ public class ServerLarpModule extends Module {
 		saved = null;
 		if (larping) {
 			discardOnDisable = true;
-			setEnabled(false);
-			setEnabled(true);
+			stopLarp();
+			startLarp();
 		}
 		ChatUtil.info("Larp reset: next time starts fresh from your real spot and inventory");
 	}
