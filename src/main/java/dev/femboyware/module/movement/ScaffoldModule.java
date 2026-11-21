@@ -429,24 +429,44 @@ public class ScaffoldModule extends Module {
 	 * and the block's taken back; and Ledge may start or stop sneaking right after the aim is chosen.
 	 */
 	private static final double[] EYE_HEIGHTS = {1.62, 1.54, 1.27};
+	/** Standing or sneaking on Hypixel's 1.8: what its server traces from either way. */
+	private static final double[] SERVER_EYES = {1.62, 1.54};
+	private static final double[] STANDING_EYES = {1.62};
+	private static final double[] SNEAKING_EYES = {1.54};
+
+	/** The eye height the server traces your click from right now. */
+	private double[] currentEyes() {
+		return mc.player.isShiftKeyDown() ? SNEAKING_EYES : STANDING_EYES;
+	}
 
 	/** Whether looking along {@code rotation} from feet at {@code feet} clicks {@code target} from every eye height above. */
 	private boolean landsFromAllEyes(PlacementTarget target, Rotation rotation, Vec3 feet) {
+		return landsFrom(target, rotation, feet, EYE_HEIGHTS);
+	}
+
+	private boolean landsFrom(PlacementTarget target, Rotation rotation, Vec3 feet, double[] heights) {
 		Vec3 look = rotation.toVector();
-		for (double height : EYE_HEIGHTS) {
+		for (double height : heights) {
 			BlockHitResult hit = TargetFinding.traceFromPoint(feet.add(0, height, 0), look, mc.player.blockInteractionRange());
 			if (!target.matches(hit) || !validCrosshair(hit)) return false;
 		}
 		return true;
 	}
 
-	/** Searches pitch at {@code yaw} for a look that clicks {@code target} from every eye height. */
+	/**
+	 * Searches pitch at {@code yaw} for a look that clicks {@code target}: from every eye height if
+	 * there's one (safe whether Ledge sneaks you or not), else from both of 1.8's, else from the eye
+	 * height you're at now. Requiring every height outright left side faces with no look at all, so
+	 * after the first block it aimed and never placed.
+	 */
 	private Rotation pitchForAllEyes(PlacementTarget target, float yaw, float pitch0, Vec3 feet) {
-		for (int i = 0; i <= 120; i++) {
-			float pitch = pitch0 + ((i & 1) == 0 ? 1 : -1) * (i / 2) * 0.25f;
-			if (pitch < -90f || pitch > 90f) continue;
-			Rotation candidate = new Rotation(yaw, pitch);
-			if (landsFromAllEyes(target, candidate, feet)) return candidate;
+		for (double[] heights : new double[][]{EYE_HEIGHTS, SERVER_EYES, currentEyes()}) {
+			for (int i = 0; i <= 120; i++) {
+				float pitch = pitch0 + ((i & 1) == 0 ? 1 : -1) * (i / 2) * 0.25f;
+				if (pitch < -90f || pitch > 90f) continue;
+				Rotation candidate = new Rotation(yaw, pitch);
+				if (landsFrom(target, candidate, feet, heights)) return candidate;
+			}
 		}
 		return null;
 	}
@@ -967,8 +987,8 @@ public class ScaffoldModule extends Module {
 		}
 		// femboyware: flat bridging, click only when it also lands from 1.8's eye heights (see EYE_HEIGHTS),
 		// or Hypixel takes the block back; Ledge holds you at the edge meanwhile
-		if (mc.player.onGround() && !isTowering() && rotate.get() && !landsFromAllEyes(target, rotation, mc.player.position())) {
-			skip("click wouldn't land from 1.8's eye heights");
+		if (mc.player.onGround() && !isTowering() && rotate.get() && !landsFrom(target, rotation, mc.player.position(), currentEyes())) {
+			skip("click wouldn't land from the server's eye height");
 			return;
 		}
 
@@ -1141,7 +1161,7 @@ public class ScaffoldModule extends Module {
 				// nothing to click), so you never walk off before the block's in
 				// From where this tick's movement leaves you, which is where the click goes out from
 				BlockHitResult now = target != null ? TargetFinding.traceFromPoint(nextEyes(), rotation.toVector(), mc.player.blockInteractionRange()) : null;
-				boolean placeable = now != null && target.matches(now) && validCrosshair(now) && landsFromAllEyes(target, rotation, nextPosition());
+				boolean placeable = now != null && target.matches(now) && validCrosshair(now) && landsFrom(target, rotation, nextPosition(), currentEyes());
 				boolean needsBlock = mc.level.getBlockState(BlockPos.containing(mc.player.position().add(Vec3.directionFromRotation(0, movementYaw(keys.forward(), keys.backward(), keys.left(), keys.right())).scale(0.4))).below()).canBeReplaced();
 				if (blockCount() <= 0 || ticks >= 1 || needsBlock && !placeable) sneakTime = Math.max(1, ticks);
 			}
