@@ -127,7 +127,7 @@ public class ScaffoldModule extends Module {
 	private final BoolSetting realLookThirdPerson = add(new BoolSetting("Real Look Third Person", "Switch to third person while Real Look turns your head", true)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get() && realLook.get());
 	private final EnumSetting<Timing> timing = add(new EnumSetting<>("Rotation Timing", "Normal turns before placing; On Tick turns on the tick it places; Snap also keeps it", Timing.NORMAL)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final EnumSetting<AimMode> aimMode = add(new EnumSetting<>("Aim Mode", "Which point on the face to aim at (Normal technique)", AimMode.STABILIZED)).visibleWhen(() -> page.is(Page.ROTATIONS));
-	private final NumberSetting aimJitter = add(new NumberSetting("Aim Jitter", "Straight bridging only: your aim drifts this many degrees at most, a little every tick, like a hand on a mouse; a head that holds dead still while you bridge looks like a bot (0 = off)", 0, 0, 3, 0.1)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
+	private final NumberSetting aimJitter = add(new NumberSetting("Aim Jitter", "Flat straight bridging only (never while you hold jump): your aim drifts this many degrees at most, a little every tick, like a hand on a mouse; a head that holds dead still while you bridge looks like a bot (0 = off)", 0, 0, 3, 0.1)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final NumberSetting maxPlaceTurn = add(new NumberSetting("Max Place Turn", "Don't click on a tick your aim turned further than this, wait a tick for it to settle (0 = off). Hypixel takes back blocks placed mid-snap", 25, 0, 180, 1)).visibleWhen(() -> page.is(Page.ROTATIONS) && rotate.get());
 	private final BoolSetting requiresSight = add(new BoolSetting("Requires Sight", "Only aim at faces you can see (Normal technique); Hypixel checks you could see what you clicked", true)).visibleWhen(() -> page.is(Page.ROTATIONS));
 
@@ -1037,7 +1037,7 @@ public class ScaffoldModule extends Module {
 		if (timing.is(Timing.NORMAL)) {
 			Rotation rotation = rotationFor(target);
 			if (usesRealLook()) dev.femboyware.util.FreeLook.hold(realLookThirdPerson.get());
-			if (rotation != null && aimJitter.get() > 0 && !diagonal()) {
+			if (rotation != null && aimJitter.get() > 0 && !diagonal() && !isTowering() && !jumpKey()) {
 				// A small random walk, so the aim is never frozen; the click checks still run on where it ends up
 				float max = aimJitter.getFloat();
 				jitterYaw = Mth.clamp(jitterYaw + (float) ThreadLocalRandom.current().nextGaussian() * max * 0.3f, -max, max);
