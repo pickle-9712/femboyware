@@ -221,6 +221,8 @@ public class ScaffoldModule extends Module {
 	/** Ticks since you changed the direction you walk by more than 30 degrees, and that direction. */
 	private int sinceDirChange = 100;
 	private float walkYaw = Float.NaN;
+	/** Ticks spent standing, towering or staircasing instead of walking. */
+	private int idleTicks;
 	/** Debug: how you were moving on the last tick sent, for the setback line. */
 	private volatile String lastMove = "";
 	private boolean lastSneak;
@@ -358,10 +360,11 @@ public class ScaffoldModule extends Module {
 		values.put("Rotate", true);
 		values.put("Angle Smooth", RotationSettings.Smooth.LINEAR);
 		// LiquidBounce's config turns 120 a tick; Watchdog now takes back blocks placed on snaps like that
-		values.put("Turn H Min", 38.0);
-		values.put("Turn H Max", 58.0);
-		values.put("Turn V Min", 26.0);
-		values.put("Turn V Max", 42.0);
+		// Fast turns again: Max Place Turn and Turn Settle keep the clicks off the swing itself
+		values.put("Turn H Min", 75.0);
+		values.put("Turn H Max", 100.0);
+		values.put("Turn V Min", 50.0);
+		values.put("Turn V Max", 70.0);
 		values.put("Max Place Turn", 15.0);
 		// The first block of a bridge kept getting taken back right after Real Look spun the head round
 		values.put("Turn Settle", 4.0);
@@ -1084,13 +1087,16 @@ public class ScaffoldModule extends Module {
 		lastServer = FemboyWare.getRotations().getServerRotation();
 		sinceBigTurn = previous != null && lastServer != null && previous.distanceTo(lastServer) > 20f ? 0 : Math.min(sinceBigTurn + 1, 100);
 		sinceDirChange = Math.min(sinceDirChange + 1, 100);
-		if (rawMoving()) {
+		if (rawMoving() && !isTowering()) {
+			// Starting to walk after standing, towering or staircasing counts as a change too
 			float walking = rawMovementYaw();
-			if (Float.isNaN(walkYaw)) walkYaw = walking;
-			else if (Math.abs(Mth.wrapDegrees(walking - walkYaw)) > 30f) {
+			if (Float.isNaN(walkYaw) || idleTicks >= 5 || Math.abs(Mth.wrapDegrees(walking - walkYaw)) > 30f) {
 				walkYaw = walking;
 				sinceDirChange = 0;
 			}
+			idleTicks = 0;
+		} else {
+			idleTicks = Math.min(idleTicks + 1, 100);
 		}
 		boolean sneaking = mc.player.isShiftKeyDown();
 		sneakFor = sneaking == lastSneak ? sneakFor + 1 : 0;
