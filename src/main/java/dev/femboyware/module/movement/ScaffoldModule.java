@@ -116,7 +116,7 @@ public class ScaffoldModule extends Module {
 	private final EnumSetting<Swing> swing = add(new EnumSetting<>("Swing", "How to swing when placing", Swing.PACKET)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting autoSpeed = add(new BoolSetting("Auto Speed", "Turn Speed on while scaffolding", false)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting retryCentered = add(new BoolSetting("Retry Centered", "When the server takes a block back, crouch and try again aiming nearer the middle of the face (closer each time), until a block stays", false)).visibleWhen(() -> page.is(Page.GENERAL));
-	private final NumberSetting retryWait = add(new NumberSetting("Retry Wait", "Straight bridging on the ground (diagonals retry at once, on another face): after a block is taken back, stay crouched this many ticks before clicking again (20 = 1 second), so a second click doesn't stack another flag on the first (0 = retry at once)", 0, 0, 40, 1)).visibleWhen(() -> page.is(Page.GENERAL) && retryCentered.get());
+	private final NumberSetting retryWait = add(new NumberSetting("Retry Wait", "On the ground: after a block is taken back, stay crouched this many ticks before clicking again (20 = 1 second), so a second click doesn't stack another flag on the first (0 = retry at once)", 0, 0, 40, 1)).visibleWhen(() -> page.is(Page.GENERAL) && retryCentered.get());
 	private final NumberSetting crouchSettle = add(new NumberSetting("Crouch Settle", "Straight bridging only: on the ground, don't click until you've been crouched this many ticks (crouching holds you at the edge meanwhile). Hypixel takes back blocks clicked the moment you crouch (0 = off)", 0, 0, 10, 1)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting debug = add(new BoolSetting("Debug", "Say in chat when the server takes a block back or sets you back, and why blocks aren't going in, to find what a server flags", false)).visibleWhen(() -> page.is(Page.GENERAL));
 
@@ -409,8 +409,8 @@ public class ScaffoldModule extends Module {
 		values.put("No Sprint", false);
 		// Flat: walking backwards at S speed (no sprint); sprinting with W got the first block taken back
 		values.put("Walk Back Speed", true);
-		// Diagonal: a block taken back under your feet left nothing to click and you fell
-		values.put("Wait For Keep", true);
+		// Off: it slowed down the diagonal that was already perfect
+		values.put("Wait For Keep", false);
 		applyValues(this, values);
 		FemboyWare.getModules().get(dev.femboyware.module.client.MoveFixModule.class).setEnabled(true);
 		Module sprint = FemboyWare.getModules().get(SprintModule.class);
@@ -494,17 +494,30 @@ public class ScaffoldModule extends Module {
 		return false;
 	}
 
+	/**
+	 * Diagonals turn no faster than the perfect 1.0.139 run did (38-58 degrees a tick sideways, 26-42 up and
+	 * down), whatever the Turn settings say; straight bridging uses the faster preset turns.
+	 */
+	private Rotation diagonalTurn(Rotation wanted) {
+		Rotation from = FemboyWare.getRotations().getServerRotation();
+		if (from == null) return wanted;
+		float h = 38f + ThreadLocalRandom.current().nextFloat() * 20f, v = 26f + ThreadLocalRandom.current().nextFloat() * 16f;
+		float dy = Mth.clamp(Mth.wrapDegrees(wanted.yaw() - from.yaw()), -h, h);
+		float dp = Mth.clamp(wanted.pitch() - from.pitch(), -v, v);
+		return new Rotation(from.yaw() + dy, Mth.clamp(from.pitch() + dp, -90f, 90f));
+	}
+
 	private boolean holdingClick() {
 		if (rotate.get() && maxPlaceTurn.getInt() > 0 && lastTickTurn > maxPlaceTurn.get()) return true;
-		return retrying() && retryWait.getInt() > 0 && !diagonal() && mc.player.onGround() && !isTowering() && mc.level.getGameTime() - lastTakeBack < retryWait.getInt();
+		return retrying() && retryWait.getInt() > 0 && mc.player.onGround() && !isTowering() && mc.level.getGameTime() - lastTakeBack < retryWait.getInt();
 	}
 
 	private boolean turnSettling() {
 		if (turnSettle.getInt() <= 0 || !mc.player.onGround() || isTowering()) return false;
 		// Changing direction: Real Look swings your head round, and the block clicked as the swing ends
 		// gets taken back, diagonal or not. A steady diagonal never waits (it was perfect as it was)
-		boolean turningOnto = sinceDirChange < 15;
-		if (diagonal() && !turningOnto) return false;
+		// Diagonals stay exactly as in the perfect 1.0.139 run: they never wait
+		if (diagonal()) return false;
 		return sinceBigTurn < turnSettle.getInt() || sinceDirChange < turnSettle.getInt();
 	}
 
@@ -776,7 +789,7 @@ public class ScaffoldModule extends Module {
 				}
 				TargetFinding.Options options = new TargetFinding.Options(goDown ? TargetFinding.DOWN : TargetFinding.NORMAL, priority,
 					aim, goDown, stack, location);
-				if (retrying() && !avoidFaces.isEmpty()) {
+				if (retrying() && !avoidFaces.isEmpty() && !diagonal()) {
 					// Retrying: click a different face, or against another block, than the one just taken back;
 					// the same spot again only if there's nothing else
 					TargetFinding.avoid = (block, face) -> avoidFaces.contains(block.asLong() + ":" + face.ordinal());
@@ -1106,6 +1119,7 @@ public class ScaffoldModule extends Module {
 				jitterPitch = Mth.clamp(jitterPitch + (float) ThreadLocalRandom.current().nextGaussian() * max * 0.2f, -max * 0.6f, max * 0.6f);
 				rotation = new Rotation(rotation.yaw() + jitterYaw, Mth.clamp(rotation.pitch() + jitterPitch, -90f, 90f));
 			}
+			if (rotation != null && diagonal() && !isTowering()) rotation = diagonalTurn(rotation);
 			if (rotation != null) FemboyWare.getRotations().request(rotation, ROTATION_PRIORITY, rotations, usesRealLook());
 		} else if (timing.is(Timing.ON_TICK_SNAP) && snapRotation != null) {
 			FemboyWare.getRotations().request(snapRotation, ROTATION_PRIORITY, 180f, false);
@@ -1177,7 +1191,7 @@ public class ScaffoldModule extends Module {
 			skip("settling into the crouch");
 			return;
 		}
-		if (retrying() && retryWait.getInt() > 0 && !diagonal() && mc.player.onGround() && !isTowering() && mc.level.getGameTime() - lastTakeBack < retryWait.getInt()) {
+		if (retrying() && retryWait.getInt() > 0 && mc.player.onGround() && !isTowering() && mc.level.getGameTime() - lastTakeBack < retryWait.getInt()) {
 			skip("waiting before the retry");
 			return;
 		}
@@ -1405,7 +1419,7 @@ public class ScaffoldModule extends Module {
 				// nothing to click), so you never walk off before the block's in
 				// From where this tick's movement leaves you, which is where the click goes out from
 				BlockHitResult now = target != null ? TargetFinding.traceFromPoint(nextEyes(), rotation.toVector(), mc.player.blockInteractionRange()) : null;
-				boolean placeable = !turnSettling() && !holdingClick() && now != null && target.matches(now) && validCrosshair(now) && landsFrom(target, rotation, nextPosition(), SERVER_EYES);
+				boolean placeable = !turnSettling() && (diagonal() || !holdingClick()) && now != null && target.matches(now) && validCrosshair(now) && landsFrom(target, rotation, nextPosition(), SERVER_EYES);
 				boolean needsBlock = mc.level.getBlockState(BlockPos.containing(mc.player.position().add(Vec3.directionFromRotation(0, movementYaw(keys.forward(), keys.backward(), keys.left(), keys.right())).scale(0.4))).below()).canBeReplaced();
 				if (blockCount() <= 0 || ticks >= 1 || needsBlock && !placeable) sneakTime = Math.max(1, ticks);
 			}
