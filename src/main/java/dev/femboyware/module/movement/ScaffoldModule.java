@@ -503,7 +503,7 @@ public class ScaffoldModule extends Module {
 				if (entry[2] != 0 || !mc.level.getBlockState(pos).canBeReplaced()) continue;
 				entry[2] = 1;
 				takenCount++;
-				say("taken back " + (now - entry[1]) + "t after: " + placeInfo.getOrDefault(entry[0], "?") + " [" + takenCount + " back, " + keptCount + " kept]");
+				say(takenCount + " back / " + keptCount + " kept. Taken back " + (now - entry[1]) + "t after: " + placeInfo.getOrDefault(entry[0], "?"));
 			}
 		}
 		watching.removeIf(entry -> {
@@ -532,7 +532,8 @@ public class ScaffoldModule extends Module {
 			}
 		}
 		stuckTicks = mc.player.isShiftKeyDown() && !supportedAt(nextPosition().add(Vec3.directionFromRotation(0, rawMovementYaw()).scale(0.15))) ? stuckTicks + 1 : 0;
-		if (takenBack || stuckTicks > 6) {
+		// Not while you hold crouch: you're bridging carefully, and a jump would take your sneak away
+		if ((takenBack || stuckTicks > 6) && !mc.options.keyShift.isDown()) {
 			rescueLevel = level;
 			rescueTicks = 20;
 			rescueJump = true;
@@ -1123,7 +1124,8 @@ public class ScaffoldModule extends Module {
 	}
 
 	private static void say(String text) {
-		dev.femboyware.util.ChatUtil.info("Scaffold debug: " + text);
+		// Straight to chat, so whole lines can be read back (notifications cut them off)
+		dev.femboyware.util.ChatUtil.chat("Scaffold debug: " + text);
 	}
 
 	@Override
