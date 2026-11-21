@@ -1,7 +1,7 @@
 mod.id = "femboyware"
 mod.name = "femboyware"
 mod.group = "dev.femboyware"
-mod.version = "1.0.110"
+mod.version = "1.0.111"
 
 deps.fabric_loader = "0.19.5"
 loomx.loom_version = "1.18-SNAPSHOT"
