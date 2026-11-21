@@ -211,6 +211,10 @@ public class ScaffoldModule extends Module {
 	/** Retry Centered: blocks taken back in a row, and the tick the retry gives up crouching. */
 	private int retries;
 	private long retryUntil, lastTakeBack;
+	/** Debug: how you were moving on the last tick sent, for the setback line. */
+	private volatile String lastMove = "";
+	private boolean lastSneak;
+	private int sneakFor;
 	private Rotation lastServer;
 
 	public ScaffoldModule() {
@@ -219,6 +223,9 @@ public class ScaffoldModule extends Module {
 
 	@Override
 	protected void onEnable() {
+		// Debug tally counts from when you turn Scaffold on, so each test starts at 0
+		keptCount = takenCount = 0;
+		placeInfo.clear();
 		if (nullCheck()) return;
 		placementY = mc.player.blockPosition().getY() - 1;
 		startY = mc.player.blockPosition().getY();
@@ -1033,6 +1040,7 @@ public class ScaffoldModule extends Module {
 		if (nullCheck()) return;
 		Rotation previous = lastServer;
 		lastServer = FemboyWare.getRotations().getServerRotation();
+		if (debug.get()) recordMove();
 		// "turned" compares against the rotation the tick before
 		postMotion(previous);
 	}
@@ -1180,13 +1188,37 @@ public class ScaffoldModule extends Module {
 		dev.femboyware.util.ChatUtil.chat("Scaffold debug: " + text);
 	}
 
+	/** Debug: the movement the server just got (keys after Move Fix, crouch, speed, direction against your head). */
+	private void recordMove() {
+		boolean sneaking = mc.player.isShiftKeyDown();
+		sneakFor = sneaking == lastSneak ? sneakFor + 1 : 0;
+		lastSneak = sneaking;
+		Input keys = mc.player.input.keyPresses;
+		String held = (keys.forward() ? "W" : "") + (keys.left() ? "A" : "") + (keys.backward() ? "S" : "") + (keys.right() ? "D" : "");
+		double dx = mc.player.getX() - mc.player.xo, dz = mc.player.getZ() - mc.player.zo;
+		double speed = Math.sqrt(dx * dx + dz * dz);
+		String dir = "";
+		if (speed > 0.01) {
+			float moveYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+			dir = ", moving " + Math.round(Mth.wrapDegrees(moveYaw - mc.player.getYRot())) + "° from your head";
+		}
+		BlockPos below = BlockPos.containing(mc.player.getX(), mc.player.getY() - 0.01, mc.player.getZ());
+		lastMove = "keys " + (held.isEmpty() ? "none" : held) + (keys.shift() ? "+crouch" : "") + (keys.sprint() ? "+sprint" : "")
+			+ ", " + (sneaking ? "crouched " : "standing ") + sneakFor + "t"
+			+ ", speed " + String.format(java.util.Locale.ROOT, "%.3f", speed) + " (walk 0.216, crouch 0.065)" + dir
+			+ (mc.player.onGround() && mc.level.getBlockState(below).canBeReplaced() ? ", feet past the edge" : "")
+			+ (mc.player.isSprinting() ? ", sprinting" : "");
+	}
+
 	@Override
 	public void onPacketReceive(dev.femboyware.event.PacketEvent event) {
 		if (!debug.get() || !(event.getPacket() instanceof net.minecraft.network.protocol.game.ClientboundPlayerPositionPacket)) return;
+		// Read now, before the main thread moves you: the last tick you sent is what it flagged
+		String move = lastMove;
 		mc.execute(() -> {
 			if (mc.player == null) return;
-			say("the server set you back (Watchdog flagged your movement)" + (mc.player.isSprinting() ? ", you were sprinting" : "")
-				+ (mc.player.onGround() ? "" : ", in the air") + (isTowering() ? ", towering" : ""));
+			say("the server set you back (Watchdog flagged your movement)" + (mc.player.onGround() ? "" : ", in the air") + (isTowering() ? ", towering" : "")
+				+ (move.isEmpty() ? "" : ". Last tick: " + move));
 		});
 	}
 
