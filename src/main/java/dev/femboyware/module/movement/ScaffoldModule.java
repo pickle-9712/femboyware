@@ -218,6 +218,8 @@ public class ScaffoldModule extends Module {
 	private float jitterYaw, jitterPitch;
 	/** Turn Settle: ticks since the aim last turned more than 20 degrees in one tick. */
 	private int sinceBigTurn = 100;
+	/** How far the aim turned on the last tick sent. */
+	private float lastTickTurn;
 	/** Ticks since you changed the direction you walk by more than 30 degrees, and that direction. */
 	private int sinceDirChange = 100;
 	private float walkYaw = Float.NaN;
@@ -472,6 +474,15 @@ public class ScaffoldModule extends Module {
 	 * 1.0.133 behaviour (what you used at 11:39pm), which Hypixel kept; Crouch Settle and Aim Jitter
 	 * are for straight bridges only.
 	 */
+	/**
+	 * Whether the click is being held back this tick by Max Place Turn (the aim's still turning) or Retry
+	 * Wait; Ledge keeps you crouched at the edge meanwhile instead of letting you walk off.
+	 */
+	private boolean holdingClick() {
+		if (rotate.get() && maxPlaceTurn.getInt() > 0 && lastTickTurn > maxPlaceTurn.get()) return true;
+		return retrying() && retryWait.getInt() > 0 && mc.player.onGround() && !isTowering() && mc.level.getGameTime() - lastTakeBack < retryWait.getInt();
+	}
+
 	private boolean turnSettling() {
 		if (turnSettle.getInt() <= 0 || !mc.player.onGround() || isTowering()) return false;
 		// Changing direction: Real Look swings your head round, and the block clicked as the swing ends
@@ -1085,7 +1096,8 @@ public class ScaffoldModule extends Module {
 		if (nullCheck()) return;
 		Rotation previous = lastServer;
 		lastServer = FemboyWare.getRotations().getServerRotation();
-		sinceBigTurn = previous != null && lastServer != null && previous.distanceTo(lastServer) > 20f ? 0 : Math.min(sinceBigTurn + 1, 100);
+		lastTickTurn = previous != null && lastServer != null ? previous.distanceTo(lastServer) : 0;
+		sinceBigTurn = lastTickTurn > 20f ? 0 : Math.min(sinceBigTurn + 1, 100);
 		sinceDirChange = Math.min(sinceDirChange + 1, 100);
 		if (rawMoving() && !isTowering()) {
 			// Starting to walk after standing, towering or staircasing counts as a change too
@@ -1361,7 +1373,7 @@ public class ScaffoldModule extends Module {
 				// nothing to click), so you never walk off before the block's in
 				// From where this tick's movement leaves you, which is where the click goes out from
 				BlockHitResult now = target != null ? TargetFinding.traceFromPoint(nextEyes(), rotation.toVector(), mc.player.blockInteractionRange()) : null;
-				boolean placeable = !turnSettling() && now != null && target.matches(now) && validCrosshair(now) && landsFrom(target, rotation, nextPosition(), SERVER_EYES);
+				boolean placeable = !turnSettling() && !holdingClick() && now != null && target.matches(now) && validCrosshair(now) && landsFrom(target, rotation, nextPosition(), SERVER_EYES);
 				boolean needsBlock = mc.level.getBlockState(BlockPos.containing(mc.player.position().add(Vec3.directionFromRotation(0, movementYaw(keys.forward(), keys.backward(), keys.left(), keys.right())).scale(0.4))).below()).canBeReplaced();
 				if (blockCount() <= 0 || ticks >= 1 || needsBlock && !placeable) sneakTime = Math.max(1, ticks);
 			}
