@@ -115,6 +115,7 @@ public class ScaffoldModule extends Module {
 	private final BoolSetting grim = addGrim(() -> page.is(Page.GENERAL));
 	private final EnumSetting<Swing> swing = add(new EnumSetting<>("Swing", "How to swing when placing", Swing.PACKET)).visibleWhen(() -> page.is(Page.GENERAL));
 	private final BoolSetting autoSpeed = add(new BoolSetting("Auto Speed", "Turn Speed on while scaffolding", false)).visibleWhen(() -> page.is(Page.GENERAL));
+	private final BoolSetting debug = add(new BoolSetting("Debug", "Say in chat when the server takes a block back or sets you back, and why blocks aren't going in, to find what a server flags", false)).visibleWhen(() -> page.is(Page.GENERAL));
 
 	// Rotations
 	private final BoolSetting rotate = add(new BoolSetting("Rotate", "Aim at each placement (needed on most servers)", true)).visibleWhen(() -> page.is(Page.ROTATIONS));
@@ -192,6 +193,10 @@ public class ScaffoldModule extends Module {
 	/** femboyware: rescue: jumping to rebuild the bridge at {@link #rescueLevel} under where you land. */
 	private int rescueTicks, rescueLevel, stuckTicks;
 	private boolean rescueJump;
+	/** femboyware: Debug: why the last tick didn't place, how long that's gone on, and when we last said so. */
+	private String skipReason;
+	private int skipTicks;
+	private long lastSkipReport;
 
 	public ScaffoldModule() {
 		super("Scaffold", "Bridges under you automatically (LiquidBounce's scaffold)", Category.BUILD);
@@ -463,6 +468,15 @@ public class ScaffoldModule extends Module {
 	private void tickRescue() {
 		long now = mc.level.getGameTime();
 		watching.removeIf(entry -> now - entry[1] > 40);
+		if (debug.get()) {
+			for (long[] entry : watching) {
+				BlockPos pos = BlockPos.of(entry[0]);
+				if (entry[2] != 0 || !mc.level.getBlockState(pos).canBeReplaced()) continue;
+				entry[2] = 1;
+				say("server took back the block at " + pos.getX() + " " + pos.getY() + " " + pos.getZ() + " " + (now - entry[1]) + " ticks after placing it"
+					+ (mc.player.isShiftKeyDown() ? " (sneaking)" : "") + (mc.player.isSprinting() ? " (sprinting)" : ""));
+			}
+		}
 		if (rescueTicks > 0) {
 			rescueTicks--;
 			// Landed back on the bridge: done
@@ -947,18 +961,30 @@ public class ScaffoldModule extends Module {
 		}
 		if (!rotate.get() && target != null) rotation = target.rotation();
 		BlockHitResult hit = crosshairFor(target, rotation);
-		if (target == null || hit == null || !validCrosshair(hit)) return;
+		if (target == null || hit == null || !validCrosshair(hit)) {
+			skip(target == null ? "no block to click from here" : "aim isn't on the face yet");
+			return;
+		}
 		// femboyware: flat bridging, click only when it also lands from 1.8's eye heights (see EYE_HEIGHTS),
 		// or Hypixel takes the block back; Ledge holds you at the edge meanwhile
-		if (mc.player.onGround() && !isTowering() && rotate.get() && !landsFromAllEyes(target, rotation, mc.player.position())) return;
+		if (mc.player.onGround() && !isTowering() && rotate.get() && !landsFromAllEyes(target, rotation, mc.player.position())) {
+			skip("click wouldn't land from 1.8's eye heights");
+			return;
+		}
 
 		boolean mainHand = isValidBlock(mc.player.getMainHandItem());
 		boolean offHand = isValidBlock(mc.player.getOffhandItem());
 		int slot = -1;
 		if (!mainHand && !offHand) {
-			if (!autoBlock.get()) return;
+			if (!autoBlock.get()) {
+				skip("not holding blocks (Auto Block is off)");
+				return;
+			}
 			slot = bestHotbarSlot();
-			if (slot < 0) return;
+			if (slot < 0) {
+				skip("no blocks in your hotbar");
+				return;
+			}
 		}
 		InteractionHand hand = mainHand || slot >= 0 ? InteractionHand.MAIN_HAND : InteractionHand.OFF_HAND;
 
@@ -973,7 +999,10 @@ public class ScaffoldModule extends Module {
 		// what it traces (a few in a row and it starts cancelling them)
 		if (mc.player.isShiftKeyDown() && rotate.get()) {
 			BlockHitResult theirs = TargetFinding.traceFromPoint(mc.player.position().add(0, 1.54, 0), rotation.toVector(), mc.player.blockInteractionRange());
-			if (!placing.matches(theirs) || !validCrosshair(theirs)) return;
+			if (!placing.matches(theirs) || !validCrosshair(theirs)) {
+				skip("sneaking click misses from Hypixel's 1.54 eyes");
+				return;
+			}
 			click = theirs;
 		}
 		BlockHitResult clicked = click;
@@ -1001,13 +1030,49 @@ public class ScaffoldModule extends Module {
 			if (timing.is(Timing.ON_TICK_SNAP)) snapRotation = rotation;
 			else FemboyWare.getRotations().sendPacketRotation(new Rotation(mc.player.getYRot(), mc.player.getXRot()));
 		}
-		if (!success[0]) return;
+		if (!success[0]) {
+			skip("the game refused the click");
+			return;
+		}
+		skipTicks = 0;
 		planner.trackPlacedBlock(placing.placedBlock());
-		watching.add(new long[]{placing.placedBlock().asLong(), mc.level.getGameTime()});
+		watching.add(new long[]{placing.placedBlock().asLong(), mc.level.getGameTime(), 0});
 		placed.add(new long[]{placing.placedBlock().asLong(), System.currentTimeMillis()});
 		onEaglePlace();
 		target = null;
 		delayLeft = randomInt(delayMin.getInt(), delayMax.getInt());
+	}
+
+	// ---------------------------------------------------------------- debug
+
+	/** Debug: a block that's needed isn't going in; said once it's gone on for half a second, at most every 2 s. */
+	private void skip(String reason) {
+		if (!debug.get()) return;
+		boolean needed = mc.player.onGround() ? closeToEdge(mc.player.input.keyPresses, 0.3) : true;
+		if (!needed || !reason.equals(skipReason)) {
+			skipReason = reason;
+			skipTicks = 0;
+			if (!needed) return;
+		}
+		long now = System.currentTimeMillis();
+		if (++skipTicks >= 10 && now - lastSkipReport > 2000) {
+			lastSkipReport = now;
+			say("not placing: " + reason);
+		}
+	}
+
+	private static void say(String text) {
+		dev.femboyware.util.ChatUtil.info("Scaffold debug: " + text);
+	}
+
+	@Override
+	public void onPacketReceive(dev.femboyware.event.PacketEvent event) {
+		if (!debug.get() || !(event.getPacket() instanceof net.minecraft.network.protocol.game.ClientboundPlayerPositionPacket)) return;
+		mc.execute(() -> {
+			if (mc.player == null) return;
+			say("the server set you back (Watchdog flagged your movement)" + (mc.player.isSprinting() ? ", you were sprinting" : "")
+				+ (mc.player.onGround() ? "" : ", in the air") + (isTowering() ? ", towering" : ""));
+		});
 	}
 
 	// ---------------------------------------------------------------- movement input

@@ -82,6 +82,8 @@ public class LegitAuraModule extends Module {
 	private final EnumSetting<Weapon> weapon = add(new EnumSetting<>("Weapon", "Fight with a sword (faster hits) or an axe (harder hits, and every hit on a raised shield disables it); falls back to the other if you have none", Weapon.SWORD)).visibleWhen(autoSword::get);
 	private final BoolSetting chase = add(new BoolSetting("Chase", "Walk and sprint over to the target", true));
 	private final NumberSetting maxDrop = add(new NumberSetting("Max Drop", "Chase won't walk, strafe or jump you off a ledge that drops further than this (0 = no limit)", 4, 0, 16, 1)).visibleWhen(chase::get);
+	private final BoolSetting voidSafety = add(new BoolSetting("Void Safety", "Never walk, strafe or jump into the void, even with Max Drop at 0, and air-strafe back to the last safe ground if knocked out over it", true)).visibleWhen(chase::get);
+	private final BoolSetting edgeAware = add(new BoolSetting("Edge Aware", "With a big drop or the void behind you, don't back off or crit-jump (that's what gets you knocked off), and circle so the edge ends up to your side", true)).visibleWhen(chase::get);
 	private final BoolSetting crits = add(new BoolSetting("Crits", "Jump and hit on the way down for critical hits", true));
 	private final NumberSetting randomDelay = add(new NumberSetting("Random Delay", "Wait up to this many ticks before each hit, a different amount every time, like a person's reaction", 2, 0, 5, 1));
 	private final BoolSetting firstHit = add(new BoolSetting("First Hit", "Swing the moment a player comes under the crosshair if the sword is nearly charged, without waiting for a full charge, a crit or Random Delay", true));
@@ -109,6 +111,8 @@ public class LegitAuraModule extends Module {
 
 	private final Random random = new Random();
 	private Player target;
+	/** Where you last stood on ground with something under it, to air-strafe back to. */
+	private Vec3 lastSafe;
 	/** The highlight: who it's on (it fades out on them after you let go), how far faded in, and when you last hit. */
 	private Player shownOn;
 	private float shown;
@@ -179,6 +183,7 @@ public class LegitAuraModule extends Module {
 	@Override
 	protected void onDisable() {
 		target = null;
+		lastSafe = null;
 		tapLeft = 0;
 		if (blocking && !nullCheck()) KeyUtil.sync(mc.options.keyUse);
 		blocking = false;
@@ -638,8 +643,28 @@ public class LegitAuraModule extends Module {
 			right = !strafeLeft;
 		}
 
-		// Don't run off a ledge that drops further than Max Drop (only the movement Chase adds; your own keys are yours)
-		if (maxDrop.getInt() > 0 && mc.player.onGround()) {
+		// Edge behind you, the way their hits push you: stand your ground, stay low, and circle so it's to the side
+		if (edgeAware.get() && mc.player.onGround() && guarding()) {
+			Vec3 away = mc.player.position().subtract(target.position());
+			double length = Math.sqrt(away.x * away.x + away.z * away.z);
+			if (length > 1.0E-3 && unsafeToward(away.x / length, away.z / length, 3.5)) {
+				back = false;
+				// A crit jump is a free extra block of knockback; jump resets (into the hit) are still fine
+				if (!(jumpReset.get() && mc.player.hurtTime > 0)) jump = false;
+				if (!keys.left() && !keys.right()) {
+					// Step the way that gets the edge off our back: whichever side is safe further along
+					boolean leftSafe = !unsafe(1, 0, 2.0), rightSafe = !unsafe(-1, 0, 2.0);
+					if (leftSafe != rightSafe) {
+						strafeLeft = leftSafe;
+						left = leftSafe;
+						right = !leftSafe;
+					}
+				}
+			}
+		}
+
+		// Don't run off a ledge that drops further than Max Drop, or into the void (only the movement Chase adds; your own keys are yours)
+		if (guarding() && mc.player.onGround()) {
 			if (forward && !keys.forward() && unsafe(0, 1, 1.2)) {
 				forward = false;
 				sprint = false;
@@ -668,6 +693,24 @@ public class LegitAuraModule extends Module {
 			}
 		}
 
+		// Remember solid ground; if knocked out over the void, air-strafe back towards it
+		if (mc.player.onGround() && !voidBelow(mc.player.getX(), mc.player.getZ())) lastSafe = mc.player.position();
+		if (voidSafety.get() && !mc.player.onGround() && lastSafe != null && !mc.player.isInWater() && !mc.player.getAbilities().flying
+			&& !keys.forward() && !keys.backward() && !keys.left() && !keys.right() && voidBelow(mc.player.getX(), mc.player.getZ())) {
+			double yaw = Math.toRadians(mc.player.getYRot());
+			double dx = lastSafe.x - mc.player.getX(), dz = lastSafe.z - mc.player.getZ();
+			// Into the player's own frame: how much of the way back is ahead and how much is to the left
+			double ahead = -Math.sin(yaw) * dx + Math.cos(yaw) * dz;
+			double side = Math.cos(yaw) * dx + Math.sin(yaw) * dz;
+			forward = ahead > 0.2;
+			back = ahead < -0.2;
+			left = side > 0.2;
+			right = side < -0.2;
+			sprint = forward;
+			jump = false;
+			tapLeft = 0;
+		}
+
 		boolean tapping = tapLeft > 0;
 		if (tapping) tapLeft--;
 		boolean anyForward = !tapping && (keys.forward() || forward);
@@ -691,12 +734,37 @@ public class LegitAuraModule extends Module {
 		double dz = ahead * cos + strafe * sin;
 		double length = Math.sqrt(dx * dx + dz * dz);
 		if (length < 1.0E-4) return false;
-		dx /= length;
-		dz /= length;
+		return unsafeToward(dx / length, dz / length, reach);
+	}
+
+	/** Whether there's a drop past Max Drop, or the void, within {@code reach} blocks along world direction dx, dz. */
+	private boolean unsafeToward(double dx, double dz, double reach) {
 		for (double d = 0.4; d <= 0.3 + reach; d += 0.3) {
-			if (dropAt(mc.player.getX() + dx * d, mc.player.getZ() + dz * d) > maxDrop.getInt()) return true;
+			double x = mc.player.getX() + dx * d, z = mc.player.getZ() + dz * d;
+			if (maxDrop.getInt() > 0 && dropAt(x, z) > maxDrop.getInt()) return true;
+			if (voidSafety.get() && voidBelow(x, z)) return true;
 		}
 		return false;
+	}
+
+	/** Whether the ledge guard is on at all. */
+	private boolean guarding() {
+		return maxDrop.getInt() > 0 || voidSafety.get();
+	}
+
+	/** Nothing to land on below x, z all the way down: the void (water counts as something). */
+	private boolean voidBelow(double x, double z) {
+		int feet = Mth.floor(mc.player.getY() + 1.0E-3);
+		BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos(Mth.floor(x), feet, Mth.floor(z));
+		if (!mc.level.getBlockState(pos).getCollisionShape(mc.level, pos).isEmpty()) return false;
+		// Unloaded chunks read as air: don't call that the void
+		if (!mc.level.hasChunk(pos.getX() >> 4, pos.getZ() >> 4)) return false;
+		for (int y = feet - 1; y >= mc.level.getMinY(); y--) {
+			pos.setY(y);
+			BlockState state = mc.level.getBlockState(pos);
+			if (!state.getFluidState().isEmpty() || !state.getCollisionShape(mc.level, pos).isEmpty()) return false;
+		}
+		return true;
 	}
 
 	/** How far you'd fall standing at x, z: blocks down to something solid (water counts as a soft landing). */
