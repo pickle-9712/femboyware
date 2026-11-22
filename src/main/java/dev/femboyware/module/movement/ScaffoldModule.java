@@ -1547,6 +1547,12 @@ public class ScaffoldModule extends Module {
 		}
 		// In the air rebuilding the bridge: no sneaking (it would only slow the jump's reach)
 		if (rescueTicks > 0 && !mc.player.onGround()) sneak = false;
+		// Staircasing/towering, in the air: never crouch unless you hold sneak yourself. A Ledge crouch from the
+		// ground carried into the jump, and Hypixel took back the air-placed blocks clicked while "sneaking"
+		if (isTowering() && !mc.player.onGround() && !keys.shift()) {
+			sneak = false;
+			forceSneak = 0;
+		}
 		if (noSprint.get()) sprint = false;
 		if (walkBack.get() && !jumpKey() && (forward || back || left || right)) {
 			sprint = false;
